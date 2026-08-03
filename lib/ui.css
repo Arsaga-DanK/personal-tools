@@ -41,6 +41,8 @@
   }
 }
 
+:root { color-scheme: light dark; }
+
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 
@@ -54,6 +56,12 @@ body {
 
 main.app { max-width: 900px; margin: 0 auto; padding: 24px 16px 64px; }
 main.app-wide { max-width: 1200px; margin: 0 auto; padding: 24px 16px 64px; }
+
+/* ツール共通ヘッダー（ハブへ戻る導線＋自動保存の注記） */
+.tool-header { display: flex; align-items: baseline; gap: 12px; font-size: 13px; margin: 0 0 4px; }
+.tool-header a { color: var(--accent); text-decoration: none; }
+.tool-header a:hover { text-decoration: underline; }
+.tool-header .autosave-note { margin-left: auto; color: var(--muted); font-size: 12px; }
 
 h1 { font-size: 22px; margin: 0; }
 .subtitle { color: var(--muted); margin: 2px 0 20px; font-size: 13px; }
