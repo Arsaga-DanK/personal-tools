@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>norm — 日本語表記正規化</title>
+<link rel="stylesheet" href="../lib/ui.css">
+<style>
+  /* norm 固有: 出力ハイライト描画のみ */
+  #output {
+    white-space: pre-wrap;
+    word-break: break-all;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12.5px;
+    line-height: 1.7;
+    min-height: 220px;
+    padding: 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--panel);
+    overflow-y: auto;
+  }
+  #output .chg {
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+    border-radius: 3px;
+    cursor: help;
+  }
+  #output ruby rt { color: var(--muted); font-size: 9px; }
+</style>
+</head>
+<body>
+<main class="app-wide">
+  <h1>norm</h1>
+  <p class="subtitle">日本語テキストの表記ゆれを正規化 — 変更文字はハイライト（hoverで変更前を表示）</p>
+
+  <div class="toolbar opts" id="opts">
+    <label class="toggle"><input type="checkbox" id="opt-nfkc"> NFKC一括</label>
+    <label class="toggle"><input type="checkbox" id="opt-alnum" checked> 全角英数→半角</label>
+    <label class="toggle"><input type="checkbox" id="opt-kana" checked> 半角カナ→全角</label>
+    <label class="toggle"><input type="checkbox" id="opt-hyphen" checked> ハイフン統一</label>
+    <label>統一先: <select id="opt-hyphen-target">
+      <option value="-" selected>- (半角ハイフン)</option>
+      <option value="−">− (マイナス U+2212)</option>
+      <option value="ー">ー (長音)</option>
+      <option value="–">– (enダッシュ)</option>
+    </select></label>
+    <label class="toggle"><input type="checkbox" id="opt-hyphen-choon"> 長音ーも対象</label>
+    <label class="toggle"><input type="checkbox" id="opt-wave" checked> 波ダッシュ統一</label>
+    <label>方向: <select id="opt-wave-target">
+      <option value="〜" selected>〜 (U+301C)</option>
+      <option value="～">～ (U+FF5E)</option>
+    </select></label>
+    <label class="toggle"><input type="checkbox" id="opt-space" checked> 連続空白の圧縮</label>
+    <span class="spacer"></span>
+    <label class="toggle"><input type="checkbox" id="opt-ruby"> 変更前を注記表示</label>
+  </div>
+
+  <div class="toolbar">
+    <button class="primary" id="copy-btn">結果をコピー</button>
+    <span class="spacer"></span>
+    <button id="export-btn">設定をエクスポート</button>
+    <button id="import-btn">設定をインポート</button>
+    <input type="file" id="import-file" accept="application/json" hidden>
+  </div>
+
+  <div class="banner" id="banner" hidden></div>
+  <p class="summary" id="summary"></p>
+
+  <div class="panes">
+    <div class="pane">
+      <p class="pane-title">入力</p>
+      <textarea id="input" spellcheck="false" placeholder="正規化したいテキストを貼り付け"></textarea>
+    </div>
+    <div class="pane">
+      <p class="pane-title">出力（変更文字ハイライト）</p>
+      <div id="output"></div>
+    </div>
+  </div>
+</main>
+
+<script src="../lib/storage.js"></script>
+<script>
+'use strict';
+
+/* ========== トークンパイプライン（純関数・フックと UI が同一コードパス） ========== */
+
+// 変換が所有する文字（NFKC の除外集合に使う）
+const HYPHEN_SOURCES = ['‐', '‑', '‒', '–', '—', '―', '−', '﹣', '－'];
+const HYPHEN_TARGETS = ['-', '−', 'ー', '–'];
+const CHOON_CHARS = ['ー', 'ｰ'];
+const WAVE_CHARS = ['〜', '～'];
+
+const COMBINING_RE = /[゙゚ﾞﾟ]|\p{Mn}|\p{Mc}/u;
+
+// 入力をトークン列に分解。結合記号は直前トークンへ無条件マージ。
+// 単独の U+309B/U+309C は結合用 U+3099/U+309A 相当として直前トークンに付ける
+// （raw NFKC の「スペース+結合文字」展開は採用しない — 仕様参照）。
+function tokenize(text) {
+  const tokens = [];
+  for (const ch of text) {
+    const prev = tokens.length > 0 ? tokens[tokens.length - 1] : null;
+    if (prev && (ch === '゛' || ch === '゜')) {
+      prev.orig += ch;
+      prev.cur += ch === '゛' ? '゙' : '゚';
+      continue;
+    }
+    if (prev && COMBINING_RE.test(ch)) {
+      prev.orig += ch;
+      prev.cur += ch;
+      continue;
+    }
+    tokens.push({ orig: ch, cur: ch, changedBy: [] });
+  }
+  return tokens;
+}
+
+function markChanged(token, id) {
+  if (!token.changedBy.includes(id)) token.changedBy.push(id);
+}
+
+const HALF_KANA_TOKEN_RE = /^[｡-ﾟ゙゚]+$/;
+
+// 適用順に列挙。apply は「触れたトークン数」を返す。
+const TRANSFORMS = [
+  {
+    id: 'nfkc', label: 'NFKC一括', defaultOn: false,
+    apply(tokens, opts) {
+      // 有効な他変換が所有する文字はスキップ（オプション死蔵の防止）
+      const excluded = new Set();
+      if (opts.hyphen) {
+        for (const c of HYPHEN_SOURCES) excluded.add(c);
+        for (const c of HYPHEN_TARGETS) excluded.add(c);
+        for (const c of CHOON_CHARS) excluded.add(c);
+      }
+      if (opts.wave) for (const c of WAVE_CHARS) excluded.add(c);
+      let n = 0;
+      for (const t of tokens) {
+        if ([...t.cur].some(c => excluded.has(c))) continue;
+        const next = t.cur.normalize('NFKC');
+        if (next !== t.cur) { t.cur = next; markChanged(t, 'nfkc'); n++; }
+      }
+      return n;
+    },
+  },
+  {
+    id: 'alnum', label: '全角英数→半角', defaultOn: true,
+    apply(tokens) {
+      // 英数字のみ対象（全角記号は含めない — NORM-Q2 決定）
+      let n = 0;
+      for (const t of tokens) {
+        const next = t.cur.replace(/[０-９Ａ-Ｚａ-ｚ]/g,
+          c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+        if (next !== t.cur) { t.cur = next; markChanged(t, 'alnum'); n++; }
+      }
+      return n;
+    },
+  },
+  {
+    id: 'kana', label: '半角カナ→全角', defaultOn: true,
+    apply(tokens) {
+      // 半角カナ（結合済み濁点含む）だけのトークンに NFKC を局所適用 → 全角へ合成
+      let n = 0;
+      for (const t of tokens) {
+        if (!HALF_KANA_TOKEN_RE.test(t.cur)) continue;
+        const next = t.cur.normalize('NFKC');
+        if (next !== t.cur) { t.cur = next; markChanged(t, 'kana'); n++; }
+      }
+      return n;
+    },
+  },
+  {
+    id: 'hyphen', label: 'ハイフン統一', defaultOn: true,
+    apply(tokens, opts) {
+      const target = HYPHEN_TARGETS.includes(opts.hyphenTarget) ? opts.hyphenTarget : '-';
+      const sources = new Set(HYPHEN_SOURCES);
+      if (opts.hyphenIncludeChoon) for (const c of CHOON_CHARS) sources.add(c);
+      sources.delete(target);
+      let n = 0;
+      for (const t of tokens) {
+        if (t.cur.length === 1 && sources.has(t.cur)) {
+          t.cur = target; markChanged(t, 'hyphen'); n++;
+        }
+      }
+      return n;
+    },
+  },
+  {
+    id: 'wave', label: '波ダッシュ統一', defaultOn: true,
+    apply(tokens, opts) {
+      const target = WAVE_CHARS.includes(opts.waveTarget) ? opts.waveTarget : '〜';
+      const source = target === '〜' ? '～' : '〜';
+      let n = 0;
+      for (const t of tokens) {
+        if (t.cur === source) { t.cur = target; markChanged(t, 'wave'); n++; }
+      }
+      return n;
+    },
+  },
+  {
+    id: 'space', label: '連続空白の圧縮', defaultOn: true,
+    apply(tokens) {
+      // 半角スペースのみ対象（NORM-Q4 決定）。連続をN:1マージ（1連続=1件）
+      let n = 0;
+      for (let i = 0; i < tokens.length; i++) {
+        if (tokens[i].cur !== ' ') continue;
+        let j = i + 1;
+        while (j < tokens.length && tokens[j].cur === ' ') j++;
+        if (j - i >= 2) {
+          const head = tokens[i];
+          for (let k = i + 1; k < j; k++) head.orig += tokens[k].orig;
+          markChanged(head, 'space');
+          tokens.splice(i + 1, j - i - 1);
+          n++;
+        }
+      }
+      return n;
+    },
+  },
+];
+
+const DEFAULT_OPTS = {
+  nfkc: false, alnum: true, kana: true,
+  hyphen: true, hyphenTarget: '-', hyphenIncludeChoon: false,
+  wave: true, waveTarget: '〜',
+  space: true,
+};
+
+// 変換の入口。戻り値: { text, tokens, counts }
+function normalize(text, opts) {
+  const options = Object.assign({}, DEFAULT_OPTS, opts);
+  const tokens = tokenize(text);
+  const counts = {};
+  for (const tr of TRANSFORMS) {
+    counts[tr.id] = options[tr.id] ? tr.apply(tokens, options) : 0;
+  }
+  return { text: tokens.map(t => t.cur).join(''), tokens, counts };
+}
+
+/* ========== テスト用フック ========== */
+
+window.norm = { normalize, TRANSFORMS, DEFAULT_OPTS };
+
+/* ========== UI ========== */
+
+const $ = id => document.getElementById(id);
+const TOOL = 'norm';
+const MAX_HIGHLIGHT_INPUT = 64 * 1024;
+const MAX_HIGHLIGHT_SPANS = 10000;
+const LABELS = Object.fromEntries(TRANSFORMS.map(t => [t.id, t.label]));
+
+const el = {
+  input: $('input'), output: $('output'), banner: $('banner'), summary: $('summary'),
+  copyBtn: $('copy-btn'), exportBtn: $('export-btn'),
+  importBtn: $('import-btn'), importFile: $('import-file'),
+};
+
+function uiOpts() {
+  return {
+    nfkc: $('opt-nfkc').checked,
+    alnum: $('opt-alnum').checked,
+    kana: $('opt-kana').checked,
+    hyphen: $('opt-hyphen').checked,
+    hyphenTarget: $('opt-hyphen-target').value,
+    hyphenIncludeChoon: $('opt-hyphen-choon').checked,
+    wave: $('opt-wave').checked,
+    waveTarget: $('opt-wave-target').value,
+    space: $('opt-space').checked,
+    ruby: $('opt-ruby').checked,
+  };
+}
+
+function applyOpts(o) {
+  if (!o || typeof o !== 'object') return;
+  if (typeof o.nfkc === 'boolean') $('opt-nfkc').checked = o.nfkc;
+  if (typeof o.alnum === 'boolean') $('opt-alnum').checked = o.alnum;
+  if (typeof o.kana === 'boolean') $('opt-kana').checked = o.kana;
+  if (typeof o.hyphen === 'boolean') $('opt-hyphen').checked = o.hyphen;
+  if (HYPHEN_TARGETS.includes(o.hyphenTarget)) $('opt-hyphen-target').value = o.hyphenTarget;
+  if (typeof o.hyphenIncludeChoon === 'boolean') $('opt-hyphen-choon').checked = o.hyphenIncludeChoon;
+  if (typeof o.wave === 'boolean') $('opt-wave').checked = o.wave;
+  if (WAVE_CHARS.includes(o.waveTarget)) $('opt-wave-target').value = o.waveTarget;
+  if (typeof o.space === 'boolean') $('opt-space').checked = o.space;
+  if (typeof o.ruby === 'boolean') $('opt-ruby').checked = o.ruby;
+}
+
+let lastResult = { text: '', tokens: [], counts: {} };
+
+function renderSummary(counts) {
+  const parts = [];
+  for (const tr of TRANSFORMS) {
+    if (counts[tr.id] > 0) parts.push(tr.label + ': ' + counts[tr.id] + '件');
+  }
+  el.summary.textContent = parts.length > 0 ? '適用: ' + parts.join(' / ') : '変更はありません';
+}
+
+function showBanner(msg, kind) {
+  el.banner.className = 'banner ' + (kind === 'error' ? 'banner-error' : 'banner-info');
+  el.banner.textContent = msg;
+  el.banner.hidden = !msg;
+}
+
+// 隣接する同種トークンを結合して DOM 数を抑えつつハイライト描画
+function renderOutput(result, useRuby) {
+  const host = el.output;
+  host.textContent = '';
+
+  if (el.input.value.length > MAX_HIGHLIGHT_INPUT) {
+    host.textContent = result.text;
+    showBanner('入力が大きいためハイライトを省略しました', 'info');
+    return;
+  }
+
+  const frag = document.createDocumentFragment();
+  let spanCount = 0;
+  let i = 0;
+  const tokens = result.tokens;
+  while (i < tokens.length) {
+    const changed = tokens[i].changedBy.length > 0;
+    const sig = tokens[i].changedBy.join(',');
+    let j = i + 1;
+    while (j < tokens.length &&
+      (tokens[j].changedBy.length > 0) === changed &&
+      tokens[j].changedBy.join(',') === sig) j++;
+    const curText = tokens.slice(i, j).map(t => t.cur).join('');
+    if (!changed) {
+      frag.appendChild(document.createTextNode(curText));
+    } else {
+      spanCount++;
+      if (spanCount > MAX_HIGHLIGHT_SPANS) {
+        host.textContent = result.text;
+        showBanner('変更箇所が多いためハイライトを省略しました', 'info');
+        return;
+      }
+      const origText = tokens.slice(i, j).map(t => t.orig).join('');
+      const span = document.createElement('span');
+      span.className = 'chg';
+      const labels = tokens[i].changedBy.map(id => LABELS[id] || id).join('・');
+      span.title = '変更前: ' + origText + ' [' + labels + ']';
+      if (useRuby) {
+        const ruby = document.createElement('ruby');
+        ruby.appendChild(document.createTextNode(curText));
+        const rt = document.createElement('rt');
+        rt.textContent = origText;
+        ruby.appendChild(rt);
+        span.appendChild(ruby);
+      } else {
+        span.textContent = curText;
+      }
+      frag.appendChild(span);
+    }
+    i = j;
+  }
+  host.appendChild(frag);
+}
+
+function run() {
+  showBanner('', 'info');
+  const opts = uiOpts();
+  lastResult = normalize(el.input.value, opts);
+  renderOutput(lastResult, opts.ruby);
+  renderSummary(lastResult.counts);
+}
+
+let debounceTimer = null;
+el.input.addEventListener('input', () => {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(run, 150);
+});
+
+$('opts').addEventListener('change', () => {
+  ToolStorage.save(TOOL, { options: uiOpts() });
+  run();
+});
+
+// コピー（共通プロトコル: clipboard API → 失敗時は選択フォールバック）
+let copyTimer = null;
+function copyFeedback() {
+  el.copyBtn.textContent = '✓ コピーしました';
+  el.copyBtn.classList.add('copied');
+  clearTimeout(copyTimer);
+  copyTimer = setTimeout(() => {
+    el.copyBtn.textContent = '結果をコピー';
+    el.copyBtn.classList.remove('copied');
+  }, 1500);
+}
+el.copyBtn.addEventListener('click', () => {
+  const text = lastResult.text;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(copyFeedback).catch(() => {
+      const range = document.createRange();
+      range.selectNodeContents(el.output);
+      const sel = getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      let ok = false;
+      try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
+      ok ? copyFeedback() : showBanner('出力を選択済みです。Cmd+C でコピーしてください。', 'info');
+    });
+  } else {
+    const range = document.createRange();
+    range.selectNodeContents(el.output);
+    const sel = getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
+    ok ? copyFeedback() : showBanner('出力を選択済みです。Cmd+C でコピーしてください。', 'info');
+  }
+});
+
+// 設定エクスポート/インポート（インポートは全置換 — DEV-Q4）
+el.exportBtn.addEventListener('click', () => {
+  const ok = ToolStorage.exportJson(TOOL, { options: uiOpts() });
+  if (!ok) showBanner('エクスポートに失敗しました', 'error');
+});
+el.importBtn.addEventListener('click', () => el.importFile.click());
+el.importFile.addEventListener('change', () => {
+  const file = el.importFile.files[0];
+  el.importFile.value = '';
+  ToolStorage.importJson(TOOL, file, (err, data) => {
+    if (err) { showBanner('インポート失敗: ' + err, 'error'); return; }
+    applyOpts(data && data.options);
+    ToolStorage.save(TOOL, { options: uiOpts() });
+    showBanner('設定をインポートしました', 'info');
+    run();
+  });
+});
+
+(function init() {
+  const saved = ToolStorage.load(TOOL);
+  if (saved) applyOpts(saved.options);
+  ToolStorage.mountWarning();
+  run();
+})();
+</script>
+</body>
+</html>
