@@ -1,0 +1,178 @@
+/* lib/ui.css — 全ブラウザツール共通の最小スタイル
+   構成: トークン層（:root 変数 + ダークモード）→ コンポーネント層。
+   ツール側 <style> はコンテンツ描画専用とし、ここで定義したクラスを再定義しない。 */
+
+:root {
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --text: #1f2328;
+  --muted: #6a737d;
+  --border: #d0d7de;
+  --accent: #0969da;
+  --accent-text: #ffffff;
+  --error: #cf222e;
+  --success: #1a7f37;
+  --th-bg: #f0f3f6;
+  --warn-bg: #fff8c5;
+  --warn-border: #d4a72c;
+  --error-bg: #ffebe9;
+  --error-border: #ff818266;
+  --info-bg: #ddf4ff;
+  --info-border: #54aeff66;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --border: #30363d;
+    --accent: #388bfd;
+    --accent-text: #ffffff;
+    --error: #ff7b72;
+    --success: #3fb950;
+    --th-bg: #21262d;
+    --warn-bg: #3a2d12;
+    --warn-border: #9e6a03;
+    --error-bg: #3c1618;
+    --error-border: #f8514966;
+    --info-bg: #0c2d6b;
+    --info-border: #388bfd66;
+  }
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+}
+
+main.app { max-width: 900px; margin: 0 auto; padding: 24px 16px 64px; }
+main.app-wide { max-width: 1200px; margin: 0 auto; padding: 24px 16px 64px; }
+
+h1 { font-size: 22px; margin: 0; }
+.subtitle { color: var(--muted); margin: 2px 0 20px; font-size: 13px; }
+h2 { font-size: 15px; margin: 28px 0 8px; }
+
+/* ツールバー・オプション行 */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0;
+  padding: 10px 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+}
+.toolbar .spacer { flex: 1; }
+.opts { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; font-size: 13px; }
+
+button {
+  font: inherit;
+  font-size: 13px;
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+}
+button:hover { border-color: var(--accent); }
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+button.copied { color: var(--success); border-color: var(--success); }
+button.primary.copied { background: var(--success); border-color: var(--success); color: var(--accent-text); }
+
+label.toggle { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+
+select, input[type="text"], input[type="number"] {
+  font: inherit;
+  font-size: 13px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+}
+
+/* 2ペインレイアウト */
+.panes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  align-items: stretch;
+}
+@media (max-width: 800px) {
+  .panes { grid-template-columns: 1fr; }
+}
+.pane { display: flex; flex-direction: column; min-width: 0; }
+.pane-title { font-size: 13px; color: var(--muted); margin: 0 0 6px 2px; }
+.pane textarea { flex: 1; }
+
+textarea {
+  width: 100%;
+  min-height: 220px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.5;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  resize: vertical;
+}
+
+/* バナー（警告・エラー・情報） */
+.banner {
+  margin: 10px 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+.banner-warn { background: var(--warn-bg); border-color: var(--warn-border); }
+.banner-error { background: var(--error-bg); border-color: var(--error-border); color: var(--error); }
+.banner-info { background: var(--info-bg); border-color: var(--info-border); }
+
+/* タブ */
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin: 16px 0 0;
+}
+.tabs button {
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 6px 14px;
+}
+.tabs button:hover { color: var(--text); }
+.tabs button.active {
+  background: var(--panel);
+  border-color: var(--border);
+  color: var(--text);
+  font-weight: 600;
+}
+.tabs button.tab-error { color: var(--error); }
+
+/* 汎用 */
+.muted { color: var(--muted); }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.summary { font-size: 13px; color: var(--muted); margin: 8px 2px; }
