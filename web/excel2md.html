@@ -8,6 +8,7 @@
 </head>
 <body>
 <main class="app">
+  <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">設定は自動保存されます</span></p>
   <h1>excel2md</h1>
   <p class="subtitle">Excelでコピーしたセル範囲（TSV）を Markdown テーブルに変換</p>
 
@@ -15,6 +16,7 @@
     <label class="toggle"><input type="checkbox" id="opt-header" checked> 1行目をヘッダーにする</label>
     <label class="toggle"><input type="checkbox" id="opt-trim" checked> セル前後の空白を除去</label>
     <span class="spacer"></span>
+    <span class="muted" id="copy-hint" style="font-size:12px"></span>
     <button class="primary" id="copy-btn">Markdownをコピー</button>
   </div>
 
@@ -139,11 +141,17 @@ function gridToMarkdown(grid, hasHeader) {
   return lines.join('\n');
 }
 
+const MAX_INPUT_CHARS = 2000000; // 超過時は処理せず理由を表示（性能ガード）
+
 // 変換の入口。UI もテストもこの関数を通る。
 // 戻り値: { markdown, warnings: [{type: 'warn'|'info', message}] }
 function convert(text, opts) {
   const options = Object.assign({ header: true, trim: true }, opts);
   const warnings = [];
+  if (text.length > MAX_INPUT_CHARS) {
+    warnings.push({ type: 'warn', message: '入力が上限（200万文字）を超えたため処理を中止しました' });
+    return { markdown: '', warnings };
+  }
   const rows = parseRows(text);
   if (rows.length === 0) return { markdown: '', warnings };
 
@@ -180,6 +188,7 @@ const el = {
   optHeader: $('opt-header'),
   optTrim: $('opt-trim'),
   copyBtn: $('copy-btn'),
+  copyHint: $('copy-hint'),
 };
 
 const TOOL = 'excel2md';
@@ -235,12 +244,18 @@ function copySelectFallback() {
   if (ok) {
     copyFeedback();
   } else {
-    el.banner.className = 'banner banner-warn';
-    el.banner.textContent = '出力を選択済みです。Cmd+C でコピーしてください。';
-    el.banner.hidden = false;
+    // 変換警告バナーを潰さないよう、コピー案内は専用表示に出す
+    el.copyHint.textContent = '出力を選択済みです。Cmd+C でコピーしてください。';
   }
 }
 el.copyBtn.addEventListener('click', () => {
+  clearTimeout(debounceTimer); // デバウンス中の旧内容コピー防止（同期確定してから書く）
+  run();
+  el.copyHint.textContent = '';
+  if (el.output.value === '') {
+    el.copyHint.textContent = '出力がありません';
+    return;
+  }
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(el.output.value)
       .then(copyFeedback)
