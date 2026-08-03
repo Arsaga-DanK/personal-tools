@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>diff — テキスト比較</title>
+<link rel="stylesheet" href="../lib/ui.css">
+<style>
+  /* diff 固有: 差分表示の描画のみ */
+  #diff-view {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12.5px;
+    line-height: 1.6;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--panel);
+    max-height: 60vh;
+    overflow: auto;
+    margin-top: 12px;
+  }
+  #diff-view .row { white-space: pre-wrap; word-break: break-all; padding: 0 8px; }
+  #diff-view .marker { display: inline-block; width: 1.2em; color: var(--muted); user-select: none; }
+  .line-del { background: color-mix(in srgb, var(--error) 12%, transparent); }
+  .line-add { background: color-mix(in srgb, var(--success) 12%, transparent); }
+  .line-del .chr { background: color-mix(in srgb, var(--error) 38%, transparent); border-radius: 2px; }
+  .line-add .chr { background: color-mix(in srgb, var(--success) 38%, transparent); border-radius: 2px; }
+  .collapse-row {
+    color: var(--muted);
+    text-align: center;
+    cursor: pointer;
+    background: var(--th-bg);
+    padding: 2px 8px;
+  }
+  .collapse-row:hover { color: var(--accent); }
+</style>
+</head>
+<body>
+<main class="app-wide">
+  <h1>diff</h1>
+  <p class="subtitle">2つのテキストの差分を行単位＋文字単位で表示（unified形式）</p>
+
+  <div class="toolbar">
+    <label class="toggle"><input type="checkbox" id="opt-ws"> 前後空白を無視</label>
+    <label class="toggle"><input type="checkbox" id="opt-width"> 全角半角を同一視</label>
+    <span class="spacer"></span>
+    <span class="summary" id="summary"></span>
+  </div>
+
+  <div class="banner" id="banner" hidden></div>
+
+  <div class="panes">
+    <div class="pane">
+      <p class="pane-title">旧テキスト</p>
+      <textarea id="input-a" spellcheck="false"></textarea>
+    </div>
+    <div class="pane">
+      <p class="pane-title">新テキスト</p>
+      <textarea id="input-b" spellcheck="false"></textarea>
+    </div>
+  </div>
+
+  <div id="diff-view"></div>
+</main>
+
+<script src="../lib/storage.js"></script>
+<script>
+'use strict';
+
+/* ========== Myers O(ND) 差分（自前実装・バッファ再利用） ========== */
+
+const D_MAX = 1000;          // 行差分の編集距離上限（DIFF-Q4）
+const CHAR_D_MAX = 200;      // 文字差分の編集距離上限
+const CHAR_LINE_MAX = 400;   // 文字差分を行う行長上限
+const CHAR_PAIRS_MAX = 200;  // 文字差分を行う変更行ペア数上限
+const CHAR_TOTAL_LINES_MAX = 10000; // これを超えたら行単位のみモード
+const COLLAPSE_THRESHOLD = 20;      // 一致行の折り畳み閾値
+const SIMILARITY_MIN = 0.4;         // 文字ハイライトする共通文字率の下限
+
+// V とトレースは事前確保して再利用（毎キー入力での数MB再確保を避ける）
+let vBuf = null;
+let snapBuf = null;
+function ensureBuffers() {
+  if (!vBuf) {
+    vBuf = new Int32Array(2 * D_MAX + 3);
+    snapBuf = new Int32Array(D_MAX * (D_MAX + 1) / 2 + 8);
+  }
+}
+
+// a, b: 数値配列（=== で比較）。dmax 超過は null。
+// 戻り値: { d, ops } — ops は {t:'c'|'d'|'i', ai?, bi?} の列（先頭から順）
+function myers(a, b, dmax) {
+  ensureBuffers();
+  const n = a.length, m = b.length;
+  const max = Math.min(dmax, n + m);
+  const OFF = D_MAX + 1;
+  const V = vBuf;
+  const snapOffset = d => (d - 1) * d / 2;
+  V[OFF + 1] = 0;
+
+  let found = -1;
+  for (let d = 0; d <= max; d++) {
+    if (d > 0) {
+      const off = snapOffset(d);
+      for (let i = 0; i < d; i++) snapBuf[off + i] = V[OFF + (-(d - 1) + 2 * i)];
+    }
+    for (let k = -d; k <= d; k += 2) {
+      let x;
+      if (k === -d || (k !== d && V[OFF + k - 1] < V[OFF + k + 1])) x = V[OFF + k + 1];
+      else x = V[OFF + k - 1] + 1;
+      let y = x - k;
+      while (x < n && y < m && a[x] === b[y]) { x++; y++; }
+      V[OFF + k] = x;
+      if (x >= n && y >= m) { found = d; break; }
+    }
+    if (found >= 0) break;
+  }
+  if (found < 0) return null;
+
+  const ops = [];
+  let x = n, y = m;
+  for (let d = found; d > 0; d--) {
+    const off = snapOffset(d);
+    const getV = k => snapBuf[off + (k + d - 1) / 2];
+    const k = x - y;
+    let prevK;
+    if (k === -d || (k !== d && getV(k - 1) < getV(k + 1))) prevK = k + 1;
+    else prevK = k - 1;
+    const prevX = getV(prevK);
+    const prevY = prevX - prevK;
+    while (x > prevX && y > prevY) { ops.push({ t: 'c', ai: x - 1, bi: y - 1 }); x--; y--; }
+    if (x === prevX) ops.push({ t: 'i', bi: prevY });
+    else ops.push({ t: 'd', ai: prevX });
+    x = prevX; y = prevY;
+  }
+  while (x > 0 && y > 0) { ops.push({ t: 'c', ai: x - 1, bi: y - 1 }); x--; y--; }
+  ops.reverse();
+  return { d: found, ops };
+}
+
+/* ========== 行差分パイプライン ========== */
+
+function normalizeNewlines(t) { return t.replace(/\r\n/g, '\n').replace(/\r/g, '\n'); }
+
+function makeKey(line, opts) {
+  let k = line;
+  if (opts.ignoreWs) k = k.trim();
+  if (opts.unifyWidth) k = k.normalize('NFKC');
+  return k;
+}
+
+// インデックス列を連続区間 [start, end) にまとめる
+function toRanges(indices) {
+  const ranges = [];
+  for (const i of indices) {
+    if (ranges.length > 0 && ranges[ranges.length - 1][1] === i) ranges[ranges.length - 1][1] = i + 1;
+    else ranges.push([i, i + 1]);
+  }
+  return ranges;
+}
+
+// 文字差分。戻り値: { aRanges, bRanges, common } / dmax 超過は null
+function diffChars(aStr, bStr) {
+  const a = [...aStr].map(c => c.codePointAt(0));
+  const b = [...bStr].map(c => c.codePointAt(0));
+  const res = myers(a, b, Math.min(CHAR_D_MAX, D_MAX));
+  if (!res) return null;
+  const delIdx = [], insIdx = [];
+  let common = 0;
+  for (const op of res.ops) {
+    if (op.t === 'c') common++;
+    else if (op.t === 'd') delIdx.push(op.ai);
+    else insIdx.push(op.bi);
+  }
+  return { aRanges: toRanges(delIdx), bRanges: toRanges(insIdx), common };
+}
+
+// 変換の入口（UI とテストが同一コードパス）。
+// 戻り値: { hunks, summary, fallback, lineOnly, aLines, bLines }
+function diffLines(aText, bText, opts) {
+  const options = Object.assign({ ignoreWs: false, unifyWidth: false }, opts);
+  const aLines = aText === '' ? [] : normalizeNewlines(aText).split('\n');
+  const bLines = bText === '' ? [] : normalizeNewlines(bText).split('\n');
+
+  // インターン（比較は整数で行う）
+  const idMap = new Map();
+  const intern = line => {
+    const k = makeKey(line, options);
+    let id = idMap.get(k);
+    if (id === undefined) { id = idMap.size; idMap.set(k, id); }
+    return id;
+  };
+  const aIds = aLines.map(intern);
+  const bIds = bLines.map(intern);
+
+  // 共通プレフィックス／サフィックスのトリム
+  let lo = 0;
+  while (lo < aIds.length && lo < bIds.length && aIds[lo] === bIds[lo]) lo++;
+  let aHi = aIds.length, bHi = bIds.length;
+  while (aHi > lo && bHi > lo && aIds[aHi - 1] === bIds[bHi - 1]) { aHi--; bHi--; }
+
+  // 中央部の差分
+  let fallback = false;
+  const midOps = [];
+  const midA = aIds.slice(lo, aHi), midB = bIds.slice(lo, bHi);
+  if (midA.length === 0 && midB.length === 0) {
+    // 差分なし
+  } else if (midA.length === 0) {
+    for (let i = 0; i < midB.length; i++) midOps.push({ t: 'i', bi: lo + i });
+  } else if (midB.length === 0) {
+    for (let i = 0; i < midA.length; i++) midOps.push({ t: 'd', ai: lo + i });
+  } else {
+    const res = myers(midA, midB, D_MAX);
+    if (res === null) {
+      fallback = true; // 一括置換に退避
+      for (let i = 0; i < midA.length; i++) midOps.push({ t: 'd', ai: lo + i });
+      for (let i = 0; i < midB.length; i++) midOps.push({ t: 'i', bi: lo + i });
+    } else {
+      for (const op of res.ops) {
+        if (op.t === 'c') midOps.push({ t: 'c', ai: lo + op.ai, bi: lo + op.bi });
+        else if (op.t === 'd') midOps.push({ t: 'd', ai: lo + op.ai });
+        else midOps.push({ t: 'i', bi: lo + op.bi });
+      }
+    }
+  }
+
+  // 全体の ops = プレフィックス共通 + 中央 + サフィックス共通 → ハンクに集約
+  const hunks = [];
+  const pushCommon = (aStart, bStart, count) => {
+    if (count > 0) hunks.push({ type: 'common', aStart, bStart, count });
+  };
+  pushCommon(0, 0, lo);
+  let commonRun = null;
+  let replaceRun = null;
+  const flushCommon = () => {
+    if (commonRun) { pushCommon(commonRun.aStart, commonRun.bStart, commonRun.count); commonRun = null; }
+  };
+  const flushReplace = () => {
+    if (replaceRun) { hunks.push(replaceRun); replaceRun = null; }
+  };
+  for (const op of midOps) {
+    if (op.t === 'c') {
+      flushReplace();
+      if (!commonRun) commonRun = { aStart: op.ai, bStart: op.bi, count: 0 };
+      commonRun.count++;
+    } else {
+      flushCommon();
+      if (!replaceRun) replaceRun = { type: 'replace', del: [], add: [], pairs: [] };
+      if (op.t === 'd') replaceRun.del.push(op.ai);
+      else replaceRun.add.push(op.bi);
+    }
+  }
+  flushReplace();
+  flushCommon();
+  pushCommon(aHi, bHi, aIds.length - aHi);
+
+  // サマリ（DIFF-Q3: 置換ハンク内 min=変更、余剰=追加/削除）
+  const summary = { added: 0, deleted: 0, changed: 0 };
+  for (const h of hunks) {
+    if (h.type !== 'replace') continue;
+    const d = h.del.length, a = h.add.length;
+    summary.changed += Math.min(d, a);
+    summary.added += Math.max(0, a - d);
+    summary.deleted += Math.max(0, d - a);
+  }
+
+  // 文字単位ハイライト（i番目の削除行と i番目の追加行をペアリング）
+  const lineOnly = aLines.length + bLines.length > CHAR_TOTAL_LINES_MAX;
+  let pairBudget = CHAR_PAIRS_MAX;
+  for (const h of hunks) {
+    if (h.type !== 'replace') continue;
+    const pairCount = Math.min(h.del.length, h.add.length);
+    for (let i = 0; i < pairCount; i++) {
+      const pair = { aIdx: h.del[i], bIdx: h.add[i], whole: true, aRanges: [], bRanges: [] };
+      h.pairs.push(pair);
+      if (lineOnly || pairBudget <= 0) continue;
+      const la = aLines[pair.aIdx], lb = bLines[pair.bIdx];
+      if ([...la].length > CHAR_LINE_MAX || [...lb].length > CHAR_LINE_MAX) continue;
+      pairBudget--;
+      const cd = diffChars(la, lb);
+      if (!cd) continue;
+      const lenA = [...la].length, lenB = [...lb].length;
+      const ratio = lenA + lenB === 0 ? 1 : (2 * cd.common) / (lenA + lenB);
+      if (ratio < SIMILARITY_MIN) continue; // 共通文字率が低すぎ → 行全体扱い
+      pair.whole = false;
+      pair.aRanges = cd.aRanges;
+      pair.bRanges = cd.bRanges;
+    }
+  }
+
+  return { hunks, summary, fallback, lineOnly, aLines, bLines };
+}
+
+/* ========== テスト用フック ========== */
+
+window.diff = { diffLines, diffChars };
+
+/* ========== UI ========== */
+
+const $ = id => document.getElementById(id);
+const TOOL = 'diff';
+const el = {
+  a: $('input-a'), b: $('input-b'), view: $('diff-view'),
+  summary: $('summary'), banner: $('banner'),
+  optWs: $('opt-ws'), optWidth: $('opt-width'),
+};
+
+function uiOpts() { return { ignoreWs: el.optWs.checked, unifyWidth: el.optWidth.checked }; }
+
+function showBanner(msg, kind) {
+  el.banner.className = 'banner ' + (kind === 'warn' ? 'banner-warn' : 'banner-info');
+  el.banner.textContent = msg;
+  el.banner.hidden = !msg;
+}
+
+// 文字レンジ付きの1行を描画（textContent のみ使用）
+function renderLineWithRanges(row, text, ranges) {
+  const chars = [...text];
+  let pos = 0;
+  for (const [s, e] of ranges) {
+    if (s > pos) row.appendChild(document.createTextNode(chars.slice(pos, s).join('')));
+    const span = document.createElement('span');
+    span.className = 'chr';
+    span.textContent = chars.slice(s, e).join('');
+    row.appendChild(span);
+    pos = e;
+  }
+  if (pos < chars.length) row.appendChild(document.createTextNode(chars.slice(pos).join('')));
+}
+
+function makeRow(marker, cls) {
+  const row = document.createElement('div');
+  row.className = 'row' + (cls ? ' ' + cls : '');
+  const m = document.createElement('span');
+  m.className = 'marker';
+  m.textContent = marker;
+  row.appendChild(m);
+  return row;
+}
+
+function renderDiff(result) {
+  const view = el.view;
+  const scrollTop = view.scrollTop; // 再描画で位置を失わない
+  view.textContent = '';
+  const frag = document.createDocumentFragment();
+
+  for (const h of result.hunks) {
+    if (h.type === 'common') {
+      if (h.count > COLLAPSE_THRESHOLD) {
+        const c = document.createElement('div');
+        c.className = 'collapse-row';
+        c.textContent = '… ' + h.count + '行 一致（クリックで展開） …';
+        const hunk = h;
+        c.addEventListener('click', () => {
+          const expanded = document.createDocumentFragment();
+          for (let i = 0; i < hunk.count; i++) {
+            const row = makeRow(' ', '');
+            row.appendChild(document.createTextNode(result.aLines[hunk.aStart + i]));
+            expanded.appendChild(row);
+          }
+          c.replaceWith(expanded);
+        });
+        frag.appendChild(c);
+      } else {
+        for (let i = 0; i < h.count; i++) {
+          const row = makeRow(' ', '');
+          row.appendChild(document.createTextNode(result.aLines[h.aStart + i]));
+          frag.appendChild(row);
+        }
+      }
+      continue;
+    }
+    // replace ハンク: ペア行（del→add 交互）→ 余剰
+    const pairCount = h.pairs.length;
+    for (let i = 0; i < pairCount; i++) {
+      const p = h.pairs[i];
+      const rowD = makeRow('-', 'line-del');
+      if (p.whole) rowD.appendChild(document.createTextNode(result.aLines[p.aIdx]));
+      else renderLineWithRanges(rowD, result.aLines[p.aIdx], p.aRanges);
+      frag.appendChild(rowD);
+      const rowA = makeRow('+', 'line-add');
+      if (p.whole) rowA.appendChild(document.createTextNode(result.bLines[p.bIdx]));
+      else renderLineWithRanges(rowA, result.bLines[p.bIdx], p.bRanges);
+      frag.appendChild(rowA);
+    }
+    for (let i = pairCount; i < h.del.length; i++) {
+      const row = makeRow('-', 'line-del');
+      row.appendChild(document.createTextNode(result.aLines[h.del[i]]));
+      frag.appendChild(row);
+    }
+    for (let i = pairCount; i < h.add.length; i++) {
+      const row = makeRow('+', 'line-add');
+      row.appendChild(document.createTextNode(result.bLines[h.add[i]]));
+      frag.appendChild(row);
+    }
+  }
+
+  view.appendChild(frag);
+  view.scrollTop = scrollTop;
+}
+
+function run() {
+  const result = diffLines(el.a.value, el.b.value, uiOpts());
+  el.summary.textContent =
+    '追加 ' + result.summary.added + '行 / 削除 ' + result.summary.deleted +
+    '行 / 変更 ' + result.summary.changed + '行';
+  if (result.fallback) {
+    showBanner('差分が大きすぎるため中間部を一括の変更として表示しています', 'warn');
+  } else if (result.lineOnly) {
+    showBanner('行数が多いため文字単位のハイライトを省略しました', 'info');
+  } else {
+    showBanner('', 'info');
+  }
+  renderDiff(result);
+}
+
+let debounceTimer = null;
+function schedule() {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(run, 200);
+}
+el.a.addEventListener('input', schedule);
+el.b.addEventListener('input', schedule);
+
+function onOptChange() {
+  ToolStorage.save(TOOL, uiOpts());
+  run();
+}
+el.optWs.addEventListener('change', onOptChange);
+el.optWidth.addEventListener('change', onOptChange);
+
+(function init() {
+  const saved = ToolStorage.load(TOOL);
+  if (saved && typeof saved === 'object') {
+    if (typeof saved.ignoreWs === 'boolean') el.optWs.checked = saved.ignoreWs;
+    if (typeof saved.unifyWidth === 'boolean') el.optWidth.checked = saved.unifyWidth;
+  }
+  ToolStorage.mountWarning();
+  run();
+})();
+</script>
+</body>
+</html>
