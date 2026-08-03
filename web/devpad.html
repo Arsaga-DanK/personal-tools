@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>devpad — 開発ユーティリティ</title>
+<link rel="stylesheet" href="../lib/ui.css">
+<style>
+  /* devpad 固有: タブパネル内のレイアウトのみ（ui.css クラスは再定義しない） */
+  section.tab-panel { padding: 16px 0; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+  .json-error-pos { white-space: pre-wrap; margin-top: 6px; }
+  #time-now-result p, #count-result p { margin: 4px 0; font-size: 13px; }
+  .result-label { display: inline-block; min-width: 11em; color: var(--muted); }
+  textarea.short { min-height: 120px; }
+</style>
+</head>
+<body>
+<main class="app-wide">
+  <h1>devpad</h1>
+  <p class="subtitle">開発ユーティリティ集 — 各タブは独立動作（1機能のエラーは他に波及しません）</p>
+
+  <div class="tabs" id="tabbar"></div>
+
+  <section class="tab-panel" id="tab-json" hidden>
+    <div class="banner banner-error" data-tab-error hidden></div>
+    <div class="panes">
+      <div class="pane"><p class="pane-title">入力（JSON）</p>
+        <textarea id="json-in" spellcheck="false"></textarea></div>
+      <div class="pane"><p class="pane-title">出力</p>
+        <textarea id="json-out" readonly spellcheck="false"></textarea></div>
+    </div>
+    <div class="row">
+      <button class="primary" id="json-format">整形</button>
+      <button id="json-minify">圧縮</button>
+      <button id="json-validate">検証</button>
+      <span class="muted" style="font-size:12px">エラー位置表示はブラウザ依存の参考情報です（Safari は位置なし）</span>
+    </div>
+    <div class="banner" id="json-result" hidden></div>
+  </section>
+
+  <section class="tab-panel" id="tab-escape" hidden>
+    <div class="banner banner-error" data-tab-error hidden></div>
+    <div class="panes">
+      <div class="pane"><p class="pane-title">生テキスト</p>
+        <textarea id="esc-raw" spellcheck="false"></textarea></div>
+      <div class="pane"><p class="pane-title">JSON文字列リテラル（外側の " を含む）</p>
+        <textarea id="esc-lit" spellcheck="false"></textarea></div>
+    </div>
+    <div class="row">
+      <button class="primary" id="esc-encode">エスケープ →</button>
+      <button id="esc-decode">← アンエスケープ（引用符なしは自動補完）</button>
+    </div>
+    <div class="banner" id="esc-result" hidden></div>
+  </section>
+
+  <section class="tab-panel" id="tab-url" hidden>
+    <div class="banner banner-error" data-tab-error hidden></div>
+    <div class="panes">
+      <div class="pane"><p class="pane-title">生テキスト</p>
+        <textarea id="url-raw" class="short" spellcheck="false"></textarea></div>
+      <div class="pane"><p class="pane-title">URLエンコード済み（encodeURIComponent）</p>
+        <textarea id="url-enc" class="short" spellcheck="false"></textarea></div>
+    </div>
+    <div class="row">
+      <button class="primary" id="url-encode">エンコード →</button>
+      <button id="url-decode">← デコード</button>
+    </div>
+    <div class="banner" id="url-result" hidden></div>
+  </section>
+
+  <section class="tab-panel" id="tab-base64" hidden>
+    <div class="banner banner-error" data-tab-error hidden></div>
+    <div class="panes">
+      <div class="pane"><p class="pane-title">テキスト（UTF-8）</p>
+        <textarea id="b64-raw" class="short" spellcheck="false"></textarea></div>
+      <div class="pane"><p class="pane-title">Base64（URL-safe入力も可）</p>
+        <textarea id="b64-enc" class="short" spellcheck="false"></textarea></div>
+    </div>
+    <div class="row">
+      <button class="primary" id="b64-encode">エンコード →</button>
+      <button id="b64-decode">← デコード</button>
+    </div>
+    <div class="banner" id="b64-result" hidden></div>
+  </section>
+
+  <section class="tab-panel" id="tab-time" hidden>
+    <div class="banner banner-error" data-tab-error hidden></div>
+    <div class="row">
+      <label>Unix時刻: <input type="text" id="time-epoch" size="20" placeholder="1700000000"></label>
+      <label class="toggle"><input type="radio" name="epoch-unit" value="auto" checked> 自動</label>
+      <label class="toggle"><input type="radio" name="epoch-unit" value="sec"> 秒</label>
+      <label class="toggle"><input type="radio" name="epoch-unit" value="ms"> ミリ秒</label>
+      <button class="primary" id="time-to-jst">→ JST</button>
+      <span class="mono" id="time-jst-out"></span>
+    </div>
+    <div class="row">
+      <label>JST日時: <input type="text" id="time-dt" size="24" placeholder="2024/01/01 00:00:00"></label>
+      <button class="primary" id="time-to-epoch">→ Unix時刻</button>
+      <span class="mono" id="time-epoch-out"></span>
+    </div>
+    <div class="row"><button id="time-now">現在時刻を各形式で表示</button></div>
+    <div id="time-now-result"></div>
+    <div class="banner" id="time-result" hidden></div>
+  </section>
+
+  <section class="tab-panel" id="tab-uuid" hidden>
+    <div class="banner banner-error" data-tab-error hidden></div>
+    <div class="row">
+      <label>件数: <input type="number" id="uuid-count" value="1" min="1" max="1000"></label>
+      <button class="primary" id="uuid-gen">UUID v4 を生成</button>
+    </div>
+    <textarea id="uuid-out" readonly spellcheck="false"></textarea>
+  </section>
+
+  <section class="tab-panel" id="tab-count" hidden>
+    <div class="banner banner-error" data-tab-error hidden></div>
+    <div class="panes">
+      <div class="pane"><p class="pane-title">テキスト</p>
+        <textarea id="count-in" spellcheck="false"></textarea></div>
+      <div class="pane"><p class="pane-title">集計（入力と同時に更新）</p>
+        <div id="count-result"></div></div>
+    </div>
+  </section>
+</main>
+
+<script src="../lib/storage.js"></script>
+<script>
+'use strict';
+
+/* ========== 純関数群（テストフックと UI が同一コードパス） ========== */
+
+function formatJson(text) { return JSON.stringify(JSON.parse(text), null, 2); }
+function minifyJson(text) { return JSON.stringify(JSON.parse(text)); }
+
+// JSON.parse のエラーメッセージから位置を best-effort で抽出（エンジン依存）。
+// ①(line N column M) ②at line N column M ③at position N ④Unexpected end → 末尾
+function parseJsonWithPos(text) {
+  try {
+    return { ok: true, value: JSON.parse(text) };
+  } catch (e) {
+    const msg = String(e.message || e);
+    let line = null, col = null;
+    let m = msg.match(/\(line (\d+) column (\d+)\)/) || msg.match(/at line (\d+) column (\d+)/);
+    if (m) {
+      line = Number(m[1]); col = Number(m[2]);
+    } else {
+      let pos = null;
+      m = msg.match(/at position (\d+)/);
+      if (m) pos = Number(m[1]);
+      else if (/Unexpected end of JSON input/i.test(msg)) pos = text.length;
+      if (pos !== null) {
+        const before = text.slice(0, pos).split('\n');
+        line = before.length;
+        col = before[before.length - 1].length + 1;
+      }
+    }
+    return { ok: false, message: msg, line, col };
+  }
+}
+
+function escapeJsonStr(text) { return JSON.stringify(text); } // 外側 " を含む（DEV-Q1）
+function unescapeJsonStr(text) {
+  const t = text.trim();
+  const candidate = t.startsWith('"') ? t : '"' + t + '"'; // 引用符なしは自動補完（DEV-Q2）
+  const v = JSON.parse(candidate);
+  if (typeof v !== 'string') throw new Error('JSON文字列リテラルではありません');
+  return v;
+}
+
+function urlEncode(text) { return encodeURIComponent(text); }
+function urlDecode(text) { return decodeURIComponent(text); }
+
+function b64encode(text) {
+  const bytes = new TextEncoder().encode(text);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(bin);
+}
+// 成功: 文字列 / 失敗: { error: メッセージ }（例外を投げない）
+function b64decode(b64) {
+  let s = String(b64).replace(/\s+/g, '').replace(/-/g, '+').replace(/_/g, '/');
+  while (s.length % 4 !== 0) s += '=';
+  let bin;
+  try { bin = atob(s); } catch (_) { return { error: 'Base64として解釈できませんでした' }; }
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch (_) {
+    return { error: 'UTF-8として解釈できませんでした（バイナリの可能性）' };
+  }
+}
+
+// JST は UTC+9 固定で計算（マシンのタイムゾーンに依存しない）
+const JST_OFFSET_MS = 9 * 3600 * 1000;
+function pad(n, w) { return String(n).padStart(w || 2, '0'); }
+
+// 成功: 'YYYY/MM/DD HH:mm:ss[.SSS]' / 失敗: { error }
+function epochToJst(value, unit) {
+  const num = typeof value === 'number' ? value : Number(String(value).trim());
+  if (!/^-?\d+(\.\d+)?$/.test(String(value).trim()) && typeof value !== 'number') {
+    return { error: '数値として解釈できません' };
+  }
+  if (!isFinite(num)) return { error: '数値として解釈できません' };
+  const mode = unit || 'auto';
+  const ms = (mode === 'ms' || (mode === 'auto' && Math.abs(num) >= 1e12)) ? num : num * 1000;
+  const d = new Date(ms + JST_OFFSET_MS);
+  if (isNaN(d.getTime())) return { error: '表現できない時刻です' };
+  let out = pad(d.getUTCFullYear(), 4) + '/' + pad(d.getUTCMonth() + 1) + '/' + pad(d.getUTCDate()) +
+    ' ' + pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()) + ':' + pad(d.getUTCSeconds());
+  const frac = Math.abs(Math.round(ms)) % 1000;
+  if (frac !== 0) out += '.' + pad(frac, 3);
+  return out;
+}
+
+// 'YYYY/MM/DD HH:mm[:ss]'・'YYYY-MM-DD HH:mm[:ss]' は JST として解釈。
+// タイムゾーン付き ISO8601（Z / ±hh:mm）のみ Date.parse に委譲。
+// 成功: epoch 秒（number） / 失敗: { error }
+function jstToEpoch(text) {
+  const t = String(text).trim();
+  let m = t.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (m) {
+    const utcMs = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0));
+    return utcMs / 1000 - 32400;
+  }
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})$/.test(t)) {
+    const ms = Date.parse(t);
+    if (!isNaN(ms)) return ms / 1000;
+  }
+  return { error: '日時として解釈できません（例: 2024/01/01 00:00:00）' };
+}
+
+function uuidv4() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const h = [...b].map(x => x.toString(16).padStart(2, '0'));
+  return h.slice(0, 4).join('') + '-' + h.slice(4, 6).join('') + '-' + h.slice(6, 8).join('') +
+    '-' + h.slice(8, 10).join('') + '-' + h.slice(10, 16).join('');
+}
+
+// 半角 = ASCII（改行・タブ等の制御文字を含む）+ 半角カナ。それ以外は全角。
+// East Asian Width の近似（UI に明記）。CP932 は 半角1byte・他2byte の概算。
+function countText(text) {
+  let chars = 0, half = 0, full = 0;
+  for (const ch of text) {
+    chars++;
+    const cp = ch.codePointAt(0);
+    if (cp <= 0x7e || (cp >= 0xff61 && cp <= 0xff9f)) half++;
+    else full++;
+  }
+  let lines;
+  if (text === '') lines = 0;
+  else {
+    const t = text.replace(/\n$/, '');
+    lines = t === '' ? 1 : t.split('\n').length;
+  }
+  return {
+    chars, half, full, lines,
+    utf8: new TextEncoder().encode(text).length,
+    cp932approx: half + full * 2,
+  };
+}
+
+/* ========== タブ独立の骨組み ========== */
+
+const $ = id => document.getElementById(id);
+const TOOL = 'devpad';
+
+function tabErrorEl(tabId) { return document.querySelector('#tab-' + tabId + ' [data-tab-error]'); }
+
+// 全イベントを guard 経由にし、例外は当該タブのエラーバナーに閉じ込める
+function guard(tabId, fn) {
+  return function (...args) {
+    try {
+      tabErrorEl(tabId).hidden = true;
+      return fn.apply(this, args);
+    } catch (e) {
+      const el = tabErrorEl(tabId);
+      el.textContent = 'エラー: ' + (e && e.message ? e.message : String(e));
+      el.hidden = false;
+    }
+  };
+}
+
+function showResult(id, msg, kind) {
+  const el = $(id);
+  el.className = 'banner ' + (kind === 'error' ? 'banner-error' : 'banner-info');
+  el.textContent = msg;
+  el.hidden = !msg;
+}
+
+/* ========== 各タブの定義 ========== */
+
+const TABS = [
+  {
+    id: 'json', label: 'JSON',
+    init() {
+      $('json-format').addEventListener('click', guard('json', () => {
+        $('json-out').value = formatJson($('json-in').value);
+        showResult('json-result', '', 'info');
+      }));
+      $('json-minify').addEventListener('click', guard('json', () => {
+        $('json-out').value = minifyJson($('json-in').value);
+        showResult('json-result', '', 'info');
+      }));
+      $('json-validate').addEventListener('click', guard('json', () => {
+        const r = parseJsonWithPos($('json-in').value);
+        if (r.ok) { showResult('json-result', '有効なJSONです', 'info'); return; }
+        let msg;
+        if (r.line !== null) {
+          const srcLine = $('json-in').value.split('\n')[r.line - 1] || '';
+          msg = r.line + '行目 ' + r.col + '文字目: ' + r.message + '\n' +
+            srcLine + '\n' + ' '.repeat(Math.max(0, r.col - 1)) + '^';
+        } else {
+          msg = r.message + '（このブラウザでは位置情報が得られません）';
+        }
+        const el = $('json-result');
+        el.className = 'banner banner-error json-error-pos mono';
+        el.textContent = msg;
+        el.hidden = false;
+      }));
+    },
+    getState() { return { in: $('json-in').value }; },
+    setState(s) { if (typeof s.in === 'string') $('json-in').value = s.in; },
+  },
+  {
+    id: 'escape', label: 'エスケープ',
+    init() {
+      $('esc-encode').addEventListener('click', guard('escape', () => {
+        $('esc-lit').value = escapeJsonStr($('esc-raw').value);
+        showResult('esc-result', '', 'info');
+      }));
+      $('esc-decode').addEventListener('click', guard('escape', () => {
+        try {
+          $('esc-raw').value = unescapeJsonStr($('esc-lit').value);
+          showResult('esc-result', '', 'info');
+        } catch (e) {
+          showResult('esc-result', 'アンエスケープ失敗: ' + e.message, 'error');
+        }
+      }));
+    },
+    getState() { return { raw: $('esc-raw').value, lit: $('esc-lit').value }; },
+    setState(s) {
+      if (typeof s.raw === 'string') $('esc-raw').value = s.raw;
+      if (typeof s.lit === 'string') $('esc-lit').value = s.lit;
+    },
+  },
+  {
+    id: 'url', label: 'URL',
+    init() {
+      $('url-encode').addEventListener('click', guard('url', () => {
+        $('url-enc').value = urlEncode($('url-raw').value);
+        showResult('url-result', '', 'info');
+      }));
+      $('url-decode').addEventListener('click', guard('url', () => {
+        try {
+          $('url-raw').value = urlDecode($('url-enc').value);
+          showResult('url-result', '', 'info');
+        } catch (e) {
+          showResult('url-result', 'デコード失敗: 不正なパーセントエンコーディングです', 'error');
+        }
+      }));
+    },
+    getState() { return { raw: $('url-raw').value, enc: $('url-enc').value }; },
+    setState(s) {
+      if (typeof s.raw === 'string') $('url-raw').value = s.raw;
+      if (typeof s.enc === 'string') $('url-enc').value = s.enc;
+    },
+  },
+  {
+    id: 'base64', label: 'Base64',
+    init() {
+      $('b64-encode').addEventListener('click', guard('base64', () => {
+        $('b64-enc').value = b64encode($('b64-raw').value);
+        showResult('b64-result', '', 'info');
+      }));
+      $('b64-decode').addEventListener('click', guard('base64', () => {
+        const r = b64decode($('b64-enc').value);
+        if (typeof r === 'string') {
+          $('b64-raw').value = r;
+          showResult('b64-result', '', 'info');
+        } else {
+          showResult('b64-result', 'デコード失敗: ' + r.error, 'error');
+        }
+      }));
+    },
+    getState() { return { raw: $('b64-raw').value, enc: $('b64-enc').value }; },
+    setState(s) {
+      if (typeof s.raw === 'string') $('b64-raw').value = s.raw;
+      if (typeof s.enc === 'string') $('b64-enc').value = s.enc;
+    },
+  },
+  {
+    id: 'time', label: '時刻',
+    init() {
+      const unit = () => document.querySelector('input[name="epoch-unit"]:checked').value;
+      $('time-to-jst').addEventListener('click', guard('time', () => {
+        const r = epochToJst($('time-epoch').value, unit());
+        if (typeof r === 'string') {
+          $('time-jst-out').textContent = r;
+          showResult('time-result', '', 'info');
+        } else {
+          $('time-jst-out').textContent = '';
+          showResult('time-result', r.error, 'error');
+        }
+      }));
+      $('time-to-epoch').addEventListener('click', guard('time', () => {
+        const r = jstToEpoch($('time-dt').value);
+        if (typeof r === 'number') {
+          $('time-epoch-out').textContent = String(r);
+          showResult('time-result', '', 'info');
+        } else {
+          $('time-epoch-out').textContent = '';
+          showResult('time-result', r.error, 'error');
+        }
+      }));
+      $('time-now').addEventListener('click', guard('time', () => {
+        const now = Date.now();
+        const sec = Math.floor(now / 1000);
+        const host = $('time-now-result');
+        host.textContent = '';
+        const rows = [
+          ['epoch（秒）', String(sec)],
+          ['epoch（ミリ秒）', String(now)],
+          ['ISO 8601（UTC）', new Date(now).toISOString()],
+          ['JST', epochToJst(now, 'ms')],
+        ];
+        for (const [label, value] of rows) {
+          const p = document.createElement('p');
+          const s = document.createElement('span');
+          s.className = 'result-label';
+          s.textContent = label;
+          const v = document.createElement('span');
+          v.className = 'mono';
+          v.textContent = String(value);
+          p.appendChild(s); p.appendChild(v);
+          host.appendChild(p);
+        }
+      }));
+    },
+    getState() { return { epoch: $('time-epoch').value, dt: $('time-dt').value }; },
+    setState(s) {
+      if (typeof s.epoch === 'string') $('time-epoch').value = s.epoch;
+      if (typeof s.dt === 'string') $('time-dt').value = s.dt;
+    },
+  },
+  {
+    id: 'uuid', label: 'UUID',
+    init() {
+      $('uuid-gen').addEventListener('click', guard('uuid', () => {
+        let n = Math.floor(Number($('uuid-count').value));
+        if (!isFinite(n) || n < 1) n = 1;
+        if (n > 1000) n = 1000;
+        $('uuid-count').value = String(n);
+        const out = [];
+        for (let i = 0; i < n; i++) out.push(uuidv4());
+        $('uuid-out').value = out.join('\n');
+      }));
+    },
+    getState() { return { count: $('uuid-count').value }; },
+    setState(s) { if (typeof s.count === 'string') $('uuid-count').value = s.count; },
+  },
+  {
+    id: 'count', label: 'カウント',
+    init() {
+      const render = guard('count', () => {
+        const c = countText($('count-in').value);
+        const host = $('count-result');
+        host.textContent = '';
+        const rows = [
+          ['文字数（コードポイント）', c.chars],
+          ['全角', c.full],
+          ['半角（改行・タブ含む）', c.half],
+          ['行数', c.lines],
+          ['UTF-8 バイト数', c.utf8],
+          ['CP932 バイト数（概算: 半角1・他2）', c.cp932approx],
+        ];
+        for (const [label, value] of rows) {
+          const p = document.createElement('p');
+          const s = document.createElement('span');
+          s.className = 'result-label';
+          s.textContent = label;
+          const v = document.createElement('span');
+          v.className = 'mono';
+          v.textContent = String(value);
+          p.appendChild(s); p.appendChild(v);
+          host.appendChild(p);
+        }
+      });
+      $('count-in').addEventListener('input', render);
+      render();
+    },
+    getState() { return { in: $('count-in').value }; },
+    setState(s) { if (typeof s.in === 'string') $('count-in').value = s.in; },
+  },
+];
+
+/* ========== タブ切替・状態の保存/復元 ========== */
+
+let activeTab = 'json';
+
+function switchTab(id) {
+  if (!TABS.some(t => t.id === id)) return;
+  activeTab = id;
+  for (const t of TABS) {
+    $('tab-' + t.id).hidden = t.id !== id;
+    document.querySelector('#tabbar button[data-tab="' + t.id + '"]')
+      .classList.toggle('active', t.id === id);
+  }
+  scheduleSave();
+}
+
+const FIELD_LIMIT = 100000; // UTF-16 code unit 長。超過フィールドは保存しない（DEV-Q3）
+
+function collectState() {
+  const tabs = {};
+  for (const t of TABS) {
+    try {
+      const s = t.getState();
+      const out = {};
+      for (const k of Object.keys(s)) {
+        out[k] = (typeof s[k] === 'string' && s[k].length > FIELD_LIMIT)
+          ? { omitted: true }
+          : s[k];
+      }
+      tabs[t.id] = out;
+    } catch (_) { /* タブ破損時も保存全体は続行 */ }
+  }
+  return { activeTab, tabs };
+}
+
+let saveTimer = null;
+function scheduleSave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(flushSave, 500);
+}
+function flushSave() {
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  ToolStorage.save(TOOL, collectState());
+}
+
+function restoreState() {
+  const saved = ToolStorage.load(TOOL);
+  if (!saved || typeof saved !== 'object') return;
+  const tabs = saved.tabs || {};
+  for (const t of TABS) {
+    const s = tabs[t.id];
+    if (!s || typeof s !== 'object') continue;
+    try {
+      let omitted = false;
+      const clean = {};
+      for (const k of Object.keys(s)) {
+        if (s[k] && typeof s[k] === 'object' && s[k].omitted) { omitted = true; continue; }
+        clean[k] = s[k];
+      }
+      t.setState(clean);
+      if (omitted) {
+        const el = tabErrorEl(t.id);
+        el.className = 'banner banner-info';
+        el.textContent = '前回の入力は大きすぎたため復元されませんでした（保存上限 100KB/フィールド）';
+        el.hidden = false;
+      }
+    } catch (_) { /* 1タブ分の破損は他へ波及させない */ }
+  }
+  if (typeof saved.activeTab === 'string') activeTab = saved.activeTab;
+}
+
+/* ========== 初期化 ========== */
+
+(function init() {
+  const bar = $('tabbar');
+  for (const t of TABS) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = t.label;
+    b.dataset.tab = t.id;
+    b.addEventListener('click', () => switchTab(t.id));
+    bar.appendChild(b);
+  }
+
+  for (const t of TABS) {
+    try {
+      t.init();
+    } catch (e) {
+      const el = tabErrorEl(t.id);
+      el.textContent = 'このタブは初期化に失敗しました: ' + (e && e.message ? e.message : String(e));
+      el.hidden = false;
+      document.querySelector('#tabbar button[data-tab="' + t.id + '"]').classList.add('tab-error');
+    }
+  }
+
+  restoreState();
+  switchTab(activeTab);
+
+  document.querySelector('main').addEventListener('input', scheduleSave);
+  window.addEventListener('pagehide', flushSave);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushSave();
+  });
+
+  ToolStorage.mountWarning();
+})();
+
+/* ========== テスト用フック ========== */
+
+window.devpad = {
+  formatJson, minifyJson, parseJsonWithPos,
+  escapeJsonStr, unescapeJsonStr,
+  urlEncode, urlDecode,
+  b64encode, b64decode,
+  epochToJst, jstToEpoch,
+  uuidv4, countText,
+  switchTab,
+  getState: collectState,
+};
+</script>
+</body>
+</html>
