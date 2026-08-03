@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Personal Tools — ツール一覧</title>
+<link rel="stylesheet" href="lib/ui.css">
+<style>
+  /* ハブ固有のコンテンツ描画スタイル（ui.css クラスの再定義はしない） */
+  #search { width: 100%; max-width: 420px; padding: 8px 12px; font-size: 14px; }
+  .category-title { font-size: 14px; color: var(--muted); margin: 24px 0 6px; font-weight: 600; }
+  ul.tool-list { list-style: none; margin: 0; padding: 0; }
+  ul.tool-list li {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin: 6px 0;
+  }
+  ul.tool-list a { color: var(--accent); font-weight: 600; text-decoration: none; }
+  ul.tool-list a:hover { text-decoration: underline; }
+  ul.tool-list .desc { color: var(--muted); font-size: 13px; margin-left: 8px; }
+  #empty-msg { color: var(--muted); margin-top: 24px; }
+</style>
+</head>
+<body>
+<main class="app">
+  <h1>Personal Tools</h1>
+  <p class="subtitle">業務効率化ツール一覧 — ツール名・説明でインクリメンタル検索</p>
+  <input type="text" id="search" placeholder="検索（ツール名・説明）" autocomplete="off">
+  <div id="list"></div>
+  <p id="empty-msg" hidden></p>
+</main>
+
+<script>
+'use strict';
+
+// ツール登録: 1行追加するだけで一覧に載る。
+// スキーマ: { name: 表示名, path: index.html からの相対パス, desc: 1行説明, category: 変換|タスク|設計|PM }
+const TOOLS = [
+  { name: 'md2excel（旧・双方向）', path: 'excel2md/excel2md.html', desc: 'Excelの表 ⇄ Markdownテーブルを相互変換（貼り付け方式・旧ツール）', category: '変換' },
+];
+
+const CATEGORY_ORDER = ['変換', 'タスク', '設計', 'PM'];
+
+// 検索: ツール名＋説明の部分一致（大文字小文字無視）。純関数（テストフック用）
+function filter(query) {
+  const q = query.trim().toLowerCase();
+  if (q === '') return TOOLS.slice();
+  return TOOLS.filter(t =>
+    t.name.toLowerCase().includes(q) || t.desc.toLowerCase().includes(q));
+}
+
+const listEl = document.getElementById('list');
+const emptyEl = document.getElementById('empty-msg');
+const searchEl = document.getElementById('search');
+
+function render(tools) {
+  listEl.textContent = '';
+  if (TOOLS.length === 0) {
+    emptyEl.textContent = 'ツールはまだ登録されていません';
+    emptyEl.hidden = false;
+    return;
+  }
+  if (tools.length === 0) {
+    emptyEl.textContent = '該当なし';
+    emptyEl.hidden = false;
+    return;
+  }
+  emptyEl.hidden = true;
+
+  for (const cat of CATEGORY_ORDER) {
+    const inCat = tools.filter(t => t.category === cat);
+    if (inCat.length === 0) continue;
+    const title = document.createElement('p');
+    title.className = 'category-title';
+    title.textContent = cat;
+    listEl.appendChild(title);
+
+    const ul = document.createElement('ul');
+    ul.className = 'tool-list';
+    for (const t of inCat) {
+      const li = document.createElement('li');
+      const a = document.createElement('a');
+      a.href = t.path;
+      a.textContent = t.name;
+      const desc = document.createElement('span');
+      desc.className = 'desc';
+      desc.textContent = t.desc;
+      li.appendChild(a);
+      li.appendChild(desc);
+      ul.appendChild(li);
+    }
+    listEl.appendChild(ul);
+  }
+}
+
+searchEl.addEventListener('input', () => render(filter(searchEl.value)));
+render(TOOLS);
+
+// テスト用フック
+window.hub = { TOOLS, filter };
+</script>
+</body>
+</html>
