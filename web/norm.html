@@ -30,6 +30,7 @@
 </head>
 <body>
 <main class="app-wide">
+  <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">設定は自動保存されます</span></p>
   <h1>norm</h1>
   <p class="subtitle">日本語テキストの表記ゆれを正規化 — 変更文字はハイライト（hoverで変更前を表示）</p>
 
@@ -101,7 +102,8 @@ function tokenize(text) {
     const prev = tokens.length > 0 ? tokens[tokens.length - 1] : null;
     if (prev && (ch === '゛' || ch === '゜')) {
       prev.orig += ch;
-      prev.cur += ch === '゛' ? '゙' : '゚';
+      // 結合形に置換して NFC 合成（ウ゛→ヴ）。orig≠cur になるためハイライトで可視化される
+      prev.cur = (prev.cur + (ch === '゛' ? '゙' : '゚')).normalize('NFC');
       continue;
     }
     if (prev && COMBINING_RE.test(ch)) {
@@ -125,12 +127,14 @@ const TRANSFORMS = [
   {
     id: 'nfkc', label: 'NFKC一括', defaultOn: false,
     apply(tokens, opts) {
-      // 有効な他変換が所有する文字はスキップ（オプション死蔵の防止）
-      const excluded = new Set();
+      // 有効な他変換が所有する文字はスキップ（オプション死蔵の防止）。
+      // 単独の ゛/゜ は raw NFKC が「スペース+結合文字」に展開するため常時除外（仕様の明記事項）
+      const excluded = new Set(['゛', '゜']);
       if (opts.hyphen) {
         for (const c of HYPHEN_SOURCES) excluded.add(c);
         for (const c of HYPHEN_TARGETS) excluded.add(c);
-        for (const c of CHOON_CHARS) excluded.add(c);
+        // 長音は「長音ーも対象」設定時のみ T4 の所有物になる（OFF時に除外すると ｰ の正規化が死蔵する）
+        if (opts.hyphenIncludeChoon) for (const c of CHOON_CHARS) excluded.add(c);
       }
       if (opts.wave) for (const c of WAVE_CHARS) excluded.add(c);
       let n = 0;
@@ -294,10 +298,13 @@ function renderSummary(counts) {
 }
 
 function showBanner(msg, kind) {
-  el.banner.className = 'banner ' + (kind === 'error' ? 'banner-error' : 'banner-info');
+  el.banner.className = 'banner ' +
+    (kind === 'error' ? 'banner-error' : kind === 'warn' ? 'banner-warn' : 'banner-info');
   el.banner.textContent = msg;
   el.banner.hidden = !msg;
 }
+
+const MAX_INPUT_CHARS = 1000000; // 超過時は処理せず理由を表示（性能ガード）
 
 // 隣接する同種トークンを結合して DOM 数を抑えつつハイライト描画
 function renderOutput(result, useRuby) {
@@ -314,12 +321,14 @@ function renderOutput(result, useRuby) {
   let spanCount = 0;
   let i = 0;
   const tokens = result.tokens;
+  // ハイライト判定は仕様どおり orig !== cur（前処理由来の変更も見逃さない）
+  const isChanged = t => t.orig !== t.cur;
   while (i < tokens.length) {
-    const changed = tokens[i].changedBy.length > 0;
+    const changed = isChanged(tokens[i]);
     const sig = tokens[i].changedBy.join(',');
     let j = i + 1;
     while (j < tokens.length &&
-      (tokens[j].changedBy.length > 0) === changed &&
+      isChanged(tokens[j]) === changed &&
       tokens[j].changedBy.join(',') === sig) j++;
     const curText = tokens.slice(i, j).map(t => t.cur).join('');
     if (!changed) {
@@ -334,7 +343,9 @@ function renderOutput(result, useRuby) {
       const origText = tokens.slice(i, j).map(t => t.orig).join('');
       const span = document.createElement('span');
       span.className = 'chg';
-      const labels = tokens[i].changedBy.map(id => LABELS[id] || id).join('・');
+      const labels = tokens[i].changedBy.length > 0
+        ? tokens[i].changedBy.map(id => LABELS[id] || id).join('・')
+        : '前処理（濁点合成）';
       span.title = '変更前: ' + origText + ' [' + labels + ']';
       if (useRuby) {
         const ruby = document.createElement('ruby');
@@ -355,6 +366,13 @@ function renderOutput(result, useRuby) {
 
 function run() {
   showBanner('', 'info');
+  if (el.input.value.length > MAX_INPUT_CHARS) {
+    lastResult = { text: '', tokens: [], counts: {} };
+    el.output.textContent = '';
+    el.summary.textContent = '';
+    showBanner('入力が上限（100万文字）を超えたため処理を中止しました', 'warn');
+    return;
+  }
   const opts = uiOpts();
   lastResult = normalize(el.input.value, opts);
   renderOutput(lastResult, opts.ruby);
@@ -383,28 +401,29 @@ function copyFeedback() {
     el.copyBtn.classList.remove('copied');
   }, 1500);
 }
+// フォールバックは規約どおり textarea 選択方式。出力 div の選択は使わない
+// （ルビ注記 ON 時に <rt> の変更前テキストが混入した壊れたコピーになるため）
+function copySelectFallback(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.position = 'fixed';
+  ta.style.left = '-9999px';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
+  ta.remove();
+  ok ? copyFeedback() : showBanner('コピーできませんでした。出力を手動で選択してコピーしてください。', 'info');
+}
 el.copyBtn.addEventListener('click', () => {
   const text = lastResult.text;
+  if (text === '') { showBanner('コピーする内容がありません', 'info'); return; }
   if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(text).then(copyFeedback).catch(() => {
-      const range = document.createRange();
-      range.selectNodeContents(el.output);
-      const sel = getSelection();
-      sel.removeAllRanges();
-      sel.addRange(range);
-      let ok = false;
-      try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
-      ok ? copyFeedback() : showBanner('出力を選択済みです。Cmd+C でコピーしてください。', 'info');
-    });
+    navigator.clipboard.writeText(text).then(copyFeedback).catch(() => copySelectFallback(text));
   } else {
-    const range = document.createRange();
-    range.selectNodeContents(el.output);
-    const sel = getSelection();
-    sel.removeAllRanges();
-    sel.addRange(range);
-    let ok = false;
-    try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
-    ok ? copyFeedback() : showBanner('出力を選択済みです。Cmd+C でコピーしてください。', 'info');
+    copySelectFallback(text);
   }
 });
 
