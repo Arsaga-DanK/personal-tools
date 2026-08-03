@@ -36,6 +36,7 @@
 </head>
 <body>
 <main class="app-wide">
+  <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">設定は自動保存されます</span></p>
   <h1>diff</h1>
   <p class="subtitle">2つのテキストの差分を行単位＋文字単位で表示（unified形式）</p>
 
@@ -398,7 +399,25 @@ function renderDiff(result) {
   view.scrollTop = scrollTop;
 }
 
+// 性能ガード: 超過時は比較せず理由を表示（静かに固まるのを防ぐ）
+const MAX_INPUT_CHARS_TOTAL = 5000000;
+const MAX_LINES_PER_SIDE = 50000;
+function countLines(s) {
+  if (s === '') return 0;
+  let n = 1, i = -1;
+  while ((i = s.indexOf('\n', i + 1)) !== -1) n++;
+  return n;
+}
+
 function run() {
+  const aV = el.a.value, bV = el.b.value;
+  if (aV.length + bV.length > MAX_INPUT_CHARS_TOTAL ||
+      countLines(aV) > MAX_LINES_PER_SIDE || countLines(bV) > MAX_LINES_PER_SIDE) {
+    el.view.textContent = '';
+    el.summary.textContent = '';
+    showBanner('入力が上限（合計500万文字・片側5万行）を超えたため比較を中止しました', 'warn');
+    return;
+  }
   const result = diffLines(el.a.value, el.b.value, uiOpts());
   el.summary.textContent =
     '追加 ' + result.summary.added + '行 / 削除 ' + result.summary.deleted +
