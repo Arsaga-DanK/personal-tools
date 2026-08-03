@@ -2,7 +2,7 @@
 
 ## 概要
 
-Excel からコピーしたセル範囲（TSV）を Markdown テーブルに変換する片方向ツール。`web/excel2md.html`、カテゴリ: 変換（→要確認 E2M-Q1）。既存の双方向ツール `excel2md/excel2md.html` とは独立（あちらは変更しない）。
+Excel のセル範囲（TSV）⇔ Markdown テーブルを**双方向**に変換するツール（方向切替式）。`web/excel2md.html`、カテゴリ: 変換（→要確認 E2M-Q1）。旧双方向ツール `excel2md/excel2md.html` とは独立（あちらは変更しない）。MD→TSV 方向は旧版の挙動を正として移植（Phase F 統合）。
 
 ## 要件対応表
 
@@ -20,10 +20,11 @@ Excel からコピーしたセル範囲（TSV）を Markdown テーブルに変�
 
 - `<main>` 直下: `.tool-header`（「← ツール一覧」リンク＋「設定は自動保存されます」注記）
 - 上部: タイトル＋1行説明
-- ツールバー: 「1行目をヘッダーにする」チェック / 「セル前後の空白を除去」チェック / 「Markdownをコピー」ボタン
-- 2ペイン（`.panes`）: 左=入力 textarea（TSV貼り付け）、右=出力 textarea（Markdown、readonly）
+- ツールバー: **方向切替ラジオ［TSV→MD｜MD→TSV］** / 「1行目をヘッダーにする」チェック / 「セル前後の空白を除去」チェック（TSV→MD のみ有効） / コピーボタン（方向により「Markdownをコピー」/「Excel用にコピー」）
+- 2ペイン（`.panes`）: 左=入力 textarea、右=出力 textarea（readonly）。ペインタイトルは方向に追従
 - 警告バナー領域（`.banner`）: ツールバー直下
 - 入力は 200ms デバウンスでリアルタイム変換
+- **方向は自動で反転しない**。入力が逆方向の形式に見えるとき（TSV→MD なのに Markdown 区切り行を検出等）は情報バナーで切替を提案する
 
 ## 変換仕様
 
@@ -34,12 +35,22 @@ Excel からコピーしたセル範囲（TSV）を Markdown テーブルに変�
 5. **trim**: ON のとき各セルの前後空白（半角/全角スペース・タブ）を除去。セル内改行と中間の空白は保持
 6. **タブなし入力**: 1列の表として変換し情報バナー表示（CLAUDE.md の best-effort 原則により決定済み）
 
+## 変換仕様（MD→TSV 方向。旧版の挙動を正として移植）
+
+1. **Markdown表パース**（旧版 `parseMarkdownTable`/`splitMarkdownRow`/`parseMarkdownSeparator` を流用）: 「`|` を含む行」の直後に区切り行（各セルが `:?-+:?`）が現れる位置をヘッダー行とみなす。縁の `|` は任意。`\|` は `|` のエスケープ。区切り行から列ごとの揃え（left/center/right/none）を取得。表の後続は `|` を含む行が続く限りボディ
+2. **セル内 `<br>`**: セル内改行として復元（`<br>` `<br/>` `<br />` 大文字小文字問わず）
+3. **TSV生成**（旧版 `gridToTsv`）: タブ・改行・`"` を含むセルのみ `"` 囲み（内部の `"` は `""`）
+4. **Excel貼り付け用HTML**（旧版 `gridToHtmlTable`）: ヘッダーON時は1行目を `<th>`。揃えは `align` 属性＋`style`。セル内改行は `<br style="mso-data-placement:same-cell">`（Excel が同一セル内改行として解釈）
+5. **Excel用コピー**（旧版 `copyForExcel`）: **execCommand 先行**で text/html＋text/plain を書く（Chrome の async clipboard は HTML をサニタイズし mso-data-placement が落ちるため）。失敗時 ClipboardItem、それも不可なら出力 textarea 選択フォールバック（TSVのみ）
+6. **方向を MD→TSV に切り替えたとき**はヘッダートグルを自動 ON（Markdown 表は構文上ヘッダー確定 — 旧版挙動）。トグル OFF は Excel コピーの `<th>`/`<td>` にのみ影響（TSV 出力は不変）
+
 ## オプション仕様
 
 | オプション | 既定値 | 永続化 |
 |---|---|---|
+| 方向（tsv2md / md2tsv） | tsv2md | する（`tools:excel2md`） |
 | 1行目をヘッダーにする | ON | する（E2M-Q3 で決定。`tools:excel2md`） |
-| セル前後の空白を除去 | ON | 同上 |
+| セル前後の空白を除去 | ON | 同上（TSV→MD のみ有効） |
 
 ## エラー・警告仕様
 
@@ -52,7 +63,7 @@ Excel からコピーしたセル範囲（TSV）を Markdown テーブルに変�
 
 ## 保存仕様
 
-キー `tools:excel2md`、payload `{header: bool, trim: bool}`（E2M-Q3 で決定）。入力テキスト自体は保存しない。
+キー `tools:excel2md`、payload `{header: bool, trim: bool, direction: 'tsv2md'|'md2tsv'}`（E2M-Q3 で決定＋双方向化で direction 追加）。入力テキスト自体は保存しない。
 
 ## テストケース
 
@@ -69,6 +80,17 @@ Excel からコピーしたセル範囲（TSV）を Markdown テーブルに変�
 | E2M-07 | header:false | `'x\ty'` | `'|  |  |\n| --- | --- |\n| x | y |'`（E2M-Q2 の推奨案採用時） |
 | E2M-08 | 既定 | `'x'.repeat(2000001)` | `''`（markdown空）、warnings に「上限」warn 1件 |
 
+MD→TSV 方向（`window.excel2md.convertFromMd(input, {header})` → `{tsv, html, alignments, warnings}` で照合）:
+
+| ID | 前提 | 入力 | 期待 |
+|---|---|---|---|
+| E2M-R01 | 既定 | `'| A | B |\n| --- | --- |\n| 1 | 2 |'` | tsv=`'A\tB\n1\t2'` |
+| E2M-R02 | 既定 | `'| a | x<br>y |\n| --- | --- |'` | tsv=`'a\t"x\ny"'`（セル内改行は"囲み）、html に `mso-data-placement:same-cell` を含む |
+| E2M-R03 | 既定 | `'| a \\| b |\n| --- |'` | tsv=`'a | b'`（エスケープ解除） |
+| E2M-R04 | 既定 | `'A | B\n--- | ---\n1 | 2'`（縁パイプなし） | tsv=`'A\tB\n1\t2'` |
+| E2M-R05 | 既定 | `'| A | B |\n| :--- | ---: |\n| 1 | 2 |'` | tsv=`'A\tB\n1\t2'`、alignments=`['left','right']`、html の1列目に `align="left"` |
+| E2M-R06 | 既定 | `'ただのテキスト'` | tsv=`''`、warnings に「認識できません」warn 1件 |
+
 ## 検証手順（Playwright）
 
 1. `file:///Users/dan.kawazu/Personal/tools/web/excel2md.html` を開く → ロード時コンソールエラー0
@@ -83,6 +105,7 @@ Excel からコピーしたセル範囲（TSV）を Markdown テーブルに変�
 
 - コピーボタンで「✓コピーしました」または「選択済みです。Cmd+C でコピーしてください」が出ること
 - E2M-01 の貼り付け→変換→Excel の表が Markdown になること（表示崩れ・文字化けなし）
+- MD→TSV: 「Excel用にコピー」→ Excel/Numbers のセルに貼り付けて表として展開され、セル内改行（E2M-R02）が同一セル内に収まること
 
 ## 決定事項（要確認の承認結果・2026-08-03）
 
