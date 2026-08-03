@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>excel2md — TSV → Markdown表</title>
+<link rel="stylesheet" href="../lib/ui.css">
+</head>
+<body>
+<main class="app">
+  <h1>excel2md</h1>
+  <p class="subtitle">Excelでコピーしたセル範囲（TSV）を Markdown テーブルに変換</p>
+
+  <div class="toolbar">
+    <label class="toggle"><input type="checkbox" id="opt-header" checked> 1行目をヘッダーにする</label>
+    <label class="toggle"><input type="checkbox" id="opt-trim" checked> セル前後の空白を除去</label>
+    <span class="spacer"></span>
+    <button class="primary" id="copy-btn">Markdownをコピー</button>
+  </div>
+
+  <div class="banner" id="banner" hidden></div>
+
+  <div class="panes">
+    <div class="pane">
+      <p class="pane-title">入力（Excelからの貼り付け / TSV）</p>
+      <textarea id="input" spellcheck="false" placeholder="ここに Excel のセル範囲を貼り付け"></textarea>
+    </div>
+    <div class="pane">
+      <p class="pane-title">出力（Markdown）</p>
+      <textarea id="output" readonly spellcheck="false"></textarea>
+    </div>
+  </div>
+</main>
+
+<script src="../lib/storage.js"></script>
+<script>
+'use strict';
+
+/* ========== 変換ロジック（純関数・UIと同一コードパスをフック公開） ========== */
+
+function normalizeNewlines(text) {
+  return text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+}
+
+function padGrid(rows) {
+  if (rows.length === 0) return [];
+  let cols = 0;
+  for (const row of rows) if (row.length > cols) cols = row.length;
+  return rows.map(row => Array.from({ length: cols }, (_, i) => row[i] ?? ''));
+}
+
+// Excel の TSV 方言: 改行を含むセルだけ "..." で囲まれ、内部の "" は " のエスケープ。
+// 閉じ引用の直後がタブ/改行/末尾のときだけ引用セルとみなす（既存ツールから流用）。
+function parseRows(text) {
+  text = normalizeNewlines(text).replace(/\n+$/, '');
+  if (text === '') return [];
+  if (!text.includes('"')) {
+    return text.split('\n').map(line => line.split('\t'));
+  }
+
+  const rows = [[]];
+  let cell = '';
+  let cellStart = true;
+  let i = 0;
+
+  const pushCell = () => {
+    rows[rows.length - 1].push(cell);
+    cell = '';
+    cellStart = true;
+  };
+
+  while (i < text.length) {
+    const ch = text[i];
+    if (cellStart && ch === '"') {
+      const quoted = tryQuotedCell(text, i);
+      if (quoted) {
+        cell = quoted.content;
+        i = quoted.end;
+        cellStart = false;
+        continue;
+      }
+    }
+    if (ch === '\t') { pushCell(); i++; continue; }
+    if (ch === '\n') { pushCell(); rows.push([]); i++; continue; }
+    cell += ch;
+    cellStart = false;
+    i++;
+  }
+  pushCell();
+  return rows;
+}
+
+function tryQuotedCell(text, start) {
+  let content = '';
+  let i = start + 1;
+  while (i < text.length) {
+    if (text[i] === '"') {
+      if (text[i + 1] === '"') { content += '"'; i += 2; continue; }
+      const next = text[i + 1];
+      if (next === undefined || next === '\t' || next === '\n') {
+        return { content, end: i + 1 };
+      }
+      return null;
+    }
+    content += text[i];
+    i++;
+  }
+  return null;
+}
+
+function parseTsv(text) {
+  return padGrid(parseRows(text));
+}
+
+// セル前後の半角/全角スペース・タブのみ除去（セル内改行と中間空白は保持）
+function trimCell(value) {
+  return value.replace(/^[ \t　]+|[ \t　]+$/g, '');
+}
+
+function mdCell(value) {
+  return value.replace(/\|/g, '\\|').replace(/\n/g, '<br>');
+}
+
+function gridToMarkdown(grid, hasHeader) {
+  if (grid.length === 0) return '';
+  const cols = grid[0].length;
+  const line = cells => '| ' + cells.join(' | ') + ' |';
+
+  const lines = [];
+  let body = grid;
+  if (hasHeader) {
+    lines.push(line(grid[0].map(mdCell)));
+    body = grid.slice(1);
+  } else {
+    lines.push(line(Array(cols).fill('')));
+  }
+  lines.push(line(Array(cols).fill('---')));
+  for (const row of body) lines.push(line(row.map(mdCell)));
+  return lines.join('\n');
+}
+
+// 変換の入口。UI もテストもこの関数を通る。
+// 戻り値: { markdown, warnings: [{type: 'warn'|'info', message}] }
+function convert(text, opts) {
+  const options = Object.assign({ header: true, trim: true }, opts);
+  const warnings = [];
+  const rows = parseRows(text);
+  if (rows.length === 0) return { markdown: '', warnings };
+
+  if (!normalizeNewlines(text).includes('\t')) {
+    warnings.push({ type: 'info', message: 'タブ区切りが見つからないため1列の表として変換しました' });
+  }
+
+  let cols = 0;
+  let uneven = false;
+  for (const row of rows) {
+    if (cols !== 0 && row.length !== cols) uneven = true;
+    if (row.length > cols) cols = row.length;
+  }
+  if (uneven) {
+    warnings.push({ type: 'warn', message: '行によって列数が異なるため空セルで補完しました（最大' + cols + '列）' });
+  }
+
+  let grid = padGrid(rows);
+  if (options.trim) grid = grid.map(row => row.map(trimCell));
+  return { markdown: gridToMarkdown(grid, options.header), warnings };
+}
+
+/* ========== テスト用フック ========== */
+
+window.excel2md = { parseTsv, gridToMarkdown, convert };
+
+/* ========== UI ========== */
+
+const $ = id => document.getElementById(id);
+const el = {
+  input: $('input'),
+  output: $('output'),
+  banner: $('banner'),
+  optHeader: $('opt-header'),
+  optTrim: $('opt-trim'),
+  copyBtn: $('copy-btn'),
+};
+
+const TOOL = 'excel2md';
+
+function currentOpts() {
+  return { header: el.optHeader.checked, trim: el.optTrim.checked };
+}
+
+function showBanner(warnings) {
+  if (warnings.length === 0) { el.banner.hidden = true; return; }
+  const hasWarn = warnings.some(w => w.type === 'warn');
+  el.banner.className = 'banner ' + (hasWarn ? 'banner-warn' : 'banner-info');
+  el.banner.textContent = warnings.map(w => w.message).join(' / ');
+  el.banner.hidden = false;
+}
+
+function run() {
+  const result = convert(el.input.value, currentOpts());
+  el.output.value = result.markdown;
+  showBanner(result.warnings);
+}
+
+let debounceTimer = null;
+el.input.addEventListener('input', () => {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(run, 200);
+});
+
+function onOptionChange() {
+  ToolStorage.save(TOOL, currentOpts());
+  run();
+}
+el.optHeader.addEventListener('change', onOptionChange);
+el.optTrim.addEventListener('change', onOptionChange);
+
+// コピー: click ハンドラ内で同期的に開始する（Safari のユーザー操作失効対策）。
+// 確実な保険は「選択状態にする」こと。
+let copyTimer = null;
+function copyFeedback() {
+  el.copyBtn.textContent = '✓ コピーしました';
+  el.copyBtn.classList.add('copied');
+  clearTimeout(copyTimer);
+  copyTimer = setTimeout(() => {
+    el.copyBtn.textContent = 'Markdownをコピー';
+    el.copyBtn.classList.remove('copied');
+  }, 1500);
+}
+function copySelectFallback() {
+  el.output.focus();
+  el.output.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
+  if (ok) {
+    copyFeedback();
+  } else {
+    el.banner.className = 'banner banner-warn';
+    el.banner.textContent = '出力を選択済みです。Cmd+C でコピーしてください。';
+    el.banner.hidden = false;
+  }
+}
+el.copyBtn.addEventListener('click', () => {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(el.output.value)
+      .then(copyFeedback)
+      .catch(copySelectFallback);
+  } else {
+    copySelectFallback();
+  }
+});
+
+// 設定復元 → 初期描画
+(function init() {
+  const saved = ToolStorage.load(TOOL);
+  if (saved && typeof saved === 'object') {
+    if (typeof saved.header === 'boolean') el.optHeader.checked = saved.header;
+    if (typeof saved.trim === 'boolean') el.optTrim.checked = saved.trim;
+  }
+  ToolStorage.mountWarning();
+  run();
+})();
+</script>
+</body>
+</html>
