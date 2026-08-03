@@ -73,17 +73,16 @@ function render(tools) {
   }
   emptyEl.hidden = true;
 
-  for (const cat of CATEGORY_ORDER) {
-    const inCat = tools.filter(t => t.category === cat);
-    if (inCat.length === 0) continue;
-    const title = document.createElement('p');
-    title.className = 'category-title';
-    title.textContent = cat;
-    listEl.appendChild(title);
+  const renderGroup = (title, items) => {
+    if (items.length === 0) return;
+    const titleEl = document.createElement('p');
+    titleEl.className = 'category-title';
+    titleEl.textContent = title;
+    listEl.appendChild(titleEl);
 
     const ul = document.createElement('ul');
     ul.className = 'tool-list';
-    for (const t of inCat) {
+    for (const t of items) {
       const li = document.createElement('li');
       const a = document.createElement('a');
       a.href = t.path;
@@ -96,7 +95,13 @@ function render(tools) {
       ul.appendChild(li);
     }
     listEl.appendChild(ul);
+  };
+
+  for (const cat of CATEGORY_ORDER) {
+    renderGroup(cat, tools.filter(t => t.category === cat));
   }
+  // CATEGORY_ORDER 外のカテゴリ（typo 等）を無言で落とさない
+  renderGroup('その他', tools.filter(t => !CATEGORY_ORDER.includes(t.category)));
 }
 
 searchEl.addEventListener('input', () => render(filter(searchEl.value)));
