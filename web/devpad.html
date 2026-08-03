@@ -17,6 +17,7 @@
 </head>
 <body>
 <main class="app-wide">
+  <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">入力と設定は自動保存されます</span></p>
   <h1>devpad</h1>
   <p class="subtitle">開発ユーティリティ集 — 各タブは独立動作（1機能のエラーは他に波及しません）</p>
 
@@ -34,6 +35,7 @@
       <button class="primary" id="json-format">整形</button>
       <button id="json-minify">圧縮</button>
       <button id="json-validate">検証</button>
+      <button id="json-copy">出力をコピー</button>
       <span class="muted" style="font-size:12px">エラー位置表示はブラウザ依存の参考情報です（Safari は位置なし）</span>
     </div>
     <div class="banner" id="json-result" hidden></div>
@@ -50,6 +52,8 @@
     <div class="row">
       <button class="primary" id="esc-encode">エスケープ →</button>
       <button id="esc-decode">← アンエスケープ（引用符なしは自動補完）</button>
+      <button id="esc-copy-raw">生テキストをコピー</button>
+      <button id="esc-copy-lit">リテラルをコピー</button>
     </div>
     <div class="banner" id="esc-result" hidden></div>
   </section>
@@ -65,6 +69,8 @@
     <div class="row">
       <button class="primary" id="url-encode">エンコード →</button>
       <button id="url-decode">← デコード</button>
+      <button id="url-copy-raw">生テキストをコピー</button>
+      <button id="url-copy-enc">結果をコピー</button>
     </div>
     <div class="banner" id="url-result" hidden></div>
   </section>
@@ -80,6 +86,8 @@
     <div class="row">
       <button class="primary" id="b64-encode">エンコード →</button>
       <button id="b64-decode">← デコード</button>
+      <button id="b64-copy-raw">テキストをコピー</button>
+      <button id="b64-copy-enc">Base64をコピー</button>
     </div>
     <div class="banner" id="b64-result" hidden></div>
   </section>
@@ -109,6 +117,8 @@
     <div class="row">
       <label>件数: <input type="number" id="uuid-count" value="1" min="1" max="1000"></label>
       <button class="primary" id="uuid-gen">UUID v4 を生成</button>
+      <button id="uuid-copy">UUIDをコピー</button>
+      <span class="muted" id="uuid-hint" style="font-size:12px"></span>
     </div>
     <textarea id="uuid-out" readonly spellcheck="false"></textarea>
   </section>
@@ -119,7 +129,8 @@
       <div class="pane"><p class="pane-title">テキスト</p>
         <textarea id="count-in" spellcheck="false"></textarea></div>
       <div class="pane"><p class="pane-title">集計（入力と同時に更新）</p>
-        <div id="count-result"></div></div>
+        <div id="count-result"></div>
+        <p class="muted" style="font-size:12px">全角/半角は East Asian Width の近似判定です</p></div>
     </div>
   </section>
 </main>
@@ -223,7 +234,14 @@ function jstToEpoch(text) {
   const t = String(text).trim();
   let m = t.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?$/);
   if (m) {
-    const utcMs = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0));
+    const y = +m[1], mo = +m[2], da = +m[3], h = +m[4], mi = +m[5], s = +(m[6] || 0);
+    const utcMs = Date.UTC(y, mo - 1, da, h, mi, s);
+    const d = new Date(utcMs);
+    // Date.UTC のロールオーバー（2024/13/99 等）を黙って受理しない
+    if (d.getUTCFullYear() !== y || d.getUTCMonth() !== mo - 1 || d.getUTCDate() !== da ||
+        h > 23 || mi > 59 || s > 59) {
+      return { error: '存在しない日時です（例: 2024/13/99 は不可）' };
+    }
     return utcMs / 1000 - 32400;
   }
   if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})$/.test(t)) {
@@ -294,6 +312,45 @@ function showResult(id, msg, kind) {
   el.hidden = !msg;
 }
 
+// 性能ガード: ボタン駆動の変換は500万文字で処理中止（一部のみ処理はしない）
+const BUTTON_INPUT_LIMIT = 5000000;
+function tooLarge(text, resultId) {
+  if (text.length <= BUTTON_INPUT_LIMIT) return false;
+  showResult(resultId, '入力が上限（500万文字）を超えたため処理を中止しました', 'error');
+  return true;
+}
+
+// 出力コピー（共通プロトコル: clipboard API → 選択フォールバック）
+function wireCopy(btnId, srcId, hint) {
+  const btn = $(btnId);
+  const orig = btn.textContent;
+  let timer = null;
+  const done = () => {
+    btn.textContent = '✓ コピー';
+    btn.classList.add('copied');
+    clearTimeout(timer);
+    timer = setTimeout(() => { btn.textContent = orig; btn.classList.remove('copied'); }, 1500);
+  };
+  btn.addEventListener('click', () => {
+    const src = $(srcId);
+    const text = src.value;
+    hint('');
+    if (text === '') { hint('コピーする内容がありません'); return; }
+    const fallback = () => {
+      src.focus();
+      src.select();
+      let ok = false;
+      try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
+      ok ? done() : hint('選択済みです。Cmd+C でコピーしてください');
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done).catch(fallback);
+    } else {
+      fallback();
+    }
+  });
+}
+
 /* ========== 各タブの定義 ========== */
 
 const TABS = [
@@ -301,14 +358,17 @@ const TABS = [
     id: 'json', label: 'JSON',
     init() {
       $('json-format').addEventListener('click', guard('json', () => {
+        if (tooLarge($('json-in').value, 'json-result')) return;
         $('json-out').value = formatJson($('json-in').value);
         showResult('json-result', '', 'info');
       }));
       $('json-minify').addEventListener('click', guard('json', () => {
+        if (tooLarge($('json-in').value, 'json-result')) return;
         $('json-out').value = minifyJson($('json-in').value);
         showResult('json-result', '', 'info');
       }));
       $('json-validate').addEventListener('click', guard('json', () => {
+        if (tooLarge($('json-in').value, 'json-result')) return;
         const r = parseJsonWithPos($('json-in').value);
         if (r.ok) { showResult('json-result', '有効なJSONです', 'info'); return; }
         let msg;
@@ -332,10 +392,12 @@ const TABS = [
     id: 'escape', label: 'エスケープ',
     init() {
       $('esc-encode').addEventListener('click', guard('escape', () => {
+        if (tooLarge($('esc-raw').value, 'esc-result')) return;
         $('esc-lit').value = escapeJsonStr($('esc-raw').value);
         showResult('esc-result', '', 'info');
       }));
       $('esc-decode').addEventListener('click', guard('escape', () => {
+        if (tooLarge($('esc-lit').value, 'esc-result')) return;
         try {
           $('esc-raw').value = unescapeJsonStr($('esc-lit').value);
           showResult('esc-result', '', 'info');
@@ -354,10 +416,12 @@ const TABS = [
     id: 'url', label: 'URL',
     init() {
       $('url-encode').addEventListener('click', guard('url', () => {
+        if (tooLarge($('url-raw').value, 'url-result')) return;
         $('url-enc').value = urlEncode($('url-raw').value);
         showResult('url-result', '', 'info');
       }));
       $('url-decode').addEventListener('click', guard('url', () => {
+        if (tooLarge($('url-enc').value, 'url-result')) return;
         try {
           $('url-raw').value = urlDecode($('url-enc').value);
           showResult('url-result', '', 'info');
@@ -376,10 +440,12 @@ const TABS = [
     id: 'base64', label: 'Base64',
     init() {
       $('b64-encode').addEventListener('click', guard('base64', () => {
+        if (tooLarge($('b64-raw').value, 'b64-result')) return;
         $('b64-enc').value = b64encode($('b64-raw').value);
         showResult('b64-result', '', 'info');
       }));
       $('b64-decode').addEventListener('click', guard('base64', () => {
+        if (tooLarge($('b64-enc').value, 'b64-result')) return;
         const r = b64decode($('b64-enc').value);
         if (typeof r === 'string') {
           $('b64-raw').value = r;
@@ -468,9 +534,18 @@ const TABS = [
   {
     id: 'count', label: 'カウント',
     init() {
+      const COUNT_INPUT_LIMIT = 2000000; // 性能ガード（リアルタイム集計のため低め）
       const render = guard('count', () => {
-        const c = countText($('count-in').value);
         const host = $('count-result');
+        const text = $('count-in').value;
+        if (text.length > COUNT_INPUT_LIMIT) {
+          host.textContent = '';
+          const p = document.createElement('p');
+          p.textContent = '入力が上限（200万文字）を超えたため集計を中止しました';
+          host.appendChild(p);
+          return;
+        }
+        const c = countText(text);
         host.textContent = '';
         const rows = [
           ['文字数（コードポイント）', c.chars],
@@ -492,7 +567,11 @@ const TABS = [
           host.appendChild(p);
         }
       });
-      $('count-in').addEventListener('input', render);
+      let countTimer = null;
+      $('count-in').addEventListener('input', () => {
+        clearTimeout(countTimer);
+        countTimer = setTimeout(render, 150);
+      });
       render();
     },
     getState() { return { in: $('count-in').value }; },
@@ -504,7 +583,7 @@ const TABS = [
 
 let activeTab = 'json';
 
-function switchTab(id) {
+function switchTab(id, save = true) {
   if (!TABS.some(t => t.id === id)) return;
   activeTab = id;
   for (const t of TABS) {
@@ -512,7 +591,8 @@ function switchTab(id) {
     document.querySelector('#tabbar button[data-tab="' + t.id + '"]')
       .classList.toggle('active', t.id === id);
   }
-  scheduleSave();
+  // 初期化時は保存しない（{omitted:true} マーカーを即上書きしないため）
+  if (save) scheduleSave();
 }
 
 const FIELD_LIMIT = 100000; // UTF-16 code unit 長。超過フィールドは保存しない（DEV-Q3）
@@ -568,7 +648,10 @@ function restoreState() {
       }
     } catch (_) { /* 1タブ分の破損は他へ波及させない */ }
   }
-  if (typeof saved.activeTab === 'string') activeTab = saved.activeTab;
+  // 不正値（タブ改名・破損等）は json にフォールバックし空画面を防ぐ
+  if (typeof saved.activeTab === 'string' && TABS.some(t => t.id === saved.activeTab)) {
+    activeTab = saved.activeTab;
+  }
 }
 
 /* ========== 初期化 ========== */
@@ -596,7 +679,16 @@ function restoreState() {
   }
 
   restoreState();
-  switchTab(activeTab);
+  switchTab(activeTab, false);
+
+  wireCopy('json-copy', 'json-out', m => showResult('json-result', m, 'info'));
+  wireCopy('esc-copy-raw', 'esc-raw', m => showResult('esc-result', m, 'info'));
+  wireCopy('esc-copy-lit', 'esc-lit', m => showResult('esc-result', m, 'info'));
+  wireCopy('url-copy-raw', 'url-raw', m => showResult('url-result', m, 'info'));
+  wireCopy('url-copy-enc', 'url-enc', m => showResult('url-result', m, 'info'));
+  wireCopy('b64-copy-raw', 'b64-raw', m => showResult('b64-result', m, 'info'));
+  wireCopy('b64-copy-enc', 'b64-enc', m => showResult('b64-result', m, 'info'));
+  wireCopy('uuid-copy', 'uuid-out', m => { $('uuid-hint').textContent = m; });
 
   document.querySelector('main').addEventListener('input', scheduleSave);
   window.addEventListener('pagehide', flushSave);
