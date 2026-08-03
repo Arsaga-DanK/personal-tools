@@ -3,16 +3,18 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>excel2md — TSV → Markdown表</title>
+<title>excel2md — TSV ⇔ Markdown表</title>
 <link rel="stylesheet" href="../lib/ui.css">
 </head>
 <body>
 <main class="app">
   <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">設定は自動保存されます</span></p>
   <h1>excel2md</h1>
-  <p class="subtitle">Excelでコピーしたセル範囲（TSV）を Markdown テーブルに変換</p>
+  <p class="subtitle">Excelのセル範囲（TSV）⇔ Markdown テーブルを双方向変換</p>
 
   <div class="toolbar">
+    <label class="toggle"><input type="radio" name="direction" value="tsv2md" checked> TSV→MD</label>
+    <label class="toggle"><input type="radio" name="direction" value="md2tsv"> MD→TSV</label>
     <label class="toggle"><input type="checkbox" id="opt-header" checked> 1行目をヘッダーにする</label>
     <label class="toggle"><input type="checkbox" id="opt-trim" checked> セル前後の空白を除去</label>
     <span class="spacer"></span>
@@ -24,11 +26,11 @@
 
   <div class="panes">
     <div class="pane">
-      <p class="pane-title">入力（Excelからの貼り付け / TSV）</p>
-      <textarea id="input" spellcheck="false" placeholder="ここに Excel のセル範囲を貼り付け"></textarea>
+      <p class="pane-title" id="pane-title-in">入力（Excelからの貼り付け / TSV）</p>
+      <textarea id="input" spellcheck="false" placeholder="ここに変換したい表を貼り付け"></textarea>
     </div>
     <div class="pane">
-      <p class="pane-title">出力（Markdown）</p>
+      <p class="pane-title" id="pane-title-out">出力（Markdown）</p>
       <textarea id="output" readonly spellcheck="false"></textarea>
     </div>
   </div>
@@ -174,9 +176,117 @@ function convert(text, opts) {
   return { markdown: gridToMarkdown(grid, options.header), warnings };
 }
 
+/* ========== MD→TSV 方向（旧版 excel2md/excel2md.html から移植） ========== */
+
+// 区切り行（| :--- | ---: | など）なら列ごとの揃えを返し、区切り行でなければ null
+function parseMarkdownSeparator(line) {
+  if (!line.includes('|') || !line.includes('-')) return null;
+  const cells = line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|');
+  const alignments = [];
+  for (const c of cells) {
+    const s = c.trim();
+    if (!/^:?-+:?$/.test(s)) return null;
+    const left = s.startsWith(':');
+    const right = s.endsWith(':');
+    alignments.push(left && right ? 'center' : right ? 'right' : left ? 'left' : 'none');
+  }
+  return alignments;
+}
+
+function splitMarkdownRow(line) {
+  const s = line.trim();
+  const cells = [];
+  let cur = '';
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (ch === '\\' && s[i + 1] === '|') { cur += '|'; i++; continue; }
+    if (ch === '|') { cells.push(cur); cur = ''; continue; }
+    cur += ch;
+  }
+  cells.push(cur);
+  if (s.startsWith('|')) cells.shift();
+  if (/(^|[^\\])\|$/.test(s)) cells.pop();
+  return cells.map(c => c.trim().replace(/<br\s*\/?\s*>/gi, '\n'));
+}
+
+// 「| を含む行」の直後に区切り行、が現れる位置をテーブル先頭とみなす。
+// 戻り値: { grid, alignments } / 認識できなければ null
+function parseMarkdownTable(text) {
+  const lines = normalizeNewlines(text).split('\n').map(l => l.trim()).filter(l => l !== '');
+  let headerIdx = -1;
+  let alignments = null;
+  for (let i = 0; i < lines.length - 1; i++) {
+    if (!lines[i].includes('|')) continue;
+    alignments = parseMarkdownSeparator(lines[i + 1]);
+    if (alignments) { headerIdx = i; break; }
+  }
+  if (headerIdx === -1) return null;
+
+  const rows = [splitMarkdownRow(lines[headerIdx])];
+  for (let i = headerIdx + 2; i < lines.length; i++) {
+    if (!lines[i].includes('|')) break;
+    rows.push(splitMarkdownRow(lines[i]));
+  }
+  const grid = padGrid(rows);
+  const cols = grid[0].length;
+  while (alignments.length < cols) alignments.push('none');
+  return { grid, alignments: alignments.slice(0, cols) };
+}
+
+function gridToTsv(grid) {
+  const tsvCell = v => /[\t\n"]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+  return grid.map(row => row.map(tsvCell).join('\t')).join('\n');
+}
+
+function escapeHtml(value) {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Excel 貼り付け用の <table>。セル内改行は mso-data-placement:same-cell 付き <br> で
+// 同一セル内改行として維持される（Excel/MSO 独自CSS）
+function gridToHtmlTable(grid, hasHeader, alignments) {
+  const cellHtml = v => escapeHtml(v).replace(/\n/g, '<br style="mso-data-placement:same-cell">');
+  const attrs = i => {
+    const a = alignments[i];
+    return (a && a !== 'none') ? ' align="' + a + '" style="text-align:' + a + '"' : '';
+  };
+  const rowHtml = (row, tag) =>
+    '<tr>' + row.map((v, i) => '<' + tag + attrs(i) + '>' + cellHtml(v) + '</' + tag + '>').join('') + '</tr>';
+  const parts = ['<table>'];
+  grid.forEach((row, r) => parts.push(rowHtml(row, hasHeader && r === 0 ? 'th' : 'td')));
+  parts.push('</table>');
+  return parts.join('');
+}
+
+// MD→TSV の変換入口。UI もテストもこの関数を通る。
+// 戻り値: { tsv, html, alignments, warnings }
+function convertFromMd(text, opts) {
+  const options = Object.assign({ header: true }, opts);
+  const warnings = [];
+  if (text.length > MAX_INPUT_CHARS) {
+    warnings.push({ type: 'warn', message: '入力が上限（200万文字）を超えたため処理を中止しました' });
+    return { tsv: '', html: '', alignments: [], warnings };
+  }
+  if (text.trim() === '') return { tsv: '', html: '', alignments: [], warnings };
+  const parsed = parseMarkdownTable(text);
+  if (!parsed) {
+    warnings.push({ type: 'warn', message: 'Markdownの表として認識できませんでした（ヘッダー行と区切り行が必要です）' });
+    return { tsv: '', html: '', alignments: [], warnings };
+  }
+  return {
+    tsv: gridToTsv(parsed.grid),
+    html: gridToHtmlTable(parsed.grid, options.header, parsed.alignments),
+    alignments: parsed.alignments,
+    warnings,
+  };
+}
+
 /* ========== テスト用フック ========== */
 
-window.excel2md = { parseTsv, gridToMarkdown, convert };
+window.excel2md = {
+  parseTsv, gridToMarkdown, convert,
+  parseMarkdownTable, gridToTsv, gridToHtmlTable, convertFromMd,
+};
 
 /* ========== UI ========== */
 
@@ -193,8 +303,28 @@ const el = {
 
 const TOOL = 'excel2md';
 
+let direction = 'tsv2md';
+let lastHtml = ''; // MD→TSV の「Excel用にコピー」で使う HTML 表
+
+const DIRECTION_UI = {
+  tsv2md: { inTitle: '入力（Excelからの貼り付け / TSV）', outTitle: '出力（Markdown）', copyLabel: 'Markdownをコピー' },
+  md2tsv: { inTitle: '入力（Markdownテーブル）', outTitle: '出力（Excel貼り付け用 TSV）', copyLabel: 'Excel用にコピー' },
+};
+
+function applyDirectionUI() {
+  const ui = DIRECTION_UI[direction];
+  $('pane-title-in').textContent = ui.inTitle;
+  $('pane-title-out').textContent = ui.outTitle;
+  el.copyBtn.textContent = ui.copyLabel;
+  el.optTrim.disabled = direction === 'md2tsv'; // trim は TSV→MD のみ有効
+}
+
 function currentOpts() {
   return { header: el.optHeader.checked, trim: el.optTrim.checked };
+}
+
+function saveOpts() {
+  ToolStorage.save(TOOL, { header: el.optHeader.checked, trim: el.optTrim.checked, direction });
 }
 
 function showBanner(warnings) {
@@ -205,10 +335,31 @@ function showBanner(warnings) {
   el.banner.hidden = false;
 }
 
+// 入力が逆方向の形式に見えるときの切替提案（自動では反転しない）
+function maybeSuggestSwitch(warnings) {
+  const text = el.input.value;
+  if (text.trim() === '' || text.length > MAX_INPUT_CHARS) return;
+  if (direction === 'tsv2md' && !text.includes('\t') && parseMarkdownTable(text)) {
+    warnings.push({ type: 'info', message: 'Markdownの表を検出しました。方向「MD→TSV」への切替を検討してください' });
+  } else if (direction === 'md2tsv' && text.includes('\t') && !parseMarkdownTable(text)) {
+    warnings.push({ type: 'info', message: 'タブ区切りを検出しました。方向「TSV→MD」への切替を検討してください' });
+  }
+}
+
 function run() {
-  const result = convert(el.input.value, currentOpts());
-  el.output.value = result.markdown;
-  showBanner(result.warnings);
+  if (direction === 'tsv2md') {
+    const result = convert(el.input.value, currentOpts());
+    el.output.value = result.markdown;
+    lastHtml = '';
+    maybeSuggestSwitch(result.warnings);
+    showBanner(result.warnings);
+  } else {
+    const result = convertFromMd(el.input.value, { header: el.optHeader.checked });
+    el.output.value = result.tsv;
+    lastHtml = result.html;
+    maybeSuggestSwitch(result.warnings);
+    showBanner(result.warnings);
+  }
 }
 
 let debounceTimer = null;
@@ -218,11 +369,22 @@ el.input.addEventListener('input', () => {
 });
 
 function onOptionChange() {
-  ToolStorage.save(TOOL, currentOpts());
+  saveOpts();
   run();
 }
 el.optHeader.addEventListener('change', onOptionChange);
 el.optTrim.addEventListener('change', onOptionChange);
+
+for (const radio of document.querySelectorAll('input[name="direction"]')) {
+  radio.addEventListener('change', () => {
+    direction = radio.value;
+    // Markdown 表は構文上ヘッダー確定のため自動 ON（旧版挙動）
+    if (direction === 'md2tsv') el.optHeader.checked = true;
+    applyDirectionUI();
+    saveOpts();
+    run();
+  });
+}
 
 // コピー: click ハンドラ内で同期的に開始する（Safari のユーザー操作失効対策）。
 // 確実な保険は「選択状態にする」こと。
@@ -232,9 +394,39 @@ function copyFeedback() {
   el.copyBtn.classList.add('copied');
   clearTimeout(copyTimer);
   copyTimer = setTimeout(() => {
-    el.copyBtn.textContent = 'Markdownをコピー';
+    el.copyBtn.textContent = DIRECTION_UI[direction].copyLabel;
     el.copyBtn.classList.remove('copied');
   }, 1500);
+}
+
+// copy イベントを横取りして任意 MIME を書き込む execCommand 方式（旧版から移植）。
+// Chrome の navigator.clipboard.write は HTML をサニタイズし
+// mso-data-placement（セル内改行の維持に必須）が落ちるため execCommand を先行させる。
+function execCopy(fill) {
+  const handler = e => {
+    e.preventDefault();
+    fill(e.clipboardData);
+  };
+  document.addEventListener('copy', handler, { capture: true });
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
+  document.removeEventListener('copy', handler, { capture: true });
+  return ok;
+}
+
+function copyForExcel(html, tsv) {
+  const ok = execCopy(dt => {
+    dt.setData('text/html', html);
+    dt.setData('text/plain', tsv);
+  });
+  if (ok) return Promise.resolve();
+  if (navigator.clipboard && window.ClipboardItem) {
+    return navigator.clipboard.write([new ClipboardItem({
+      'text/html': new Blob([html], { type: 'text/html' }),
+      'text/plain': new Blob([tsv], { type: 'text/plain' }),
+    })]);
+  }
+  return Promise.reject(new Error('clipboard unavailable'));
 }
 function copySelectFallback() {
   el.output.focus();
@@ -256,7 +448,10 @@ el.copyBtn.addEventListener('click', () => {
     el.copyHint.textContent = '出力がありません';
     return;
   }
-  if (navigator.clipboard && navigator.clipboard.writeText) {
+  if (direction === 'md2tsv') {
+    // Excel用: text/html + text/plain を同時に書く（execCommand 先行はクリックハンドラ内で同期実行）
+    copyForExcel(lastHtml, el.output.value).then(copyFeedback).catch(copySelectFallback);
+  } else if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(el.output.value)
       .then(copyFeedback)
       .catch(copySelectFallback);
@@ -271,7 +466,12 @@ el.copyBtn.addEventListener('click', () => {
   if (saved && typeof saved === 'object') {
     if (typeof saved.header === 'boolean') el.optHeader.checked = saved.header;
     if (typeof saved.trim === 'boolean') el.optTrim.checked = saved.trim;
+    if (saved.direction === 'tsv2md' || saved.direction === 'md2tsv') {
+      direction = saved.direction;
+      document.querySelector('input[name="direction"][value="' + direction + '"]').checked = true;
+    }
   }
+  applyDirectionUI();
   ToolStorage.mountWarning();
   run();
 })();
