@@ -4,10 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>devpad — 開発ユーティリティ</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🛠️%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="../lib/ui.css">
 <style>
   /* devpad 固有: タブパネル内のレイアウトのみ（ui.css クラスは再定義しない） */
   section.tab-panel { padding: 16px 0; }
+  .sample-btn { font-size: 11px; padding: 1px 8px; margin-left: 6px; }
+  .click-copy { cursor: pointer; }
   .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
   .json-error-pos { white-space: pre-wrap; margin-top: 6px; }
   #time-now-result p, #count-result p { margin: 4px 0; font-size: 13px; }
@@ -26,7 +29,7 @@
   <section class="tab-panel" id="tab-json" hidden>
     <div class="banner banner-error" data-tab-error hidden></div>
     <div class="panes">
-      <div class="pane"><p class="pane-title">入力（JSON）</p>
+      <div class="pane"><p class="pane-title">入力（JSON）<button type="button" class="sample-btn" id="json-sample">サンプルを入れる</button></p>
         <textarea id="json-in" spellcheck="false"></textarea></div>
       <div class="pane"><p class="pane-title">出力</p>
         <textarea id="json-out" readonly spellcheck="false"></textarea></div>
@@ -100,12 +103,12 @@
       <label class="toggle"><input type="radio" name="epoch-unit" value="sec"> 秒</label>
       <label class="toggle"><input type="radio" name="epoch-unit" value="ms"> ミリ秒</label>
       <button class="primary" id="time-to-jst">→ JST</button>
-      <span class="mono" id="time-jst-out"></span>
+      <span class="mono click-copy" id="time-jst-out" title="クリックでコピー"></span>
     </div>
     <div class="row">
       <label>JST日時: <input type="text" id="time-dt" size="24" placeholder="2024/01/01 00:00:00"></label>
       <button class="primary" id="time-to-epoch">→ Unix時刻</button>
-      <span class="mono" id="time-epoch-out"></span>
+      <span class="mono click-copy" id="time-epoch-out" title="クリックでコピー"></span>
     </div>
     <div class="row"><button id="time-now">現在時刻を各形式で表示</button></div>
     <div id="time-now-result"></div>
@@ -357,23 +360,11 @@ const TABS = [
   {
     id: 'json', label: 'JSON',
     init() {
-      $('json-format').addEventListener('click', guard('json', () => {
-        if (tooLarge($('json-in').value, 'json-result')) return;
-        $('json-out').value = formatJson($('json-in').value);
-        showResult('json-result', '', 'info');
-      }));
-      $('json-minify').addEventListener('click', guard('json', () => {
-        if (tooLarge($('json-in').value, 'json-result')) return;
-        $('json-out').value = minifyJson($('json-in').value);
-        showResult('json-result', '', 'info');
-      }));
-      $('json-validate').addEventListener('click', guard('json', () => {
-        if (tooLarge($('json-in').value, 'json-result')) return;
-        const r = parseJsonWithPos($('json-in').value);
-        if (r.ok) { showResult('json-result', '有効なJSONです', 'info'); return; }
+      // 位置注釈付きエラー表示（整形/圧縮/検証で共通 — 検証だけ丁寧だった非対称の解消）
+      const showJsonPosError = (r, text) => {
         let msg;
         if (r.line !== null) {
-          const srcLine = $('json-in').value.split('\n')[r.line - 1] || '';
+          const srcLine = text.split('\n')[r.line - 1] || '';
           msg = r.line + '行目 ' + r.col + '文字目: ' + r.message + '\n' +
             srcLine + '\n' + ' '.repeat(Math.max(0, r.col - 1)) + '^';
         } else {
@@ -383,7 +374,38 @@ const TABS = [
         el.className = 'banner banner-error json-error-pos mono';
         el.textContent = msg;
         el.hidden = false;
+      };
+      const jsonTransform = stringify => {
+        const text = $('json-in').value;
+        if (tooLarge(text, 'json-result')) return;
+        const r = parseJsonWithPos(text);
+        if (!r.ok) { showJsonPosError(r, text); return; }
+        $('json-out').value = stringify(r.value);
+        showResult('json-result', '', 'info');
+      };
+      $('json-format').addEventListener('click', guard('json', () => {
+        jsonTransform(v => JSON.stringify(v, null, 2));
       }));
+      $('json-minify').addEventListener('click', guard('json', () => {
+        jsonTransform(v => JSON.stringify(v));
+      }));
+      $('json-validate').addEventListener('click', guard('json', () => {
+        if (tooLarge($('json-in').value, 'json-result')) return;
+        const r = parseJsonWithPos($('json-in').value);
+        if (r.ok) { showResult('json-result', '有効なJSONです', 'info'); return; }
+        showJsonPosError(r, $('json-in').value);
+      }));
+      // サンプル投入（空状態の学習用。入力が空のときだけ表示し、投入と同時に整形まで見せる）
+      const JSON_SAMPLE = '{"name":"devpad","tags":["json","変換"],"nested":{"ok":true,"count":3},"list":[1,2,null]}';
+      const updateSampleBtn = () => { $('json-sample').hidden = $('json-in').value !== ''; };
+      $('json-sample').addEventListener('click', () => {
+        $('json-in').value = JSON_SAMPLE;
+        $('json-format').click();
+        updateSampleBtn();
+        scheduleSave();
+      });
+      $('json-in').addEventListener('input', updateSampleBtn);
+      this.updateSampleBtn = updateSampleBtn;
     },
     getState() { return { in: $('json-in').value }; },
     setState(s) { if (typeof s.in === 'string') $('json-in').value = s.in; },
@@ -502,12 +524,42 @@ const TABS = [
           s.className = 'result-label';
           s.textContent = label;
           const v = document.createElement('span');
-          v.className = 'mono';
+          v.className = 'mono click-copy';
+          v.title = 'クリックでコピー';
           v.textContent = String(value);
           p.appendChild(s); p.appendChild(v);
           host.appendChild(p);
         }
       }));
+      // 変換結果はクリックでコピー（他タブのコピーボタンとの非対称の解消）
+      const clickCopy = text => {
+        if (!text) return;
+        const done = () => showResult('time-result', 'コピーしました: ' + text, 'info');
+        const fallback = () => {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          ta.setAttribute('readonly', '');
+          ta.style.position = 'fixed';
+          ta.style.left = '-9999px';
+          document.body.appendChild(ta);
+          ta.focus();
+          ta.select();
+          let ok = false;
+          try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
+          ta.remove();
+          if (ok) done();
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(done).catch(fallback);
+        } else {
+          fallback();
+        }
+      };
+      $('time-jst-out').addEventListener('click', () => clickCopy($('time-jst-out').textContent));
+      $('time-epoch-out').addEventListener('click', () => clickCopy($('time-epoch-out').textContent));
+      $('time-now-result').addEventListener('click', e => {
+        if (e.target.classList.contains('click-copy')) clickCopy(e.target.textContent);
+      });
     },
     getState() { return { epoch: $('time-epoch').value, dt: $('time-dt').value }; },
     setState(s) {
@@ -680,6 +732,19 @@ function restoreState() {
 
   restoreState();
   switchTab(activeTab, false);
+  TABS.find(t => t.id === 'json').updateSampleBtn(); // 復元で入力が入っていたら隠す
+
+  // 各タブの主要ボタンは Cmd/Ctrl+Enter で実行できる
+  for (const t of TABS) {
+    const primary = document.querySelector('#tab-' + t.id + ' button.primary');
+    if (primary) primary.title = 'Cmd/Ctrl+Enter';
+  }
+  document.addEventListener('keydown', e => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      const btn = document.querySelector('#tab-' + activeTab + ' button.primary');
+      if (btn) { e.preventDefault(); btn.click(); }
+    }
+  });
 
   wireCopy('json-copy', 'json-out', m => showResult('json-result', m, 'info'));
   wireCopy('esc-copy-raw', 'esc-raw', m => showResult('esc-result', m, 'info'));
@@ -691,6 +756,12 @@ function restoreState() {
   wireCopy('uuid-copy', 'uuid-out', m => { $('uuid-hint').textContent = m; });
 
   document.querySelector('main').addEventListener('input', scheduleSave);
+  // 入力の再開でそのタブの古いエラー・結果バナーを消す（修正済み入力に旧エラーが残る問題の解消）
+  document.querySelector('main').addEventListener('input', e => {
+    const panel = e.target.closest('.tab-panel');
+    if (!panel) return;
+    for (const b of panel.querySelectorAll('.banner')) b.hidden = true;
+  });
   window.addEventListener('pagehide', flushSave);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') flushSave();
