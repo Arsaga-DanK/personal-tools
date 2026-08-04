@@ -104,6 +104,13 @@ button.primary.copied { background: var(--success); border-color: var(--success)
 
 label.toggle { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
 
+/* キーボードフォーカスの可視化（offset で要素の外側に描き、primary ボタン上でも背景との隙間で判別できる） */
+button:focus-visible, a:focus-visible, select:focus-visible,
+input:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 select, input[type="text"], input[type="number"] {
   font: inherit;
   font-size: 13px;
