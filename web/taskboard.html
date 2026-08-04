@@ -1,0 +1,1078 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>taskboard — tasks.md タスクボード</title>
+<link rel="stylesheet" href="../lib/ui.css">
+<style>
+  /* taskboard 固有: 表・ポップオーバーの描画のみ */
+  #task-table { width: 100%; border-collapse: collapse; background: var(--panel);
+    border: 1px solid var(--border); border-radius: 8px; font-size: 13px; }
+  #task-table th { background: var(--th-bg); text-align: left; font-weight: 600;
+    padding: 6px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  #task-table td { padding: 5px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  #task-table tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+  #task-table .col-st { width: 28px; }
+  #task-table .col-act { width: 44px; }
+  #task-table td.cell-due, #task-table td.cell-pri { cursor: pointer; white-space: nowrap; }
+  #task-table td.cell-body { width: 45%; }
+  .due-over { color: var(--error); background: var(--error-bg); font-weight: 600; border-radius: 4px; }
+  .due-today { background: var(--warn-bg); font-weight: 600; border-radius: 4px; }
+  tr.row-done td { color: var(--muted); }
+  tr.row-done .body-text { text-decoration: line-through; }
+  .chip { display: inline-block; font-size: 12px; color: var(--accent); text-decoration: none;
+    background: var(--info-bg); border: 1px solid var(--info-border); border-radius: 10px;
+    padding: 0 8px; margin: 1px 2px 1px 0; white-space: nowrap; }
+  a.chip:hover { text-decoration: underline; }
+  .btn-child { opacity: 0; font-size: 12px; padding: 1px 7px; }
+  #task-table tbody tr:hover .btn-child { opacity: 1; }
+  .popover { position: absolute; z-index: 100; background: var(--panel);
+    border: 1px solid var(--border); border-radius: 8px; padding: 10px;
+    box-shadow: 0 4px 16px rgba(0,0,0,.18); display: flex; flex-direction: column; gap: 8px; }
+  .popover .row-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+  .addform { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 0 0 12px;
+    padding: 10px 14px; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 8px; font-size: 13px; }
+  .addform input[type="text"] { flex: 1; min-width: 200px; }
+  .offscreen { position: fixed; left: -9999px; top: 0; width: 10px; height: 10px; }
+  .cell-edit-input { width: 100%; font: inherit; padding: 2px 6px; border: 1px solid var(--accent);
+    border-radius: 4px; background: var(--panel); color: var(--text); }
+  #file-actions button { margin-right: 8px; }
+</style>
+</head>
+<body>
+<main class="app-wide">
+  <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">タスクはファイルへ明示保存 / 画面設定のみ自動保存</span></p>
+  <h1>taskboard</h1>
+  <p class="subtitle">vault の tasks.md（正本）を表形式で閲覧・編集 — 完了・期限・優先度・Excel用コピー</p>
+
+  <div class="toolbar">
+    <span id="file-actions"></span>
+    <span id="file-name" class="muted mono"></span>
+    <span class="spacer"></span>
+    <span class="summary" id="summary"></span>
+  </div>
+
+  <div class="banner banner-info" id="fallback-note" hidden></div>
+  <div class="banner" id="banner" hidden></div>
+
+  <div class="toolbar" id="main-toolbar" hidden>
+    <button id="btn-add-form">＋タスク追加</button>
+    <span class="opts">
+      <label>セクション <select id="f-section"></select></label>
+      <label>タグ <select id="f-tag"></select></label>
+      <label class="toggle"><input type="checkbox" id="f-done"> 完了を含む</label>
+      <label>並び順 <select id="f-sort">
+        <option value="file">ファイル順</option>
+        <option value="due">期限順</option>
+        <option value="priority">優先度順</option>
+      </select></label>
+    </span>
+    <span class="spacer"></span>
+    <button id="btn-copy">Excel用コピー</button>
+    <button id="btn-copy-all" hidden>全文コピー</button>
+    <button id="btn-reload">再読込</button>
+    <button id="btn-save" class="primary" disabled>保存</button>
+  </div>
+
+  <div id="add-form" class="addform" hidden>
+    <label>内容 <input type="text" id="add-content" placeholder="タスクの内容"></label>
+    <label>セクション <select id="add-section"></select></label>
+    <label>期限 <input type="date" id="add-due"></label>
+    <label>優先度 <select id="add-pri">
+      <option value="">なし</option>
+      <option value="high">⏫ 高</option>
+      <option value="medium">🔼 中</option>
+      <option value="low">🔽 低</option>
+    </select></label>
+    <button id="btn-add" class="primary">追加</button>
+  </div>
+
+  <div id="table-wrap" hidden>
+    <table id="task-table">
+      <thead><tr>
+        <th class="col-st"></th><th>内容</th><th>期限</th><th>優先度</th>
+        <th>タグ</th><th>セクション</th><th>元ノート</th><th class="col-act"></th>
+      </tr></thead>
+      <tbody id="task-body"></tbody>
+    </table>
+  </div>
+  <p id="empty-msg" class="muted" hidden>ファイルを開くとタスクが表示されます</p>
+</main>
+
+<div id="popover" class="popover" hidden></div>
+<textarea id="copy-helper" class="offscreen" aria-hidden="true" tabindex="-1"></textarea>
+
+<script src="../lib/storage.js"></script>
+<script>
+'use strict';
+
+const TOOL = 'taskboard';
+const VAULT_NAME = 'vault';        // obsidian:// リンク用（TB-Q1 決定）
+const MAX_CHARS = 2000000;         // 読込上限
+const IDB_NAME = 'tools-taskboard';// file:// は全ページ同一オリジンのため db 名で衝突防止
+const IDB_STORE = 'handles';
+const IDB_KEY = 'tasksmd';
+
+/* ========== エンジン（純粋・I/O なし） ==========
+   方針: 行を原文文字列のまま保持し、編集はトークン単位の最小スプライス。
+   編集していない行のバイトは一切変えない（ラウンドトリップのバイト保全）。 */
+
+const TASK_RE = /^(\t*)- \[( |x|X)\] (.*)$/;
+const HEAD_RE = /^## (.*)$/;
+// 絵文字は異体字セレクタ(U+FE0F)付きも許容してマッチし、置換時は $1 で原表記を保存する
+const DONE_FIND = /✅\uFE0F? (\d{4}-\d{2}-\d{2})/;
+const DONE_CUT  = / ?✅\uFE0F? \d{4}-\d{2}-\d{2}/;
+const DUE_FIND  = /📅\uFE0F? (\d{4}-\d{2}-\d{2})/;
+const DUE_CUT   = / ?📅\uFE0F? \d{4}-\d{2}-\d{2}/;
+const PRI_RE    = /(?:🔺|⏫|🔼|🔽|⏬)\uFE0F?/;
+const PRI_CUT   = / ?(?:🔺|⏫|🔼|🔽|⏬)\uFE0F?/;
+const PRI_EMOJI = { highest: '🔺', high: '⏫', medium: '🔼', low: '🔽', lowest: '⏬' };
+const EMOJI_PRI = { '🔺': 'highest', '⏫': 'high', '🔼': 'medium', '🔽': 'low', '⏬': 'lowest' };
+const PRI_RANK  = { highest: 0, high: 0, medium: 1, low: 3, lowest: 3 }; // なし=2
+
+function nfc(s) { return s.normalize('NFC'); }
+
+// 行配列: {raw: 現在の文字列, orig: 読込時の文字列（追加行は null）}
+function toLines(text) { return text.split('\n').map(r => ({ raw: r, orig: r })); }
+function joinLines(lines) { return lines.map(l => l.raw).join('\n'); }
+
+function taskAt(lines, lineNo) {
+  const L = lines[lineNo - 1];
+  const m = L && TASK_RE.exec(L.raw);
+  if (!m) throw new Error(lineNo + '行目はタスク行ではありません');
+  return { L, indent: m[1], ch: m[2], rest: m[3] };
+}
+function setRest(t, rest, ch) {
+  t.L.raw = t.indent + '- [' + (ch !== undefined ? ch : t.ch) + '] ' + rest;
+}
+
+function opComplete(lines, lineNo, today) {
+  const t = taskAt(lines, lineNo);
+  if (t.ch !== ' ') return;
+  setRest(t, t.rest + ' ✅ ' + today, 'x'); // Tasks プラグインと同じく行末に付与
+}
+function opUncomplete(lines, lineNo) {
+  const t = taskAt(lines, lineNo);
+  if (t.ch === ' ') return;
+  setRest(t, t.rest.replace(new RegExp(DONE_CUT.source, 'g'), ''), ' ');
+}
+function opSetDue(lines, lineNo, date) {
+  const t = taskAt(lines, lineNo);
+  let rest = t.rest;
+  if (date === null) {
+    rest = rest.replace(DUE_CUT, '');
+  } else if (DUE_FIND.test(rest)) {
+    rest = rest.replace(/(📅\uFE0F? )\d{4}-\d{2}-\d{2}/, '$1' + date); // インプレース置換
+  } else {
+    const anchor = DONE_CUT.exec(rest); // ✅ の手前、無ければ行末
+    rest = anchor ? rest.slice(0, anchor.index) + ' 📅 ' + date + rest.slice(anchor.index)
+                  : rest + ' 📅 ' + date;
+  }
+  setRest(t, rest);
+}
+function opSetPriority(lines, lineNo, value) {
+  const t = taskAt(lines, lineNo);
+  let rest = t.rest;
+  if (value === null) {
+    rest = rest.replace(PRI_CUT, '');
+  } else {
+    const e = PRI_EMOJI[value];
+    if (!e) throw new Error('不明な優先度: ' + value);
+    if (PRI_RE.test(rest)) {
+      rest = rest.replace(PRI_RE, e);
+    } else {
+      const anchor = DUE_CUT.exec(rest) || DONE_CUT.exec(rest); // 📅 → ✅ → 行末 の順で手前に
+      rest = anchor ? rest.slice(0, anchor.index) + ' ' + e + rest.slice(anchor.index)
+                    : rest + ' ' + e;
+    }
+  }
+  setRest(t, rest);
+}
+// 本文編集のみ行を再構成（メタトークンは Tasks 標準の行末順: 優先度→📅→✅）
+function opEditContent(lines, lineNo, text) {
+  const t = taskAt(lines, lineNo);
+  const due  = (DUE_FIND.exec(t.rest)  || [])[1] || null;
+  const done = (DONE_FIND.exec(t.rest) || [])[1] || null;
+  const pri  = (PRI_RE.exec(t.rest)    || [])[0] || null;
+  let rest = nfc(text).trim();
+  if (pri)  rest += ' ' + pri;
+  if (due)  rest += ' 📅 ' + due;
+  if (done) rest += ' ✅ ' + done;
+  setRest(t, rest);
+}
+function opAddTask(lines, op) {
+  let hIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const hm = HEAD_RE.exec(lines[i].raw);
+    if (hm && hm[1] === op.section) { hIdx = i; break; }
+  }
+  if (hIdx < 0) throw new Error('セクションが見つかりません: ' + op.section);
+  let end = lines.length;
+  for (let i = hIdx + 1; i < lines.length; i++) {
+    if (HEAD_RE.test(lines[i].raw)) { end = i; break; }
+  }
+  let last = -1;
+  for (let i = hIdx + 1; i < end; i++) if (TASK_RE.test(lines[i].raw)) last = i;
+  let raw = '- [ ] ' + nfc(op.content).trim();
+  if (op.priority) raw += ' ' + PRI_EMOJI[op.priority];
+  if (op.due) raw += ' 📅 ' + op.due;
+  if (last >= 0) lines.splice(last + 1, 0, { raw, orig: null });
+  else lines.splice(hIdx + 1, 0, { raw: '', orig: null }, { raw, orig: null }); // 見出し直後は空行を挟む
+}
+function opAddChild(lines, op) {
+  const p = op.parentLine - 1;
+  const pm = lines[p] && TASK_RE.exec(lines[p].raw);
+  if (!pm) throw new Error(op.parentLine + '行目はタスク行ではありません');
+  const d = pm[1].length;
+  let q = p; // 親の最終子孫
+  for (let i = p + 1; i < lines.length; i++) {
+    const m = TASK_RE.exec(lines[i].raw);
+    if (m && m[1].length > d) q = i; else break;
+  }
+  lines.splice(q + 1, 0, { raw: '\t'.repeat(d + 1) + '- [ ] ' + nfc(op.content).trim(), orig: null });
+}
+
+function runOp(lines, op, today) {
+  switch (op.type) {
+    case 'complete':    opComplete(lines, op.line, today); break;
+    case 'uncomplete':  opUncomplete(lines, op.line); break;
+    case 'setDue':      opSetDue(lines, op.line, op.date === undefined ? null : op.date); break;
+    case 'setPriority': opSetPriority(lines, op.line, op.value === undefined ? null : op.value); break;
+    case 'editContent': opEditContent(lines, op.line, op.text); break;
+    case 'addTask':     opAddTask(lines, op); break;
+    case 'addChild':    opAddChild(lines, op); break;
+    default: throw new Error('不明な操作: ' + op.type);
+  }
+}
+
+// テスト照合用の純関数: text に ops を逐次適用した「保存されるテキスト」を返す
+function applyOpsPure(text, ops, today) {
+  const lines = toLines(text);
+  for (const op of ops) runOp(lines, op, today);
+  return joinLines(lines);
+}
+
+function diffCounts(lines) {
+  let changed = 0, added = 0;
+  for (const l of lines) {
+    if (l.orig === null) added++;
+    else if (l.raw !== l.orig) changed++;
+  }
+  return { changed, added };
+}
+
+/* ---------- 解析（表示用） ---------- */
+
+function parseDoc(lines) {
+  const tasks = [], sections = [];
+  let section = null;
+  const stack = [];
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i].raw;
+    const hm = HEAD_RE.exec(raw);
+    if (hm) { section = hm[1]; sections.push(section); stack.length = 0; continue; }
+    const m = TASK_RE.exec(raw);
+    if (!m) continue; // タスク以外はパススルー行（解釈も破壊もしない）
+    const indent = m[1].length, rest = m[3];
+    const priEmoji = (PRI_RE.exec(rest) || [])[0] || null;
+    let body = rest
+      .replace(new RegExp(DONE_CUT.source, 'g'), '')
+      .replace(new RegExp(DUE_CUT.source, 'g'), '')
+      .replace(new RegExp(PRI_CUT.source, 'g'), '')
+      .trim();
+    const tags = [];
+    // タグ: 行頭/空白/括弧の直後の # に続く文字列。数字のみは Obsidian 同様タグ扱いしない
+    const tagRe = /(^|[\s(（])#([^\s#,、。()（）[\]:：;；!！?？"'`]+)/g;
+    let tm;
+    while ((tm = tagRe.exec(body))) {
+      const tag = tm[2];
+      if (!/^\d+$/.test(tag) && !tags.includes(tag)) tags.push(tag);
+    }
+    const links = [];
+    const lre = /\[\[([^\]]+)\]\]/g;
+    let lm;
+    while ((lm = lre.exec(rest))) links.push(lm[1]);
+    while (stack.length && stack[stack.length - 1].indent >= indent) stack.pop();
+    const parent = stack.length ? stack[stack.length - 1] : null;
+    const t = {
+      idx: i, line: i + 1, indent,
+      done: m[2] !== ' ',
+      body,
+      displayBody: body.replace(/ ?\[\[[^\]]+\]\]/g, '').replace(/\s+/g, ' ').trim(),
+      due: (DUE_FIND.exec(rest) || [])[1] || null,
+      doneDate: (DONE_FIND.exec(rest) || [])[1] || null,
+      priority: priEmoji ? EMOJI_PRI[priEmoji.replace(/\uFE0F/g, '')] : null,
+      priEmoji, tags, links,
+      parentLine: parent ? parent.line : null,
+      section, children: [],
+      hasCR: raw.includes('\r'),
+    };
+    if (parent) parent.children.push(t);
+    tasks.push(t);
+    stack.push(t);
+  }
+  return { tasks, sections };
+}
+
+/* ========== IndexedDB（ハンドル永続化・専用実装） ==========
+   FileSystemFileHandle は structured clone が必要で localStorage(JSON) には
+   保存できないため、ToolStorage 拡張ではなく専用実装（spec の設計判断）。 */
+
+function idbOpen() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open(IDB_NAME, 1);
+    r.onupgradeneeded = () => r.result.createObjectStore(IDB_STORE);
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+async function idbGet(key) {
+  const db = await idbOpen();
+  try {
+    return await new Promise((res, rej) => {
+      const g = db.transaction(IDB_STORE, 'readonly').objectStore(IDB_STORE).get(key);
+      g.onsuccess = () => res(g.result);
+      g.onerror = () => rej(g.error);
+    });
+  } finally { db.close(); }
+}
+async function idbSet(key, val) {
+  const db = await idbOpen();
+  try {
+    await new Promise((res, rej) => {
+      const tx = db.transaction(IDB_STORE, 'readwrite');
+      tx.objectStore(IDB_STORE).put(val, key);
+      tx.oncomplete = res;
+      tx.onerror = () => rej(tx.error);
+    });
+  } finally { db.close(); }
+}
+
+/* ========== アダプタ ========== */
+
+function makeFsaAdapter(handle) {
+  return {
+    mode: 'fsa', name: handle.name, canCheck: true,
+    read: async () => (await handle.getFile()).text(),
+    write: async (text) => {
+      const w = await handle.createWritable();
+      await w.write(text);
+      await w.close();
+    },
+  };
+}
+function makeMemoryAdapter(text) {
+  let mem = text;
+  return {
+    mode: 'memory', name: '(メモリ)', canCheck: true,
+    read: async () => mem,
+    write: async (t) => { mem = t; },
+    _external: (t) => { mem = t; },
+    _get: () => mem,
+  };
+}
+function makeFallbackAdapter(name) {
+  return {
+    mode: 'fallback', name, canCheck: false, // 外部変更検知は不可（spec フォールバック仕様）
+    read: null,
+    write: async (text) => { downloadText(text, name || 'tasks.md'); },
+  };
+}
+
+function downloadText(text, name) {
+  const blob = new Blob([text], { type: 'text/markdown' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/* ========== アプリ状態 ========== */
+
+const state = {
+  adapter: null, handle: null,
+  lines: null, snapshot: null,
+  loaded: false,
+  doc: null, visibleRows: [],
+  todayOverride: null,
+  fsaOff: false, // テスト用: フォールバック UI 強制
+  ui: { sort: 'file', section: '', tag: '', showDone: false },
+};
+
+function fsaAvailable() { return !state.fsaOff && 'showOpenFilePicker' in window; }
+
+function todayStr() {
+  if (state.todayOverride) return state.todayOverride;
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' +
+    String(d.getDate()).padStart(2, '0');
+}
+function addDays(ymd, n) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
+  const d = new Date(+m[1], +m[2] - 1, +m[3] + n);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' +
+    String(d.getDate()).padStart(2, '0');
+}
+
+const el = (id) => document.getElementById(id);
+
+/* ---------- バナー ---------- */
+
+function showBanner(kind, text, actions) {
+  const b = el('banner');
+  b.className = 'banner banner-' + kind;
+  b.textContent = text;
+  if (actions) {
+    for (const a of actions) {
+      const btn = document.createElement('button');
+      btn.textContent = a.label;
+      btn.style.marginLeft = '10px';
+      btn.addEventListener('click', a.onClick);
+      b.appendChild(btn);
+    }
+  }
+  b.hidden = false;
+}
+function hideBanner() { el('banner').hidden = true; }
+
+/* ---------- 読込・保存 ---------- */
+
+function loadText(text, adapter) {
+  if (text.length > MAX_CHARS) {
+    showBanner('error', '入力が上限（200万文字）を超えたため読み込みを中止しました');
+    return false;
+  }
+  state.adapter = adapter;
+  state.snapshot = text;
+  state.lines = toLines(text);
+  state.loaded = true;
+  hideBanner();
+  if (text.includes('\r')) {
+    showBanner('warn', 'CR 改行を含む行があります。該当行は原文保持のみで編集できません');
+  }
+  render();
+  updateFileBar();
+  return true;
+}
+
+function isDirty() {
+  if (!state.loaded) return false;
+  const c = diffCounts(state.lines);
+  return c.changed + c.added > 0;
+}
+
+async function doSave() {
+  if (!state.loaded || !state.adapter) return { ok: false, reason: 'notloaded' };
+  const text = joinLines(state.lines);
+  const counts = diffCounts(state.lines);
+  if (state.adapter.canCheck) {
+    let disk;
+    try {
+      disk = await state.adapter.read();
+    } catch (e) {
+      showBanner('error', '保存前の再読込に失敗しました: ' + (e && e.name));
+      return { ok: false, reason: 'readfail' };
+    }
+    // 比較は必ず NFC 正規化後（偽検知防止）。保存内容には正規化を適用しない
+    if (nfc(disk) !== nfc(state.snapshot)) {
+      showBanner('warn', 'Obsidian側で変更されています。上書きを避けるため保存を中止しました。再読込してから編集し直してください。',
+        [{ label: '変更を破棄して再読込', onClick: () => reloadFromAdapter(true) }]);
+      return { ok: false, reason: 'conflict' };
+    }
+  }
+  try {
+    await state.adapter.write(text);
+  } catch (e) {
+    showBanner('error', '保存に失敗しました: ' + (e && e.name));
+    return { ok: false, reason: 'writefail' };
+  }
+  state.snapshot = text;
+  for (const l of state.lines) l.orig = l.raw;
+  render();
+  const msg = '（変更' + counts.changed + '行・追加' + counts.added + '行）';
+  showBanner('success', state.adapter.mode === 'fallback'
+    ? 'ダウンロードしました' + msg + '。vault の tasks.md と差し替えてください'
+    : '保存しました' + msg);
+  return { ok: true, changed: counts.changed, added: counts.added };
+}
+
+async function reloadFromAdapter(skipConfirm) {
+  if (!state.adapter || !state.adapter.canCheck) return;
+  if (isDirty() && !skipConfirm && !confirm('未保存の変更を破棄して再読込しますか？')) return;
+  try {
+    const text = await state.adapter.read();
+    loadText(text, state.adapter);
+    showBanner('info', '再読込しました');
+  } catch (e) {
+    showBanner('error', '再読込に失敗しました: ' + (e && e.name));
+  }
+}
+
+// フォーカス復帰時の外部変更チェック（FSA のみ）: 未編集なら自動再読込、編集中は警告
+let lastCheck = 0;
+async function checkExternal() {
+  if (!state.loaded || !state.adapter || state.adapter.mode !== 'fsa') return;
+  const now = Date.now();
+  if (now - lastCheck < 2000) return;
+  lastCheck = now;
+  let disk;
+  try { disk = await state.adapter.read(); } catch (_) { return; }
+  if (nfc(disk) === nfc(state.snapshot)) return;
+  if (isDirty()) {
+    showBanner('warn', 'Obsidian側で変更されています。このまま保存すると中止されます。',
+      [{ label: '変更を破棄して再読込', onClick: () => reloadFromAdapter(true) }]);
+  } else {
+    loadText(disk, state.adapter);
+    showBanner('info', 'Obsidian側の変更を再読込しました');
+  }
+}
+window.addEventListener('focus', checkExternal);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) checkExternal(); });
+window.addEventListener('beforeunload', (e) => { if (isDirty()) e.preventDefault(); });
+
+/* ---------- FSA フロー ---------- */
+
+async function verifyPermission(handle) {
+  const opt = { mode: 'readwrite' };
+  try {
+    if (await handle.queryPermission(opt) === 'granted') return true;
+    return (await handle.requestPermission(opt)) === 'granted';
+  } catch (_) { return false; }
+}
+
+async function openViaPicker() {
+  let handle;
+  try {
+    [handle] = await window.showOpenFilePicker({
+      types: [{ description: 'Markdown', accept: { 'text/markdown': ['.md', '.markdown', '.txt'] } }],
+      multiple: false,
+    });
+  } catch (e) {
+    if (e && e.name === 'AbortError') return; // キャンセル
+    showBanner('error', 'ファイルを開けませんでした: ' + (e && e.name));
+    return;
+  }
+  await openFromHandle(handle, true);
+}
+
+async function openFromHandle(handle, store) {
+  try {
+    if (!(await verifyPermission(handle))) {
+      showBanner('warn', 'ファイルへのアクセスが許可されませんでした');
+      return;
+    }
+    const text = await (await handle.getFile()).text();
+    if (loadText(text, makeFsaAdapter(handle))) {
+      state.handle = handle;
+      if (store) idbSet(IDB_KEY, handle).catch(() => {});
+    }
+  } catch (e) {
+    showBanner('error', '読み込みに失敗しました: ' + (e && e.name));
+  }
+}
+
+async function initFile() {
+  if (!fsaAvailable()) { enterFallbackUi(); return; }
+  updateFileBar();
+  let handle = null;
+  try { handle = await idbGet(IDB_KEY); } catch (_) {}
+  if (handle && handle.kind === 'file') {
+    let p = 'prompt';
+    try { p = await handle.queryPermission({ mode: 'readwrite' }); } catch (_) {}
+    if (p === 'granted') { await openFromHandle(handle, false); return; }
+    state.resumeHandle = handle; // 再許可ワンクリックで開く
+    updateFileBar();
+  }
+}
+
+function enterFallbackUi() {
+  const note = el('fallback-note');
+  note.textContent = 'このブラウザではファイルへ直接保存できません（File System Access API 非対応）。読み込みはファイル選択、保存はダウンロード／全文コピーで vault に手動反映してください。';
+  note.hidden = false;
+  el('btn-copy-all').hidden = false;
+  el('btn-reload').hidden = true;
+  el('btn-save').textContent = '保存（ダウンロード）';
+  updateFileBar();
+}
+
+function updateFileBar() {
+  const box = el('file-actions');
+  box.textContent = '';
+  const nameEl = el('file-name');
+  if (state.loaded && state.adapter) {
+    nameEl.textContent = '📄 ' + state.adapter.name;
+  } else {
+    nameEl.textContent = '';
+  }
+  if (!fsaAvailable()) {
+    // フォールバックでは常にファイル選択を出す（別ファイルへの切替もこれで行う）
+    const label = document.createElement('label');
+    label.className = 'toggle';
+    label.textContent = 'tasks.md を選択: ';
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.md,.markdown,.txt';
+    input.addEventListener('change', async () => {
+      const f = input.files && input.files[0];
+      if (!f) return;
+      loadText(await f.text(), makeFallbackAdapter(f.name));
+    });
+    label.appendChild(input);
+    box.appendChild(label);
+    return;
+  }
+  if (!state.loaded && state.resumeHandle) {
+    const btn = document.createElement('button');
+    btn.className = 'primary';
+    btn.textContent = '前回のファイルを開く: ' + state.resumeHandle.name;
+    btn.addEventListener('click', () => openFromHandle(state.resumeHandle, false));
+    box.appendChild(btn);
+  }
+  const openBtn = document.createElement('button');
+  if (!state.loaded && !state.resumeHandle) openBtn.className = 'primary';
+  openBtn.textContent = state.loaded || state.resumeHandle ? '別のファイルを開く' : 'tasks.md を開く';
+  openBtn.addEventListener('click', openViaPicker);
+  box.appendChild(openBtn);
+}
+
+/* ---------- 描画 ---------- */
+
+function applyUiOp(op) {
+  try {
+    runOp(state.lines, op, todayStr());
+    hideBanner();
+    render();
+  } catch (e) {
+    showBanner('error', '操作に失敗しました: ' + (e && e.message));
+  }
+}
+
+function fillSelect(sel, values, current, allLabel) {
+  sel.textContent = '';
+  if (allLabel !== undefined) {
+    const o = document.createElement('option');
+    o.value = '';
+    o.textContent = allLabel;
+    sel.appendChild(o);
+  }
+  for (const v of values) {
+    const o = document.createElement('option');
+    o.value = v;
+    o.textContent = v;
+    sel.appendChild(o);
+  }
+  // 「すべて」オプションが無い select（追加フォーム）は先頭値に既定化する
+  sel.value = values.includes(current) ? current
+    : (allLabel !== undefined ? '' : (values[0] || ''));
+}
+
+function render() {
+  if (!state.loaded) {
+    el('main-toolbar').hidden = true;
+    el('table-wrap').hidden = true;
+    el('empty-msg').hidden = false;
+    el('empty-msg').textContent = 'ファイルを開くとタスクが表示されます';
+    return;
+  }
+  el('main-toolbar').hidden = false;
+  const doc = parseDoc(state.lines);
+  state.doc = doc;
+
+  const allTags = [];
+  for (const t of doc.tasks) for (const tag of t.tags) if (!allTags.includes(tag)) allTags.push(tag);
+  fillSelect(el('f-section'), doc.sections, state.ui.section, 'すべて');
+  fillSelect(el('f-tag'), allTags, state.ui.tag, 'すべて');
+  state.ui.section = el('f-section').value;
+  state.ui.tag = el('f-tag').value;
+  el('f-done').checked = state.ui.showDone;
+  el('f-sort').value = state.ui.sort;
+  fillSelect(el('add-section'), doc.sections, el('add-section').value || doc.sections[0] || '');
+
+  // 表示判定は親子グループ単位（spec 決定事項）
+  const roots = doc.tasks.filter(t => t.parentLine === null);
+  const markVisible = (t) => {
+    let childVis = false;
+    for (const c of t.children) childVis = markVisible(c) || childVis;
+    t._vis = (state.ui.showDone || !t.done) || childVis; // 未完了の子孫を持つ完了行は文脈表示
+    return t._vis;
+  };
+  const groupHasTag = (t, tag) => t.tags.includes(tag) || t.children.some(c => groupHasTag(c, tag));
+  let groups = roots.filter(r => {
+    if (state.ui.section && r.section !== state.ui.section) return false;
+    if (state.ui.tag && !groupHasTag(r, state.ui.tag)) return false;
+    return markVisible(r);
+  });
+  const rank = t => t.priority === null ? 2 : PRI_RANK[t.priority];
+  if (state.ui.sort === 'due') {
+    groups = groups.slice().sort((a, b) =>
+      (a.due === null) - (b.due === null) || (a.due || '').localeCompare(b.due || '') || a.line - b.line);
+  } else if (state.ui.sort === 'priority') {
+    groups = groups.slice().sort((a, b) => rank(a) - rank(b) || a.line - b.line);
+  }
+
+  const rows = [];
+  const collect = (t) => { if (t._vis) rows.push(t); for (const c of t.children) collect(c); };
+  for (const g of groups) collect(g);
+  state.visibleRows = rows;
+
+  const tbody = el('task-body');
+  tbody.textContent = '';
+  const today = todayStr();
+  for (const t of rows) tbody.appendChild(renderRow(t, today));
+  el('table-wrap').hidden = false;
+  el('empty-msg').hidden = rows.length > 0;
+  el('empty-msg').textContent = '表示できるタスクがありません';
+
+  const open = doc.tasks.filter(t => !t.done).length;
+  el('summary').textContent = '未完了 ' + open + ' / 全 ' + doc.tasks.length + ' 件 · 表示 ' + rows.length + ' 行';
+  updateSaveButton();
+}
+
+function updateSaveButton() {
+  const btn = el('btn-save');
+  const c = state.loaded ? diffCounts(state.lines) : { changed: 0, added: 0 };
+  const n = c.changed + c.added;
+  const base = (!fsaAvailable() && state.adapter && state.adapter.mode === 'fallback') ? '保存（ダウンロード）' : '保存';
+  btn.textContent = n > 0 ? base + '（' + n + '）' : base;
+  btn.disabled = n === 0;
+}
+
+const PRI_LABEL = { highest: '高', high: '高', medium: '中', low: '低', lowest: '低' };
+
+function renderRow(t, today) {
+  const tr = document.createElement('tr');
+  if (t.done) tr.className = 'row-done';
+  tr.dataset.line = t.line;
+
+  const tdSt = document.createElement('td');
+  const cb = document.createElement('input');
+  cb.type = 'checkbox';
+  cb.checked = t.done;
+  cb.disabled = t.hasCR;
+  cb.addEventListener('change', () => {
+    applyUiOp({ type: cb.checked ? 'complete' : 'uncomplete', line: t.line });
+  });
+  tdSt.appendChild(cb);
+  tr.appendChild(tdSt);
+
+  const tdBody = document.createElement('td');
+  tdBody.className = 'cell-body';
+  tdBody.style.paddingLeft = (10 + t.indent * 22) + 'px';
+  const span = document.createElement('span');
+  span.className = 'body-text';
+  span.textContent = (t.indent > 0 ? '└ ' : '') + (t.displayBody || t.body || '(内容なし)');
+  tdBody.appendChild(span);
+  if (!t.hasCR) {
+    tdBody.title = 'ダブルクリックで本文を編集';
+    tdBody.addEventListener('dblclick', () => startBodyEdit(tdBody, t));
+  }
+  tr.appendChild(tdBody);
+
+  const tdDue = document.createElement('td');
+  tdDue.className = 'cell-due';
+  const dueSpan = document.createElement('span');
+  dueSpan.textContent = t.due || '—';
+  if (!t.done && t.due) {
+    if (t.due < today) dueSpan.className = 'due-over';
+    else if (t.due === today) dueSpan.className = 'due-today';
+    dueSpan.style.padding = '1px 6px';
+  }
+  if (!t.due) dueSpan.classList.add('muted');
+  tdDue.appendChild(dueSpan);
+  if (!t.hasCR) tdDue.addEventListener('click', (e) => openDuePopover(e.currentTarget, t));
+  tr.appendChild(tdDue);
+
+  const tdPri = document.createElement('td');
+  tdPri.className = 'cell-pri';
+  tdPri.textContent = t.priEmoji ? t.priEmoji + ' ' + (PRI_LABEL[t.priority] || '') : '—';
+  if (!t.priEmoji) tdPri.classList.add('muted');
+  if (!t.hasCR) tdPri.addEventListener('click', (e) => openPriPopover(e.currentTarget, t));
+  tr.appendChild(tdPri);
+
+  const tdTags = document.createElement('td');
+  for (const tag of t.tags) {
+    const s = document.createElement('span');
+    s.className = 'chip';
+    s.textContent = '#' + tag;
+    tdTags.appendChild(s);
+  }
+  tr.appendChild(tdTags);
+
+  const tdSec = document.createElement('td');
+  tdSec.textContent = t.section || '';
+  tdSec.classList.add('muted');
+  tr.appendChild(tdSec);
+
+  const tdLinks = document.createElement('td');
+  for (const name of t.links) {
+    const a = document.createElement('a');
+    a.className = 'chip';
+    a.textContent = name;
+    a.href = 'obsidian://open?vault=' + encodeURIComponent(VAULT_NAME) + '&file=' + encodeURIComponent(name);
+    a.title = 'Obsidian で開く';
+    tdLinks.appendChild(a);
+  }
+  tr.appendChild(tdLinks);
+
+  const tdAct = document.createElement('td');
+  if (!t.hasCR) {
+    const btn = document.createElement('button');
+    btn.className = 'btn-child';
+    btn.textContent = '＋子';
+    btn.title = '子タスクを追加';
+    btn.addEventListener('click', (e) => openChildPopover(e.currentTarget, t));
+    tdAct.appendChild(btn);
+  }
+  tr.appendChild(tdAct);
+  return tr;
+}
+
+function startBodyEdit(td, t) {
+  if (td.querySelector('input')) return;
+  td.textContent = '';
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'cell-edit-input';
+  input.value = t.body;
+  let done = false;
+  const commit = () => {
+    if (done) return;
+    done = true;
+    const v = input.value.trim();
+    if (v && v !== t.body) applyUiOp({ type: 'editContent', line: t.line, text: v });
+    else render();
+  };
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') commit();
+    else if (e.key === 'Escape') { done = true; render(); }
+  });
+  input.addEventListener('blur', commit);
+  td.appendChild(input);
+  input.focus();
+  input.select();
+}
+
+/* ---------- ポップオーバー ---------- */
+
+function openPopover(anchor, build) {
+  const pop = el('popover');
+  pop.textContent = '';
+  build(pop);
+  pop.hidden = false;
+  const r = anchor.getBoundingClientRect();
+  pop.style.left = Math.max(8, Math.min(r.left + window.scrollX, window.scrollX + window.innerWidth - 300)) + 'px';
+  pop.style.top = (r.bottom + window.scrollY + 4) + 'px';
+}
+function closePopover() { el('popover').hidden = true; }
+document.addEventListener('mousedown', (e) => {
+  const pop = el('popover');
+  if (!pop.hidden && !pop.contains(e.target)) closePopover();
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePopover(); });
+
+function openDuePopover(anchor, t) {
+  openPopover(anchor, (pop) => {
+    const input = document.createElement('input');
+    input.type = 'date';
+    input.value = t.due || todayStr();
+    input.addEventListener('change', () => {
+      if (input.value) { applyUiOp({ type: 'setDue', line: t.line, date: input.value }); closePopover(); }
+    });
+    pop.appendChild(input);
+    const btns = document.createElement('div');
+    btns.className = 'row-btns';
+    const mk = (label, fn) => {
+      const b = document.createElement('button');
+      b.textContent = label;
+      b.addEventListener('click', () => { fn(); closePopover(); });
+      btns.appendChild(b);
+    };
+    mk('今日', () => applyUiOp({ type: 'setDue', line: t.line, date: todayStr() }));
+    mk('明日', () => applyUiOp({ type: 'setDue', line: t.line, date: addDays(todayStr(), 1) }));
+    mk('+1週', () => applyUiOp({ type: 'setDue', line: t.line, date: addDays(t.due || todayStr(), 7) }));
+    if (t.due) mk('クリア', () => applyUiOp({ type: 'setDue', line: t.line, date: null }));
+    pop.appendChild(btns);
+  });
+}
+
+function openPriPopover(anchor, t) {
+  openPopover(anchor, (pop) => {
+    const btns = document.createElement('div');
+    btns.className = 'row-btns';
+    const mk = (label, value) => {
+      const b = document.createElement('button');
+      b.textContent = label;
+      b.addEventListener('click', () => { applyUiOp({ type: 'setPriority', line: t.line, value }); closePopover(); });
+      btns.appendChild(b);
+    };
+    mk('⏫ 高', 'high');
+    mk('🔼 中', 'medium');
+    mk('🔽 低', 'low');
+    mk('なし', null);
+    pop.appendChild(btns);
+  });
+}
+
+function openChildPopover(anchor, t) {
+  openPopover(anchor, (pop) => {
+    const label = document.createElement('span');
+    label.textContent = '子タスクを追加';
+    pop.appendChild(label);
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = '内容';
+    input.style.width = '240px';
+    const add = () => {
+      const v = input.value.trim();
+      if (!v) return;
+      applyUiOp({ type: 'addChild', parentLine: t.line, content: v });
+      closePopover();
+    };
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') add(); });
+    pop.appendChild(input);
+    const b = document.createElement('button');
+    b.className = 'primary';
+    b.textContent = '追加';
+    b.addEventListener('click', add);
+    pop.appendChild(b);
+    setTimeout(() => input.focus(), 0);
+  });
+}
+
+/* ---------- Excel 用コピー ---------- */
+
+function buildTsv(rows) {
+  const clean = (v) => String(v == null ? '' : v).replace(/[\t\n\r]/g, ' ');
+  const out = ['状態\t内容\t期限\t優先度\tタグ\tセクション']; // ヘッダー行（TB-Q4 決定）
+  for (const t of rows) {
+    out.push([
+      t.done ? '済' : '未',
+      '　'.repeat(t.indent) + (t.displayBody || t.body),
+      t.due || '',
+      t.priority ? PRI_LABEL[t.priority] : '',
+      t.tags.map(x => '#' + x).join(' '),
+      t.section || '',
+    ].map(clean).join('\t'));
+  }
+  return out.join('\n');
+}
+
+function copyFeedback(btn, ok, fallbackMsg) {
+  const orig = btn.dataset.label || (btn.dataset.label = btn.textContent);
+  btn.textContent = ok ? '✓ コピーしました' : fallbackMsg;
+  btn.classList.add('copied');
+  setTimeout(() => { btn.textContent = orig; btn.classList.remove('copied'); }, 1600);
+}
+
+async function copyText(text, btn) {
+  try {
+    await navigator.clipboard.writeText(text);
+    copyFeedback(btn, true);
+  } catch (_) {
+    // フォールバック: textarea 選択方式
+    const ta = el('copy-helper');
+    ta.value = text;
+    ta.focus();
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (_) {}
+    copyFeedback(btn, ok, '選択済み: Cmd+C でコピー');
+  }
+}
+
+/* ---------- UI 状態の永続化（タスクデータは保存しない） ---------- */
+
+function persistUi() {
+  ToolStorage.save(TOOL, {
+    sort: state.ui.sort, section: state.ui.section,
+    tag: state.ui.tag, showDone: state.ui.showDone,
+  });
+}
+function restoreUi() {
+  const s = ToolStorage.load(TOOL);
+  if (!s || typeof s !== 'object') return;
+  if (typeof s.sort === 'string') state.ui.sort = s.sort;
+  if (typeof s.section === 'string') state.ui.section = s.section;
+  if (typeof s.tag === 'string') state.ui.tag = s.tag;
+  if (typeof s.showDone === 'boolean') state.ui.showDone = s.showDone;
+}
+
+/* ---------- イベント ---------- */
+
+el('f-section').addEventListener('change', () => { state.ui.section = el('f-section').value; persistUi(); render(); });
+el('f-tag').addEventListener('change', () => { state.ui.tag = el('f-tag').value; persistUi(); render(); });
+el('f-done').addEventListener('change', () => { state.ui.showDone = el('f-done').checked; persistUi(); render(); });
+el('f-sort').addEventListener('change', () => { state.ui.sort = el('f-sort').value; persistUi(); render(); });
+
+el('btn-add-form').addEventListener('click', () => { el('add-form').hidden = !el('add-form').hidden; });
+el('btn-add').addEventListener('click', () => {
+  const content = el('add-content').value.trim();
+  if (!content) { showBanner('warn', 'タスクの内容を入力してください'); return; }
+  const op = { type: 'addTask', section: el('add-section').value, content };
+  if (el('add-due').value) op.due = el('add-due').value;
+  if (el('add-pri').value) op.priority = el('add-pri').value;
+  applyUiOp(op);
+  el('add-content').value = '';
+});
+el('add-content').addEventListener('keydown', (e) => { if (e.key === 'Enter') el('btn-add').click(); });
+
+el('btn-save').addEventListener('click', doSave);
+el('btn-reload').addEventListener('click', () => reloadFromAdapter(false));
+el('btn-copy').addEventListener('click', () => {
+  if (!state.visibleRows.length) { copyFeedback(el('btn-copy'), false, '出力がありません'); return; }
+  copyText(buildTsv(state.visibleRows), el('btn-copy'));
+});
+el('btn-copy-all').addEventListener('click', () => {
+  if (!state.loaded) return;
+  copyText(joinLines(state.lines), el('btn-copy-all'));
+});
+
+/* ---------- テストフック（spec 検証用） ---------- */
+
+window.taskboard = {
+  test: {
+    applyOps: applyOpsPure,
+    parse: (text) => {
+      const doc = parseDoc(toLines(text));
+      return {
+        sections: doc.sections,
+        tasks: doc.tasks.map(t => ({
+          line: t.line, indent: t.indent, done: t.done, body: t.body,
+          displayBody: t.displayBody, due: t.due, doneDate: t.doneDate,
+          priority: t.priority, tags: t.tags, links: t.links,
+          parentLine: t.parentLine, section: t.section,
+        })),
+      };
+    },
+    newSession: (text) => {
+      const adapter = makeMemoryAdapter(text);
+      loadText(text, adapter);
+      updateFileBar();
+      return {
+        externalWrite: (t) => adapter._external(t),
+        applyOps: (ops) => { for (const op of ops) applyUiOp(op); },
+        save: () => doSave(),
+        getText: () => joinLines(state.lines),
+        getAdapterText: () => adapter._get(),
+      };
+    },
+    setToday: (ymd) => { state.todayOverride = ymd; if (state.loaded) render(); },
+    forceFallback: () => { state.fsaOff = true; state.loaded = false; state.resumeHandle = null; enterFallbackUi(); render(); },
+  },
+};
+
+/* ---------- 起動 ---------- */
+
+restoreUi();
+ToolStorage.mountWarning();
+render();
+initFile();
+</script>
+</body>
+</html>

@@ -45,6 +45,7 @@ const TOOLS = [
   { name: 'norm', path: 'web/norm.html', desc: '日本語表記の正規化（全角半角・ハイフン・波ダッシュ・空白・NFKC）変更箇所ハイライト付き', category: '変換', when: '顧客提供テキストや仕様書の表記ゆれを揃えるとき' },
   { name: 'diff', path: 'web/diff.html', desc: 'テキスト比較 — 行単位差分＋文字単位ハイライト、空白無視・全半角同一視オプション', category: '変換', when: '文言修正の前後比較や設計記述の突き合わせ' },
   { name: 'md2excel（旧・双方向）', path: 'excel2md/excel2md.html', desc: 'Excelの表 ⇄ Markdownテーブルを相互変換（貼り付け方式・旧ツール）', category: '変換' },
+  { name: 'taskboard', path: 'web/taskboard.html', desc: 'vault の tasks.md（正本）を表形式で閲覧・編集 — 完了・期限・優先度・Excel用コピー', category: 'タスク', when: '朝の計画と期限付け・週次の棚卸し・Excel報告への転記' },
 ];
 
 const CATEGORY_ORDER = ['変換', 'タスク', '設計', 'PM'];
