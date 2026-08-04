@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Personal Tools — ツール一覧</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🧰%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="lib/ui.css">
 <style>
   /* ハブ固有のコンテンツ描画スタイル（ui.css クラスの再定義はしない） */
@@ -27,8 +28,8 @@
 <body>
 <main class="app">
   <h1>Personal Tools</h1>
-  <p class="subtitle">業務効率化ツール一覧 — ツール名・説明でインクリメンタル検索</p>
-  <input type="text" id="search" placeholder="検索（ツール名・説明）" autocomplete="off">
+  <p class="subtitle">業務効率化ツール一覧 — ツール名・説明・用途でインクリメンタル検索</p>
+  <input type="text" id="search" placeholder="検索（ツール名・説明・用途）" autocomplete="off">
   <div id="list"></div>
   <p id="empty-msg" hidden></p>
 </main>
@@ -44,18 +45,19 @@ const TOOLS = [
   { name: 'devpad', path: 'web/devpad.html', desc: 'JSON整形・エスケープ・URL・Base64・Unix時刻・UUID・文字数カウント', category: '変換', when: 'API レスポンスの整形・エンコード・時刻変換をその場で済ませたいとき' },
   { name: 'norm', path: 'web/norm.html', desc: '日本語表記の正規化（全角半角・ハイフン・波ダッシュ・空白・NFKC）変更箇所ハイライト付き', category: '変換', when: '顧客提供テキストや仕様書の表記ゆれを揃えるとき' },
   { name: 'diff', path: 'web/diff.html', desc: 'テキスト比較 — 行単位差分＋文字単位ハイライト、空白無視・全半角同一視オプション', category: '変換', when: '文言修正の前後比較や設計記述の突き合わせ' },
-  { name: 'md2excel（旧・双方向）', path: 'excel2md/excel2md.html', desc: 'Excelの表 ⇄ Markdownテーブルを相互変換（貼り付け方式・旧ツール）', category: '変換' },
+  { name: 'md2excel（旧・双方向）', path: 'excel2md/excel2md.html', desc: 'Excelの表 ⇄ Markdownテーブルを相互変換（貼り付け方式・旧ツール）', category: '変換', when: '原則 excel2md を使う。旧ツールの動作確認・比較用' },
   { name: 'taskboard', path: 'web/taskboard.html', desc: 'vault の tasks.md（正本）を表形式で閲覧・編集 — 完了・期限・優先度・Excel用コピー', category: 'タスク', when: '朝の計画と期限付け・週次の棚卸し・Excel報告への転記' },
 ];
 
 const CATEGORY_ORDER = ['変換', 'タスク', '設計', 'PM'];
 
-// 検索: ツール名＋説明の部分一致（大文字小文字無視）。純関数（テストフック用）
+// 検索: ツール名＋説明＋用途（when）の部分一致（大文字小文字無視）。純関数（テストフック用）
 function filter(query) {
   const q = query.trim().toLowerCase();
   if (q === '') return TOOLS.slice();
   return TOOLS.filter(t =>
-    t.name.toLowerCase().includes(q) || t.desc.toLowerCase().includes(q));
+    t.name.toLowerCase().includes(q) || t.desc.toLowerCase().includes(q) ||
+    (t.when || '').toLowerCase().includes(q));
 }
 
 const listEl = document.getElementById('list');
