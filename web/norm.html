@@ -4,9 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>norm — 日本語表記正規化</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🔤%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="../lib/ui.css">
 <style>
-  /* norm 固有: 出力ハイライト描画のみ */
+  /* norm 固有: 出力ハイライト描画とサンプルボタンのみ */
+  .sample-btn { font-size: 11px; padding: 1px 8px; margin-left: 6px; }
   #output {
     white-space: pre-wrap;
     word-break: break-all;
@@ -35,29 +37,29 @@
   <p class="subtitle">日本語テキストの表記ゆれを正規化 — 変更文字はハイライト（hoverで変更前を表示）</p>
 
   <div class="toolbar opts" id="opts">
-    <label class="toggle"><input type="checkbox" id="opt-nfkc"> NFKC一括</label>
-    <label class="toggle"><input type="checkbox" id="opt-alnum" checked> 全角英数→半角</label>
-    <label class="toggle"><input type="checkbox" id="opt-kana" checked> 半角カナ→全角</label>
-    <label class="toggle"><input type="checkbox" id="opt-hyphen" checked> ハイフン統一</label>
-    <label>統一先: <select id="opt-hyphen-target">
+    <label class="toggle" title="互換文字を一括変換（①→1、㈱→(株)、：→:、！→! など）。破壊的なので既定OFF。ONにしても有効な他の変換が優先されます"><input type="checkbox" id="opt-nfkc"> NFKC一括</label>
+    <label class="toggle" title="Ａ→A、１→1（英数字のみ。：や（）等の全角記号は対象外 — 記号も変換するには「NFKC一括」をON）"><input type="checkbox" id="opt-alnum" checked> 全角英数→半角</label>
+    <label class="toggle" title="ｶﾞ→ガ、ｱ→ア"><input type="checkbox" id="opt-kana" checked> 半角カナ→全角</label>
+    <label class="toggle" title="‐ ‑ ‒ – — ― − ﹣ － を「統一先」の文字に揃える"><input type="checkbox" id="opt-hyphen" checked> ハイフン統一</label>
+    <label title="ハイフン類の統一先">統一先: <select id="opt-hyphen-target">
       <option value="-" selected>- (半角ハイフン)</option>
       <option value="−">− (マイナス U+2212)</option>
       <option value="ー">ー (長音)</option>
       <option value="–">– (enダッシュ)</option>
     </select></label>
-    <label class="toggle"><input type="checkbox" id="opt-hyphen-choon"> 長音ーも対象</label>
-    <label class="toggle"><input type="checkbox" id="opt-wave" checked> 波ダッシュ統一</label>
-    <label>方向: <select id="opt-wave-target">
+    <label class="toggle" title="カタカナ語の長音「ー」もハイフン統一の対象にする（通常はOFF推奨）"><input type="checkbox" id="opt-hyphen-choon"> 長音ーも対象</label>
+    <label class="toggle" title="波ダッシュ 〜（U+301C）と全角チルダ ～（U+FF5E）を「方向」の文字に揃える"><input type="checkbox" id="opt-wave" checked> 波ダッシュ統一</label>
+    <label title="波ダッシュの統一先">方向: <select id="opt-wave-target">
       <option value="〜" selected>〜 (U+301C)</option>
       <option value="～">～ (U+FF5E)</option>
     </select></label>
-    <label class="toggle"><input type="checkbox" id="opt-space" checked> 連続空白の圧縮</label>
+    <label class="toggle" title="半角スペースの連続を1個に圧縮。全角スペースは字下げ保護のため対象外"><input type="checkbox" id="opt-space" checked> 連続空白の圧縮</label>
     <span class="spacer"></span>
-    <label class="toggle"><input type="checkbox" id="opt-ruby"> 変更前を注記表示</label>
+    <label class="toggle" title="変更文字の上に変更前をルビ表示（タッチ環境向け。コピーには混入しません）"><input type="checkbox" id="opt-ruby"> 変更前を注記表示</label>
   </div>
 
   <div class="toolbar">
-    <button class="primary" id="copy-btn">結果をコピー</button>
+    <button class="primary" id="copy-btn" title="Cmd/Ctrl+Enter">結果をコピー</button>
     <span class="spacer"></span>
     <button id="export-btn">設定をエクスポート</button>
     <button id="import-btn">設定をインポート</button>
@@ -69,7 +71,7 @@
 
   <div class="panes">
     <div class="pane">
-      <p class="pane-title">入力</p>
+      <p class="pane-title">入力<button type="button" class="sample-btn" id="sample-btn">サンプルを入れる</button></p>
       <textarea id="input" spellcheck="false" placeholder="正規化したいテキストを貼り付け"></textarea>
     </div>
     <div class="pane">
@@ -256,6 +258,7 @@ const el = {
   input: $('input'), output: $('output'), banner: $('banner'), summary: $('summary'),
   copyBtn: $('copy-btn'), exportBtn: $('export-btn'),
   importBtn: $('import-btn'), importFile: $('import-file'),
+  sampleBtn: $('sample-btn'),
 };
 
 function uiOpts() {
@@ -383,6 +386,28 @@ let debounceTimer = null;
 el.input.addEventListener('input', () => {
   clearTimeout(debounceTimer);
   debounceTimer = setTimeout(run, 150);
+  updateSampleBtn();
+});
+
+// サンプル投入（空状態の学習用。既定ONの全変換が1回以上発火し、
+// NFKC の領分（：（）①）はあえて残して tooltip の説明へ誘導する例文）
+const SAMPLE = 'Ｗｅｂ会議は１０：００～  開始です（Ｚｏｏｍ）\nｶﾞｲﾄﾞﾗｲﾝ改訂版は −１０ 分前に共有\n資料は ①〜③ を参照';
+function updateSampleBtn() {
+  el.sampleBtn.hidden = el.input.value !== '';
+}
+el.sampleBtn.addEventListener('click', () => {
+  el.input.value = SAMPLE;
+  clearTimeout(debounceTimer);
+  run();
+  updateSampleBtn();
+});
+
+// Cmd/Ctrl+Enter でコピー（頻用操作のキーボード導線）
+document.addEventListener('keydown', e => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+    e.preventDefault();
+    el.copyBtn.click();
+  }
 });
 
 $('opts').addEventListener('change', () => {
@@ -449,6 +474,7 @@ el.importFile.addEventListener('change', () => {
   const saved = ToolStorage.load(TOOL);
   if (saved) applyOpts(saved.options);
   ToolStorage.mountWarning();
+  updateSampleBtn();
   run();
 })();
 </script>
