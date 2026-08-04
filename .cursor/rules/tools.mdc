@@ -1,0 +1,7 @@
+---
+description: Personal Tools operating rules (always apply)
+alwaysApply: true
+---
+
+- このリポジトリの作業規約の正本は `CLAUDE.md`。作業前に必ず読んで従うこと。
+- 特に: file:// 完結・ES モジュール禁止・外部 CDN 禁止・`docs/specs/` のテストケース全一致が完了の定義。
