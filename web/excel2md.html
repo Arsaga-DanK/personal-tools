@@ -8,13 +8,18 @@
 <link rel="stylesheet" href="../lib/ui.css">
 <style>
   .sample-btn { font-size: 11px; padding: 1px 8px; margin-left: 6px; }
+  /* 列の揃え指定バー（ツールバーとバナーの間） */
+  .align-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 10px; padding: 0 2px; font-size: 12px; }
+  #align-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .align-chip { font-size: 11px; padding: 2px 8px; }
+  #align-note { font-size: 11px; }
 </style>
 </head>
 <body>
 <main class="app">
   <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">設定は自動保存されます</span></p>
   <h1>excel2md</h1>
-  <p class="subtitle">Excelのセル範囲（TSV）⇔ Markdown テーブルを双方向変換</p>
+  <p class="subtitle">Excelのセル範囲（TSV）⇔ Markdown テーブルを双方向変換 — 貼り付けで結合セルを展開・列の揃え指定つき</p>
 
   <div class="toolbar">
     <label class="toggle"><input type="radio" name="direction" value="tsv2md" checked> TSV→MD</label>
@@ -24,6 +29,12 @@
     <span class="spacer"></span>
     <span class="muted" id="copy-hint" style="font-size:12px"></span>
     <button class="primary" id="copy-btn" title="Cmd/Ctrl+Enter">Markdownをコピー</button>
+  </div>
+
+  <div class="align-bar" id="align-bar" hidden>
+    <span class="muted">列の揃え:</span>
+    <span id="align-chips"></span>
+    <span class="muted" id="align-note" hidden>※ 61列目以降は揃え指定を省略しています</span>
   </div>
 
   <div class="banner" id="banner" hidden></div>
@@ -54,7 +65,12 @@ function padGrid(rows) {
   if (rows.length === 0) return [];
   let cols = 0;
   for (const row of rows) if (row.length > cols) cols = row.length;
+  // 疎配列（rowspan 展開で生じる穴）も '' で埋める
   return rows.map(row => Array.from({ length: cols }, (_, i) => row[i] ?? ''));
+}
+
+function isEmptyGrid(grid) {
+  return grid.length === 0 || grid.every(row => row.every(cell => cell.trim() === ''));
 }
 
 // Excel の TSV 方言: 改行を含むセルだけ "..." で囲まれ、内部の "" は " のエスケープ。
@@ -129,9 +145,12 @@ function mdCell(value) {
   return value.replace(/\|/g, '\\|').replace(/\n/g, '<br>');
 }
 
-function gridToMarkdown(grid, hasHeader) {
+// alignments は列ごとの 'none'|'left'|'center'|'right'。省略・不足分は none（区切り行 ---）
+function gridToMarkdown(grid, hasHeader, alignments) {
   if (grid.length === 0) return '';
   const cols = grid[0].length;
+  const aligns = alignments || [];
+  const sepCell = a => ({ left: ':---', center: ':---:', right: '---:' }[a] || '---');
   const line = cells => '| ' + cells.join(' | ') + ' |';
 
   const lines = [];
@@ -142,24 +161,27 @@ function gridToMarkdown(grid, hasHeader) {
   } else {
     lines.push(line(Array(cols).fill('')));
   }
-  lines.push(line(Array(cols).fill('---')));
+  lines.push(line(Array.from({ length: cols }, (_, i) => sepCell(aligns[i]))));
   for (const row of body) lines.push(line(row.map(mdCell)));
   return lines.join('\n');
 }
 
-const MAX_INPUT_CHARS = 2000000; // 超過時は処理せず理由を表示（性能ガード）
+const MAX_INPUT_CHARS = 2000000; // 超過時は処理せず理由を表示（性能ガード①）
+const MAX_HTML_CELLS = 200000;   // HTML 展開後のセル数上限（性能ガード②）
 
 // 変換の入口。UI もテストもこの関数を通る。
-// 戻り値: { markdown, warnings: [{type: 'warn'|'info', message}] }
+// 戻り値: { markdown, warnings: [{type: 'warn'|'info', message}], cols, firstRow }
+// cols/firstRow は揃えバーの描画用（列数とラベル元になる1行目）
 function convert(text, opts) {
-  const options = Object.assign({ header: true, trim: true }, opts);
+  const options = Object.assign({ header: true, trim: true, alignments: [] }, opts);
   const warnings = [];
+  const empty = { markdown: '', warnings, cols: 0, firstRow: [] };
   if (text.length > MAX_INPUT_CHARS) {
     warnings.push({ type: 'warn', message: '入力が上限（200万文字）を超えたため処理を中止しました' });
-    return { markdown: '', warnings };
+    return empty;
   }
   const rows = parseRows(text);
-  if (rows.length === 0) return { markdown: '', warnings };
+  if (rows.length === 0) return empty;
 
   if (!normalizeNewlines(text).includes('\t')) {
     warnings.push({ type: 'info', message: 'タブ区切りが見つからないため1列の表として変換しました' });
@@ -177,7 +199,12 @@ function convert(text, opts) {
 
   let grid = padGrid(rows);
   if (options.trim) grid = grid.map(row => row.map(trimCell));
-  return { markdown: gridToMarkdown(grid, options.header), warnings };
+  return {
+    markdown: gridToMarkdown(grid, options.header, options.alignments),
+    warnings,
+    cols: grid[0].length,
+    firstRow: grid[0].slice(),
+  };
 }
 
 /* ========== MD→TSV 方向（旧版 excel2md/excel2md.html から移植） ========== */
@@ -277,6 +304,10 @@ function convertFromMd(text, opts) {
     warnings.push({ type: 'warn', message: 'Markdownの表として認識できませんでした（ヘッダー行と区切り行が必要です）' });
     return { tsv: '', html: '', alignments: [], warnings };
   }
+  // TSV は列揃えを表現できない。HTML 経路（Excel用にコピー）では align 属性で保持される
+  if (parsed.alignments.some(a => a !== 'none')) {
+    warnings.push({ type: 'info', message: '揃え指定（:--- 等）はTSVでは失われます（「Excel用にコピー」のHTMLには反映されます）' });
+  }
   return {
     tsv: gridToTsv(parsed.grid),
     html: gridToHtmlTable(parsed.grid, options.header, parsed.alignments),
@@ -285,11 +316,101 @@ function convertFromMd(text, opts) {
   };
 }
 
+/* ========== text/html の取り込み・結合セル展開（旧版から移植） ========== */
+
+// 不可視文字はエスケープ表記ではなく文字コードで生成する（ソースへの実文字混入を防ぐ）
+const BR_SENTINEL = String.fromCharCode(0);   // NUL: <br> の一時マーカー
+const NBSP = String.fromCharCode(160);        // &nbsp; の実体
+const BR_RESTORE_RE = new RegExp(' ?' + BR_SENTINEL + ' ?', 'g');
+
+function htmlCellText(el) {
+  const clone = el.cloneNode(true);
+  // Excel は <br> とソース上の生改行を併記するため、<br> をセンチネルにして生改行と区別する
+  clone.querySelectorAll('br').forEach(br => br.replaceWith(BR_SENTINEL));
+  let text = clone.textContent || '';
+  // ソース上の生の空白・改行は、ブラウザの描画と同じく1個のスペースに潰す
+  text = text.replace(/[ \t\r\n]+/g, ' ');
+  text = text.split(NBSP).join(' ');
+  // <br> 由来のセンチネルだけを改行として復元（前後に残ったスペースは除去）
+  text = text.replace(BR_RESTORE_RE, '\n');
+  return text.trim();
+}
+
+// クリップボードの text/html から最初の <table> を grid に展開する。
+// rowspan/colspan は占有マトリクスで展開し、結合範囲の全セルに同じ値を繰り返す。
+// 戻り値 { grid, merged, tooLarge }:
+//   grid=null / tooLarge=false → <table> が無い（呼び出し側は既定の貼り付けへ）
+//   grid=null / tooLarge=true  → 展開後セル数が maxCells 超過
+// セル数は展開ループの内側で数える。1セルの rowspan×colspan だけで数千万セルに
+// なりうる（ブラウザのクランプ上限は rowspan 65534・colspan 1000）ため text/html の
+// 文字数では守れず、rowspan の張り出しで実列数も増えるため事前見積もりでも守れない。
+function parseHtmlTable(html, maxCells) {
+  const limit = typeof maxCells === 'number' ? maxCells : Infinity;
+  const table = new DOMParser().parseFromString(html, 'text/html').querySelector('table');
+  if (!table) return { grid: null, merged: false, tooLarge: false };
+
+  const grid = [];
+  const occupied = [];
+  const ensureRow = r => {
+    if (!grid[r]) { grid[r] = []; occupied[r] = []; }
+  };
+  let merged = false;
+  let filled = 0;
+
+  const rows = table.rows;
+  for (let r = 0; r < rows.length; r++) {
+    ensureRow(r);
+    let c = 0;
+    for (const cellEl of rows[r].cells) {
+      while (occupied[r][c]) c++;
+      const rowSpan = Math.max(1, cellEl.rowSpan || 1);
+      const colSpan = Math.max(1, cellEl.colSpan || 1);
+      if (rowSpan > 1 || colSpan > 1) merged = true;
+      filled += rowSpan * colSpan;
+      if (filled > limit) return { grid: null, merged, tooLarge: true };
+      const value = htmlCellText(cellEl);
+      for (let dr = 0; dr < rowSpan; dr++) {
+        ensureRow(r + dr);
+        for (let dc = 0; dc < colSpan; dc++) {
+          grid[r + dr][c + dc] = value;
+          occupied[r + dr][c + dc] = true;
+        }
+      }
+      c += colSpan;
+    }
+  }
+  return { grid: padGrid(grid), merged, tooLarge: false };
+}
+
+// 貼り付けの text/html 取り込み入口。UI もテストもこの関数を通る。
+// 戻り値: { tsv, merged, warnings } — tsv=null なら取り込まず既定の貼り付けに委ねる
+function convertFromHtml(html) {
+  const warnings = [];
+  const skip = () => ({ tsv: null, merged: false, warnings });
+  if (!html) return skip();
+  if (html.length > MAX_INPUT_CHARS) {
+    warnings.push({ type: 'warn', message: 'HTMLの表が上限（200万文字）を超えたため取り込みを中止しました。通常の貼り付けとして処理します' });
+    return skip();
+  }
+  const parsed = parseHtmlTable(html, MAX_HTML_CELLS);
+  if (parsed.tooLarge) {
+    warnings.push({ type: 'warn', message: 'HTMLの表が上限（20万セル）を超えたため取り込みを中止しました。通常の貼り付けとして処理します' });
+    return skip();
+  }
+  if (!parsed.grid || isEmptyGrid(parsed.grid)) return skip();
+  warnings.push({
+    type: 'info',
+    message: parsed.merged ? 'HTMLの表を取り込み、結合セルを展開しました' : 'HTMLの表として取り込みました',
+  });
+  return { tsv: gridToTsv(parsed.grid), merged: parsed.merged, warnings };
+}
+
 /* ========== テスト用フック ========== */
 
 window.excel2md = {
   parseTsv, gridToMarkdown, convert,
   parseMarkdownTable, gridToTsv, gridToHtmlTable, convertFromMd,
+  parseHtmlTable, convertFromHtml,
 };
 
 /* ========== UI ========== */
@@ -304,12 +425,17 @@ const el = {
   copyBtn: $('copy-btn'),
   copyHint: $('copy-hint'),
   sampleBtn: $('sample-btn'),
+  alignBar: $('align-bar'),
+  alignChips: $('align-chips'),
+  alignNote: $('align-note'),
 };
 
 const TOOL = 'excel2md';
 
 let direction = 'tsv2md';
-let lastHtml = ''; // MD→TSV の「Excel用にコピー」で使う HTML 表
+let lastHtml = '';        // MD→TSV の「Excel用にコピー」で使う HTML 表
+let colAligns = [];       // 列ごとの揃え（永続化しない。列が0になったらリセット）
+let importNotice = null;  // 直近の text/html 取り込み通知 { warnings, text }（text は通知が有効な入力値）
 
 const DIRECTION_UI = {
   tsv2md: { inTitle: '入力（Excelからの貼り付け / TSV）', outTitle: '出力（Markdown）', copyLabel: 'Markdownをコピー' },
@@ -325,7 +451,7 @@ function applyDirectionUI() {
 }
 
 function currentOpts() {
-  return { header: el.optHeader.checked, trim: el.optTrim.checked };
+  return { header: el.optHeader.checked, trim: el.optTrim.checked, alignments: colAligns };
 }
 
 function saveOpts() {
@@ -351,19 +477,82 @@ function maybeSuggestSwitch(warnings) {
   }
 }
 
+/* ---------- 列の揃え指定バー ---------- */
+
+const ALIGN_CYCLE = ['none', 'left', 'center', 'right'];
+const ALIGN_LABEL = { none: '−', left: '左', center: '中央', right: '右' };
+const ALIGN_MAX_COLS = 60; // 超過分はチップを出さない（大きな表での再構築コストを抑える）
+
+function columnLabel(index, firstRow) {
+  const raw = el.optHeader.checked ? (firstRow[index] || '') : '';
+  const oneLine = raw.replace(/\s+/g, ' ').trim();
+  if (oneLine === '') return '列' + (index + 1);
+  return oneLine.length > 8 ? oneLine.slice(0, 8) + '…' : oneLine;
+}
+
+function renderAlignBar(cols, firstRow) {
+  const shown = Math.min(cols, ALIGN_MAX_COLS);
+  el.alignBar.hidden = !(direction === 'tsv2md' && shown > 0);
+  if (el.alignBar.hidden) {
+    el.alignChips.textContent = '';
+    el.alignNote.hidden = true;
+    return;
+  }
+
+  // 列数が同じならチップ要素を作り直さずラベルだけ更新する。作り直すとクリックした
+  // 要素が DOM から外れてフォーカスが body に戻り、キーボードで連続切替できなくなる
+  const chips = el.alignChips.children;
+  if (chips.length !== shown) {
+    el.alignChips.textContent = '';
+    for (let c = 0; c < shown; c++) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'align-chip';
+      btn.dataset.col = String(c);
+      btn.title = 'クリックで揃えを切替（なし→左→中央→右）';
+      el.alignChips.appendChild(btn);
+    }
+  }
+  for (let c = 0; c < shown; c++) {
+    chips[c].textContent = columnLabel(c, firstRow) + ': ' + ALIGN_LABEL[colAligns[c] || 'none'];
+  }
+  el.alignNote.hidden = cols <= ALIGN_MAX_COLS;
+}
+
+el.alignChips.addEventListener('click', e => {
+  const btn = e.target.closest('.align-chip');
+  if (!btn) return;
+  const col = Number(btn.dataset.col);
+  const current = colAligns[col] || 'none';
+  colAligns[col] = ALIGN_CYCLE[(ALIGN_CYCLE.indexOf(current) + 1) % ALIGN_CYCLE.length];
+  run();
+});
+
+/* ---------- 変換の実行 ---------- */
+
+// 取り込み通知は「その通知を生んだ入力値」の間だけ変換警告と併記する。
+// 手入力で入力値が変われば自然に失効するため、貼り付けが input イベントを何回発火しても
+// 影響されない（Chrome の execCommand('insertText') は複数行テキストで行ごとに発火する）。
+function noticeWarnings() {
+  return importNotice && importNotice.text === el.input.value ? importNotice.warnings : [];
+}
+
 function run() {
   if (direction === 'tsv2md') {
     const result = convert(el.input.value, currentOpts());
     el.output.value = result.markdown;
     lastHtml = '';
+    if (result.cols === 0) colAligns.length = 0;
+    renderAlignBar(result.cols, result.firstRow);
     maybeSuggestSwitch(result.warnings);
-    showBanner(result.warnings);
+    showBanner(noticeWarnings().concat(result.warnings));
   } else {
     const result = convertFromMd(el.input.value, { header: el.optHeader.checked });
     el.output.value = result.tsv;
     lastHtml = result.html;
+    renderAlignBar(0, []); // MD→TSV では揃えバーを出さない（揃えは区切り行から読む）
     maybeSuggestSwitch(result.warnings);
-    showBanner(result.warnings);
+    showBanner(noticeWarnings().concat(result.warnings));
   }
 }
 
@@ -373,6 +562,49 @@ el.input.addEventListener('input', () => {
   debounceTimer = setTimeout(run, 200);
   updateSampleBtn();
 });
+
+/* ---------- Excel からの貼り付け（text/html 経路） ---------- */
+
+// 貼り付け位置に挿入する。execCommand('insertText') はブラウザの undo 履歴に乗るため優先し、
+// 使えない場合だけ setRangeText にフォールバックする。
+function insertAtSelection(ta, text) {
+  ta.focus();
+  let ok = false;
+  try { ok = document.execCommand('insertText', false, text); } catch (_) { ok = false; }
+  if (!ok) ta.setRangeText(text, ta.selectionStart, ta.selectionEnd, 'end');
+}
+
+// Excel は結合セルを text/plain では「先頭セルに値・残りは空」で出すため、
+// text/html を解析して結合範囲の全セルに値を繰り返す。取り込めないときは
+// preventDefault せず既定の貼り付け（text/plain）に委ねる。
+el.input.addEventListener('paste', e => {
+  importNotice = null;
+  if (direction !== 'tsv2md' || !e.clipboardData) return;
+
+  const result = convertFromHtml(e.clipboardData.getData('text/html'));
+
+  if (result.tsv === null) {
+    if (result.warnings.length === 0) return; // 表が無い等。無言で既定の貼り付けへ
+    // 取り込みを中止した理由はこの場で出す（text/plain が空だと input イベントも来ない）。
+    // 既定の貼り付けはこのハンドラの後に反映されるため、通知の紐づけは次のタスクで行う
+    showBanner(result.warnings);
+    setTimeout(() => {
+      importNotice = { warnings: result.warnings, text: el.input.value };
+      clearTimeout(debounceTimer);
+      run();
+    }, 0);
+    return;
+  }
+
+  e.preventDefault();
+  insertAtSelection(el.input, result.tsv);
+  importNotice = { warnings: result.warnings, text: el.input.value };
+  clearTimeout(debounceTimer);
+  run();
+  updateSampleBtn();
+});
+
+/* ---------- サンプル・ショートカット・オプション ---------- */
 
 // サンプル投入（空状態の学習用。入力が空のときだけ表示。方向に応じた例を投入）
 const SAMPLES = {
@@ -384,6 +616,7 @@ function updateSampleBtn() {
 }
 el.sampleBtn.addEventListener('click', () => {
   el.input.value = SAMPLES[direction];
+  importNotice = null;
   clearTimeout(debounceTimer);
   run();
   updateSampleBtn();
@@ -414,6 +647,8 @@ for (const radio of document.querySelectorAll('input[name="direction"]')) {
     run();
   });
 }
+
+/* ---------- コピー ---------- */
 
 // コピー: click ハンドラ内で同期的に開始する（Safari のユーザー操作失効対策）。
 // 確実な保険は「選択状態にする」こと。

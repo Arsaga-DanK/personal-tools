@@ -41,11 +41,10 @@
 // スキーマ: { name: 表示名, path: index.html からの相対パス, desc: 1行説明,
 //            category: 変換|タスク|設計|PM, when: いつ使うかの一言（省略可） }
 const TOOLS = [
-  { name: 'excel2md', path: 'web/excel2md.html', desc: 'Excelのセル範囲（TSV）⇔ Markdownテーブル 双方向変換', category: '変換', when: 'Excel の表を設計書や議事録の Markdown に貼るとき／その逆' },
+  { name: 'excel2md', path: 'web/excel2md.html', desc: 'Excelのセル範囲（TSV）⇔ Markdownテーブル 双方向変換 — 結合セルの展開・列の揃え指定', category: '変換', when: 'Excel の表を設計書や議事録の Markdown に貼るとき／その逆' },
   { name: 'devpad', path: 'web/devpad.html', desc: 'JSON整形・エスケープ・URL・Base64・Unix時刻・UUID・文字数カウント', category: '変換', when: 'API レスポンスの整形・エンコード・時刻変換をその場で済ませたいとき' },
   { name: 'norm', path: 'web/norm.html', desc: '日本語表記の正規化（全角半角・ハイフン・波ダッシュ・空白・NFKC）変更箇所ハイライト付き', category: '変換', when: '顧客提供テキストや仕様書の表記ゆれを揃えるとき' },
   { name: 'diff', path: 'web/diff.html', desc: 'テキスト比較 — 行単位差分＋文字単位ハイライト、空白無視・全半角同一視オプション', category: '変換', when: '文言修正の前後比較や設計記述の突き合わせ' },
-  { name: 'md2excel（旧・双方向）', path: 'excel2md/excel2md.html', desc: 'Excelの表 ⇄ Markdownテーブルを相互変換（貼り付け方式・旧ツール）', category: '変換', when: '原則 excel2md を使う。旧ツールの動作確認・比較用' },
   { name: 'taskboard', path: 'web/taskboard.html', desc: 'vault の tasks.md（正本）を表形式で閲覧・編集 — 完了・期限・優先度・Excel用コピー', category: 'タスク', when: '朝の計画と期限付け・週次の棚卸し・Excel報告への転記' },
 ];
 
