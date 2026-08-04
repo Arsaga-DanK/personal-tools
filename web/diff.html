@@ -4,9 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>diff — テキスト比較</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🔍%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="../lib/ui.css">
 <style>
-  /* diff 固有: 差分表示の描画のみ */
+  /* diff 固有: 差分表示の描画とサンプルボタンのみ */
+  .sample-btn { font-size: 11px; padding: 1px 8px; margin-left: 6px; }
   #diff-view {
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-size: 12.5px;
@@ -45,13 +47,15 @@
     <label class="toggle"><input type="checkbox" id="opt-width"> 全角半角を同一視</label>
     <span class="spacer"></span>
     <span class="summary" id="summary"></span>
+    <span class="muted" id="copy-hint" style="font-size:12px"></span>
+    <button class="primary" id="copy-btn" title="Cmd/Ctrl+Enter">diffをコピー</button>
   </div>
 
   <div class="banner" id="banner" hidden></div>
 
   <div class="panes">
     <div class="pane">
-      <p class="pane-title">旧テキスト</p>
+      <p class="pane-title">旧テキスト<button type="button" class="sample-btn" id="sample-btn">サンプルを入れる</button></p>
       <textarea id="input-a" spellcheck="false"></textarea>
     </div>
     <div class="pane">
@@ -303,6 +307,7 @@ const el = {
   a: $('input-a'), b: $('input-b'), view: $('diff-view'),
   summary: $('summary'), banner: $('banner'),
   optWs: $('opt-ws'), optWidth: $('opt-width'),
+  copyBtn: $('copy-btn'), copyHint: $('copy-hint'), sampleBtn: $('sample-btn'),
 };
 
 function uiOpts() { return { ignoreWs: el.optWs.checked, unifyWidth: el.optWidth.checked }; }
@@ -409,17 +414,23 @@ function countLines(s) {
   return n;
 }
 
+let lastResult = null; // diffをコピー で使う直近の計算結果
+
 function run() {
   const aV = el.a.value, bV = el.b.value;
   if (aV.length + bV.length > MAX_INPUT_CHARS_TOTAL ||
       countLines(aV) > MAX_LINES_PER_SIDE || countLines(bV) > MAX_LINES_PER_SIDE) {
+    lastResult = null;
     el.view.textContent = '';
     el.summary.textContent = '';
     showBanner('入力が上限（合計500万文字・片側5万行）を超えたため比較を中止しました', 'warn');
     return;
   }
   const result = diffLines(el.a.value, el.b.value, uiOpts());
+  lastResult = result;
+  const noDiff = result.summary.added === 0 && result.summary.deleted === 0 && result.summary.changed === 0;
   el.summary.textContent =
+    (noDiff && (aV !== '' || bV !== '') ? '差分なし — ' : '') +
     '追加 ' + result.summary.added + '行 / 削除 ' + result.summary.deleted +
     '行 / 変更 ' + result.summary.changed + '行';
   if (result.fallback) {
@@ -447,6 +458,92 @@ function onOptChange() {
 el.optWs.addEventListener('change', onOptChange);
 el.optWidth.addEventListener('change', onOptChange);
 
+// 画面表示と同じ順序（ペアは - + 交互）のマーカー付きテキストを組み立てる。
+// マーカーは画面では user-select:none で選択コピーに乗らないため、共有はこのボタン経由が正
+function diffToText(result) {
+  const out = [];
+  for (const h of result.hunks) {
+    if (h.type === 'common') {
+      for (let i = 0; i < h.count; i++) out.push('  ' + result.aLines[h.aStart + i]);
+      continue;
+    }
+    const pairCount = h.pairs.length;
+    for (let i = 0; i < pairCount; i++) {
+      out.push('- ' + result.aLines[h.pairs[i].aIdx]);
+      out.push('+ ' + result.bLines[h.pairs[i].bIdx]);
+    }
+    for (let i = pairCount; i < h.del.length; i++) out.push('- ' + result.aLines[h.del[i]]);
+    for (let i = pairCount; i < h.add.length; i++) out.push('+ ' + result.bLines[h.add[i]]);
+  }
+  return out.join('\n');
+}
+
+// コピー（共通プロトコル: clipboard API → 失敗時は一時 textarea 選択方式）
+let copyTimer = null;
+function copyFeedback() {
+  el.copyBtn.textContent = '✓ コピーしました';
+  el.copyBtn.classList.add('copied');
+  clearTimeout(copyTimer);
+  copyTimer = setTimeout(() => {
+    el.copyBtn.textContent = 'diffをコピー';
+    el.copyBtn.classList.remove('copied');
+  }, 1500);
+}
+function copySelectFallback(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.position = 'fixed';
+  ta.style.left = '-9999px';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
+  ta.remove();
+  ok ? copyFeedback() : (el.copyHint.textContent = 'コピーできませんでした');
+}
+el.copyBtn.addEventListener('click', () => {
+  clearTimeout(debounceTimer); // デバウンス中の旧内容コピー防止（同期確定してから書く）
+  run();
+  el.copyHint.textContent = '';
+  const text = lastResult === null ? '' : diffToText(lastResult);
+  if (text === '') {
+    el.copyHint.textContent = 'コピーする内容がありません';
+    return;
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(copyFeedback).catch(() => copySelectFallback(text));
+  } else {
+    copySelectFallback(text);
+  }
+});
+
+// サンプル投入（空状態の学習用。両ペインが空のときだけ表示。
+// 文字違い・全半角違い・行頭空白違いを1箇所ずつ仕込み、オプションの効果が試せる）
+const SAMPLE_A = '会議の議事録を3日以内に共有します。\n対象はABC商事の案件です。\n    行頭の空白はインデントです。\n次回は8月10日に開催します。\n以上';
+const SAMPLE_B = '会議の議事録を4日以内に共有します。\n対象はＡＢＣ商事の案件です。\n  行頭の空白はインデントです。\n次回は8月10日に開催します。\n以上';
+function updateSampleBtn() {
+  el.sampleBtn.hidden = !(el.a.value === '' && el.b.value === '');
+}
+el.sampleBtn.addEventListener('click', () => {
+  el.a.value = SAMPLE_A;
+  el.b.value = SAMPLE_B;
+  clearTimeout(debounceTimer);
+  run();
+  updateSampleBtn();
+});
+el.a.addEventListener('input', updateSampleBtn);
+el.b.addEventListener('input', updateSampleBtn);
+
+// Cmd/Ctrl+Enter でコピー（頻用操作のキーボード導線）
+document.addEventListener('keydown', e => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+    e.preventDefault();
+    el.copyBtn.click();
+  }
+});
+
 (function init() {
   const saved = ToolStorage.load(TOOL);
   if (saved && typeof saved === 'object') {
@@ -454,6 +551,7 @@ el.optWidth.addEventListener('change', onOptChange);
     if (typeof saved.unifyWidth === 'boolean') el.optWidth.checked = saved.unifyWidth;
   }
   ToolStorage.mountWarning();
+  updateSampleBtn();
   run();
 })();
 </script>
