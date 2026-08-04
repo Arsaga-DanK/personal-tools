@@ -4,7 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>excel2md — TSV ⇔ Markdown表</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E📊%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="../lib/ui.css">
+<style>
+  .sample-btn { font-size: 11px; padding: 1px 8px; margin-left: 6px; }
+</style>
 </head>
 <body>
 <main class="app">
@@ -19,14 +23,14 @@
     <label class="toggle"><input type="checkbox" id="opt-trim" checked> セル前後の空白を除去</label>
     <span class="spacer"></span>
     <span class="muted" id="copy-hint" style="font-size:12px"></span>
-    <button class="primary" id="copy-btn">Markdownをコピー</button>
+    <button class="primary" id="copy-btn" title="Cmd/Ctrl+Enter">Markdownをコピー</button>
   </div>
 
   <div class="banner" id="banner" hidden></div>
 
   <div class="panes">
     <div class="pane">
-      <p class="pane-title" id="pane-title-in">入力（Excelからの貼り付け / TSV）</p>
+      <p class="pane-title"><span id="pane-title-in">入力（Excelからの貼り付け / TSV）</span><button type="button" class="sample-btn" id="sample-btn">サンプルを入れる</button></p>
       <textarea id="input" spellcheck="false" placeholder="ここに変換したい表を貼り付け"></textarea>
     </div>
     <div class="pane">
@@ -299,6 +303,7 @@ const el = {
   optTrim: $('opt-trim'),
   copyBtn: $('copy-btn'),
   copyHint: $('copy-hint'),
+  sampleBtn: $('sample-btn'),
 };
 
 const TOOL = 'excel2md';
@@ -366,6 +371,30 @@ let debounceTimer = null;
 el.input.addEventListener('input', () => {
   clearTimeout(debounceTimer);
   debounceTimer = setTimeout(run, 200);
+  updateSampleBtn();
+});
+
+// サンプル投入（空状態の学習用。入力が空のときだけ表示。方向に応じた例を投入）
+const SAMPLES = {
+  tsv2md: '名前\t担当\t備考\n田中\t設計\t"レビュー済\n8/4 修正反映"\n鈴木\t実装\t-',
+  md2tsv: '| 名前 | 担当 | 備考 |\n| --- | --- | --- |\n| 田中 | 設計 | レビュー済<br>8/4 修正反映 |\n| 鈴木 | 実装 | - |',
+};
+function updateSampleBtn() {
+  el.sampleBtn.hidden = el.input.value !== '';
+}
+el.sampleBtn.addEventListener('click', () => {
+  el.input.value = SAMPLES[direction];
+  clearTimeout(debounceTimer);
+  run();
+  updateSampleBtn();
+});
+
+// Cmd/Ctrl+Enter でコピー（頻用操作のキーボード導線）
+document.addEventListener('keydown', e => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+    e.preventDefault();
+    el.copyBtn.click();
+  }
 });
 
 function onOptionChange() {
@@ -473,6 +502,7 @@ el.copyBtn.addEventListener('click', () => {
   }
   applyDirectionUI();
   ToolStorage.mountWarning();
+  updateSampleBtn();
   run();
 })();
 </script>
