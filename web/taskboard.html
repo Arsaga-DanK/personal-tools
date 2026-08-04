@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>taskboard — tasks.md タスクボード</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E✅%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="../lib/ui.css">
 <style>
   /* taskboard 固有: 表・ポップオーバーの描画のみ */
@@ -72,8 +73,9 @@
     <span class="spacer"></span>
     <button id="btn-copy">Excel用コピー</button>
     <button id="btn-copy-all" hidden>全文コピー</button>
+    <button id="btn-archive" disabled>完了をアーカイブ</button>
     <button id="btn-reload">再読込</button>
-    <button id="btn-save" class="primary" disabled>保存</button>
+    <button id="btn-save" class="primary" disabled title="Cmd/Ctrl+S">保存</button>
   </div>
 
   <div id="add-form" class="addform" hidden>
@@ -98,7 +100,7 @@
       <tbody id="task-body"></tbody>
     </table>
   </div>
-  <p id="empty-msg" class="muted" hidden>ファイルを開くとタスクが表示されます</p>
+  <p id="empty-msg" class="muted" hidden>ファイルを開くとタスクが表示されます — ブラウザから直接 tasks.md を読み書きします（初回のみ Chrome の許可ダイアログが出ます）</p>
 </main>
 
 <div id="popover" class="popover" hidden></div>
@@ -114,13 +116,15 @@ const MAX_CHARS = 2000000;         // 読込上限
 const IDB_NAME = 'tools-taskboard';// file:// は全ページ同一オリジンのため db 名で衝突防止
 const IDB_STORE = 'handles';
 const IDB_KEY = 'tasksmd';
+const IDB_KEY_ARCH = 'archivemd'; // 完了アーカイブ先（vault/03_Tasks/archive.md）のハンドル
 
 /* ========== エンジン（純粋・I/O なし） ==========
    方針: 行を原文文字列のまま保持し、編集はトークン単位の最小スプライス。
    編集していない行のバイトは一切変えない（ラウンドトリップのバイト保全）。 */
 
-const TASK_RE = /^(\t*)- \[( |x|X)\] (.*)$/;
-const HEAD_RE = /^## (.*)$/;
+// 末尾の \r は許容してマッチ（CR 改行ファイルも表示はできる）。編集は taskAt の CR ガードで拒否
+const TASK_RE = /^(\t*)- \[( |x|X)\] (.*?)\r?$/;
+const HEAD_RE = /^## (.*?)\r?$/;
 // 絵文字は異体字セレクタ(U+FE0F)付きも許容してマッチし、置換時は $1 で原表記を保存する
 const DONE_FIND = /✅\uFE0F? (\d{4}-\d{2}-\d{2})/;
 const DONE_CUT  = / ?✅\uFE0F? \d{4}-\d{2}-\d{2}/;
@@ -142,6 +146,8 @@ function taskAt(lines, lineNo) {
   const L = lines[lineNo - 1];
   const m = L && TASK_RE.exec(L.raw);
   if (!m) throw new Error(lineNo + '行目はタスク行ではありません');
+  // setRest が \r を落として保存する事故を防ぐ（CR 行は表示のみ）
+  if (L.raw.includes('\r')) throw new Error(lineNo + '行目は CR 改行のため編集できません');
   return { L, indent: m[1], ch: m[2], rest: m[3] };
 }
 function setRest(t, rest, ch) {
@@ -225,6 +231,7 @@ function opAddChild(lines, op) {
   const p = op.parentLine - 1;
   const pm = lines[p] && TASK_RE.exec(lines[p].raw);
   if (!pm) throw new Error(op.parentLine + '行目はタスク行ではありません');
+  if (lines[p].raw.includes('\r')) throw new Error(op.parentLine + '行目は CR 改行のため編集できません');
   const d = pm[1].length;
   let q = p; // 親の最終子孫
   for (let i = p + 1; i < lines.length; i++) {
@@ -402,6 +409,9 @@ const state = {
   doc: null, visibleRows: [],
   todayOverride: null,
   fsaOff: false, // テスト用: フォールバック UI 強制
+  demo: false,       // デモデータ表示中（保存・アーカイブ無効）
+  hasCRFile: false,  // CR 改行ファイル（表示のみ・追加/アーカイブ無効）
+  archiveAdapter: null, archiveHandle: null,
   ui: { sort: 'file', section: '', tag: '', showDone: false },
 };
 
@@ -452,9 +462,11 @@ function loadText(text, adapter) {
   state.snapshot = text;
   state.lines = toLines(text);
   state.loaded = true;
+  state.demo = false;
+  state.hasCRFile = text.includes('\r');
   hideBanner();
-  if (text.includes('\r')) {
-    showBanner('warn', 'CR 改行を含む行があります。該当行は原文保持のみで編集できません');
+  if (state.hasCRFile) {
+    showBanner('warn', 'CR 改行（Windows形式）のファイルです。表示のみ可能で、該当行の編集・タスク追加・アーカイブはできません（Obsidian 標準は LF）');
   }
   render();
   updateFileBar();
@@ -469,6 +481,7 @@ function isDirty() {
 
 async function doSave() {
   if (!state.loaded || !state.adapter) return { ok: false, reason: 'notloaded' };
+  if (state.demo) { showBanner('info', 'デモ中は保存できません'); return { ok: false, reason: 'demo' }; }
   const text = joinLines(state.lines);
   const counts = diffCounts(state.lines);
   if (state.adapter.canCheck) {
@@ -534,7 +547,7 @@ async function checkExternal() {
 }
 window.addEventListener('focus', checkExternal);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) checkExternal(); });
-window.addEventListener('beforeunload', (e) => { if (isDirty()) e.preventDefault(); });
+window.addEventListener('beforeunload', (e) => { if (isDirty() && !state.demo) e.preventDefault(); });
 
 /* ---------- FSA フロー ---------- */
 
@@ -601,15 +614,45 @@ function enterFallbackUi() {
   updateFileBar();
 }
 
+// デモデータ（メモリ上のみ。期限は今日基準で生成し、超過・当日・先日付の色分けが見える）
+function demoText() {
+  const T = todayStr();
+  return ['<!--', 'デモデータ（メモリ上のみ・ファイルには書き込みません）', '-->', '',
+    '# tasks', '', '## 今週', '',
+    '- [ ] 設計書のレビュー依頼 #レビュー [[2026-07-30]] 📅 ' + T + ' ⏫',
+    '- [ ] 議事録の清書 📅 ' + addDays(T, -1),
+    '\t- [ ] 決定事項の抜き出し',
+    '- [x] キックオフ資料の準備 ✅ ' + addDays(T, -2),
+    '', '## 来週', '',
+    '- [ ] 見積の見直し #見積 📅 ' + addDays(T, 3) + ' 🔽',
+    '', '## その他', ''].join('\n');
+}
+function loadDemo() {
+  const text = demoText();
+  loadText(text, makeMemoryAdapter(text));
+  state.demo = true;
+  render();
+  updateFileBar();
+  showBanner('info', 'デモデータを表示中（メモリ上のみ・保存とアーカイブは無効）。実データは「tasks.md を開く」から開いてください');
+}
+
 function updateFileBar() {
   const box = el('file-actions');
   box.textContent = '';
   const nameEl = el('file-name');
   if (state.loaded && state.adapter) {
-    nameEl.textContent = '📄 ' + state.adapter.name;
+    nameEl.textContent = '📄 ' + state.adapter.name + (state.demo ? '（デモ）' : '');
   } else {
     nameEl.textContent = '';
   }
+  const appendDemoBtn = () => {
+    if (state.loaded) return;
+    const btn = document.createElement('button');
+    btn.textContent = 'デモデータを表示';
+    btn.title = 'ファイルなしで画面を試す（メモリ上のみ）';
+    btn.addEventListener('click', loadDemo);
+    box.appendChild(btn);
+  };
   if (!fsaAvailable()) {
     // フォールバックでは常にファイル選択を出す（別ファイルへの切替もこれで行う）
     const label = document.createElement('label');
@@ -625,6 +668,7 @@ function updateFileBar() {
     });
     label.appendChild(input);
     box.appendChild(label);
+    appendDemoBtn();
     return;
   }
   if (!state.loaded && state.resumeHandle) {
@@ -639,6 +683,7 @@ function updateFileBar() {
   openBtn.textContent = state.loaded || state.resumeHandle ? '別のファイルを開く' : 'tasks.md を開く';
   openBtn.addEventListener('click', openViaPicker);
   box.appendChild(openBtn);
+  appendDemoBtn();
 }
 
 /* ---------- 描画 ---------- */
@@ -677,7 +722,7 @@ function render() {
     el('main-toolbar').hidden = true;
     el('table-wrap').hidden = true;
     el('empty-msg').hidden = false;
-    el('empty-msg').textContent = 'ファイルを開くとタスクが表示されます';
+    el('empty-msg').textContent = 'ファイルを開くとタスクが表示されます — ブラウザから直接 tasks.md を読み書きします（初回のみ Chrome の許可ダイアログが出ます）';
     return;
   }
   el('main-toolbar').hidden = false;
@@ -731,16 +776,145 @@ function render() {
 
   const open = doc.tasks.filter(t => !t.done).length;
   el('summary').textContent = '未完了 ' + open + ' / 全 ' + doc.tasks.length + ' 件 · 表示 ' + rows.length + ' 行';
+  el('btn-add-form').disabled = state.hasCRFile;
   updateSaveButton();
+  updateArchiveButton();
 }
 
 function updateSaveButton() {
   const btn = el('btn-save');
+  if (state.demo) { btn.textContent = '保存（デモ中は無効）'; btn.disabled = true; return; }
   const c = state.loaded ? diffCounts(state.lines) : { changed: 0, added: 0 };
   const n = c.changed + c.added;
   const base = (!fsaAvailable() && state.adapter && state.adapter.mode === 'fallback') ? '保存（ダウンロード）' : '保存';
   btn.textContent = n > 0 ? base + '（' + n + '）' : base;
   btn.disabled = n === 0;
+}
+
+/* ---------- 完了アーカイブ ---------- */
+
+// 対象は親子グループ単位: 深さ0の部分木がすべて完了し、かつ現在の表示に出ているもの
+// （ソート・絞り込みと同じグループ単位の考え方。未完了の子を持つ親は文脈ごと残す）
+function subtreeAllDone(t) { return t.done && t.children.every(subtreeAllDone); }
+function collectArchivable() {
+  if (!state.loaded || !state.doc) return [];
+  const inView = new Set(state.visibleRows.map(t => t.line));
+  return state.doc.tasks.filter(t =>
+    t.parentLine === null && subtreeAllDone(t) && inView.has(t.line));
+}
+function subtreeLines(t, out) {
+  out.push(t.line);
+  for (const c of t.children) subtreeLines(c, out);
+  return out;
+}
+
+function updateArchiveButton() {
+  const btn = el('btn-archive');
+  const usable = state.loaded && !state.demo && !state.hasCRFile &&
+    state.adapter && state.adapter.mode !== 'fallback';
+  const lineNos = usable ? collectArchivable().flatMap(t => subtreeLines(t, [])) : [];
+  btn.disabled = lineNos.length === 0;
+  btn.textContent = lineNos.length > 0 ? '完了をアーカイブ（' + lineNos.length + '）' : '完了をアーカイブ';
+  btn.title = lineNos.length > 0
+    ? '表示中の完了グループを archive.md へ移動して tasks.md から除去'
+    : '対象なし — 完了行は「完了を含む」を ON にすると表示されます（子がすべて完了したグループが対象）';
+}
+
+// archive.md のアダプタを用意（メモリセッションはメモリ、FSA はハンドル永続化＋初回ピッカー）
+async function getArchiveAdapter() {
+  if (state.adapter && state.adapter.mode === 'memory') {
+    if (!state.archiveAdapter) state.archiveAdapter = makeMemoryAdapter('');
+    return state.archiveAdapter;
+  }
+  if (!state.adapter || state.adapter.mode !== 'fsa') return null;
+  let handle = state.archiveHandle;
+  if (!handle) { try { handle = await idbGet(IDB_KEY_ARCH); } catch (_) {} }
+  if (handle && handle.kind === 'file' && await verifyPermission(handle)) {
+    state.archiveHandle = handle;
+    return makeFsaAdapter(handle);
+  }
+  try {
+    handle = await window.showSaveFilePicker({
+      suggestedName: 'archive.md',
+      types: [{ description: 'Markdown', accept: { 'text/markdown': ['.md'] } }],
+    });
+  } catch (e) {
+    if (e && e.name === 'AbortError') return null; // キャンセル
+    throw e;
+  }
+  if (!(await verifyPermission(handle))) return null;
+  state.archiveHandle = handle;
+  idbSet(IDB_KEY_ARCH, handle).catch(() => {});
+  return makeFsaAdapter(handle);
+}
+
+// 順序は archive 追記 → tasks 除去保存（失敗しても行が消えない方向に倒す）
+async function doArchive() {
+  if (!state.loaded || !state.adapter) return { ok: false, reason: 'notloaded' };
+  if (state.demo) { showBanner('info', 'デモ中はアーカイブできません'); return { ok: false, reason: 'demo' }; }
+  if (state.adapter.mode === 'fallback') {
+    showBanner('warn', 'このブラウザではアーカイブできません（ファイルへの直接保存が必要です）');
+    return { ok: false, reason: 'fallback' };
+  }
+  if (isDirty()) {
+    showBanner('warn', '未保存の変更があります。先に保存してからアーカイブしてください');
+    return { ok: false, reason: 'dirty' };
+  }
+  const roots = collectArchivable();
+  if (roots.length === 0) {
+    showBanner('info', 'アーカイブ対象の完了行が表示されていません（「完了を含む」を ON にして確認してください）');
+    return { ok: false, reason: 'empty' };
+  }
+  const lineNos = roots.flatMap(t => subtreeLines(t, [])).sort((a, b) => a - b);
+  // tasks.md 側は保存と同じ外部変更チェック（NFC 比較・黙って上書きしない）
+  let disk;
+  try {
+    disk = await state.adapter.read();
+  } catch (e) {
+    showBanner('error', 'アーカイブ前の再読込に失敗しました: ' + (e && e.name));
+    return { ok: false, reason: 'readfail' };
+  }
+  if (nfc(disk) !== nfc(state.snapshot)) {
+    showBanner('warn', 'Obsidian側で変更されています。上書きを避けるためアーカイブを中止しました。再読込してから実行してください。',
+      [{ label: '再読込', onClick: () => reloadFromAdapter(true) }]);
+    return { ok: false, reason: 'conflict' };
+  }
+  let arch;
+  try {
+    arch = await getArchiveAdapter();
+  } catch (e) {
+    showBanner('error', 'archive.md を開けませんでした: ' + (e && e.name));
+    return { ok: false, reason: 'archopen' };
+  }
+  if (!arch) return { ok: false, reason: 'archcancel' };
+  // 書き込み直前に読み直して末尾へ追記（外部編集を消さない）。無ければヘッダを付与して新規作成
+  let archText = '';
+  try { archText = await arch.read(); } catch (_) { archText = ''; }
+  let out = archText;
+  if (out === '') out = '# archive\n';
+  if (!out.endsWith('\n')) out += '\n';
+  for (const n of lineNos) out += state.lines[n - 1].raw + '\n';
+  try {
+    await arch.write(out);
+  } catch (e) {
+    showBanner('error', 'archive.md への書き込みに失敗しました: ' + (e && e.name));
+    return { ok: false, reason: 'archwrite' };
+  }
+  for (let i = lineNos.length - 1; i >= 0; i--) state.lines.splice(lineNos[i] - 1, 1);
+  const text = joinLines(state.lines);
+  try {
+    await state.adapter.write(text);
+  } catch (e) {
+    state.lines = toLines(state.snapshot); // 除去を取り消して読込時状態へ戻す
+    render();
+    showBanner('error', 'archive.md へは追記済みですが tasks.md の保存に失敗しました（行は残っています。再実行すると archive.md 側が重複します）: ' + (e && e.name));
+    return { ok: false, reason: 'writefail' };
+  }
+  state.snapshot = text;
+  for (const l of state.lines) l.orig = l.raw;
+  render();
+  showBanner('success', 'アーカイブしました（' + lineNos.length + '行を ' + arch.name + ' へ移動）');
+  return { ok: true, moved: lineNos.length };
 }
 
 const PRI_LABEL = { highest: '高', high: '高', medium: '中', low: '低', lowest: '低' };
@@ -756,7 +930,12 @@ function renderRow(t, today) {
   cb.checked = t.done;
   cb.disabled = t.hasCR;
   cb.addEventListener('change', () => {
-    applyUiOp({ type: cb.checked ? 'complete' : 'uncomplete', line: t.line });
+    const completing = cb.checked;
+    applyUiOp({ type: completing ? 'complete' : 'uncomplete', line: t.line });
+    // 「完了を含む」OFF では行が即座に消えるため、削除と誤解されない案内を出す
+    if (completing && !state.ui.showDone) {
+      showBanner('info', '完了にしました。完了行は「完了を含む」を ON にすると表示されます（ファイルへは保存時に反映）');
+    }
   });
   tdSt.appendChild(cb);
   tr.appendChild(tdSt);
@@ -1023,7 +1202,15 @@ el('btn-add').addEventListener('click', () => {
 el('add-content').addEventListener('keydown', (e) => { if (e.key === 'Enter') el('btn-add').click(); });
 
 el('btn-save').addEventListener('click', doSave);
+el('btn-archive').addEventListener('click', doArchive);
 el('btn-reload').addEventListener('click', () => reloadFromAdapter(false));
+// Cmd/Ctrl+S で保存（ブラウザの「ページを保存」は常に抑止）
+document.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+    e.preventDefault();
+    if (!el('btn-save').disabled) el('btn-save').click();
+  }
+});
 el('btn-copy').addEventListener('click', () => {
   if (!state.visibleRows.length) { copyFeedback(el('btn-copy'), false, '出力がありません'); return; }
   copyText(buildTsv(state.visibleRows), el('btn-copy'));
@@ -1052,14 +1239,18 @@ window.taskboard = {
     },
     newSession: (text) => {
       const adapter = makeMemoryAdapter(text);
+      state.archiveAdapter = makeMemoryAdapter(''); // アーカイブ検証用（メモリ）
       loadText(text, adapter);
       updateFileBar();
       return {
         externalWrite: (t) => adapter._external(t),
         applyOps: (ops) => { for (const op of ops) applyUiOp(op); },
         save: () => doSave(),
+        archive: () => doArchive(),
         getText: () => joinLines(state.lines),
         getAdapterText: () => adapter._get(),
+        getArchiveText: () => state.archiveAdapter._get(),
+        setArchiveText: (t) => state.archiveAdapter._external(t),
       };
     },
     setToday: (ymd) => { state.todayOverride = ymd; if (state.loaded) render(); },
