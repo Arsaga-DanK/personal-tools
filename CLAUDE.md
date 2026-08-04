@@ -31,6 +31,7 @@ docs/specs/  ツールごとの仕様書兼テストケース
   不正入力でも落ちず警告表示して最善の出力を出す
 - 完成したら index.html の TOOLS 配列に登録する
 - 各ツールは `<main>` 直下に `.tool-header`（「← ツール一覧」リンク＋自動保存の注記）を置く
+- ブラウザツールの永続データの正本は `~/Personal/vault` に置く（第一号: `03_Tasks/tasks.md`）。localStorage は UI 状態（オプション・タブ等）のみ
 
 ## CLI の制約（bin/）
 
