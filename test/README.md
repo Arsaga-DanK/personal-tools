@@ -54,6 +54,7 @@ MCP 側の制約（`browser_navigate` が `file:` を拒否する等）も受け
 | `run` | ランナー。PATH を固定して各ハーネスを実行 |
 | `helpers.js` | playwright-core / Chromium 実体の探索、合否集計、`file://` URL 組み立て |
 | `excel2md.js` | excel2md（E2M-01〜10 / R01〜R08 / H01〜H09 / P01〜P24） |
+| `hub.js` | index.html（HUB-1〜8: 表示順・検索・カテゴリ・リンク遷移・狭幅） |
 
 ## ハーネスを足すとき
 
