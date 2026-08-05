@@ -8,33 +8,56 @@
 <link rel="stylesheet" href="../lib/ui.css">
 <style>
   .sample-btn { font-size: 11px; padding: 1px 8px; margin-left: 6px; }
-  /* 列の揃え指定バー（ツールバーとバナーの間） */
-  .align-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 10px; padding: 0 2px; font-size: 12px; }
-  #align-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-  .align-chip { font-size: 11px; padding: 2px 8px; }
-  #align-note { font-size: 11px; }
+
+  /* プレビュー表（変換結果の表描画。最上段の揃え操作行で列の揃えを指定する） */
+  #preview-section { margin-top: 4px; }
+  #preview-hint { font-size: 12px; font-weight: normal; }
+  #preview-wrap {
+    max-height: 60vh;
+    overflow: auto;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  table.preview { border-collapse: collapse; width: 100%; font-size: 13px; }
+  table.preview th, table.preview td {
+    border: 1px solid var(--border);
+    padding: 5px 10px;
+    white-space: pre-wrap;   /* セル内改行を実際の改行として見せる */
+    vertical-align: top;
+    text-align: left;        /* 揃え none のとき（style.textAlign='' ）の既定 */
+  }
+  table.preview thead th { background: var(--th-bg); }
+  /* 揃え操作行は sticky。border-collapse: collapse では境界線がセルではなくテーブルに
+     属するため、スクロールすると sticky セルの枠線だけ消える。下辺は box-shadow で描く */
+  table.preview tr.align-row th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding: 2px 4px;
+    text-align: center;
+    box-shadow: inset 0 -1px 0 var(--border);
+  }
+  .align-btn { font-size: 11px; padding: 1px 6px; min-width: 44px; }
+  .align-static { font-size: 11px; color: var(--muted); }
+  #preview-note { font-size: 12px; margin: 6px 2px 0; }
 </style>
 </head>
 <body>
-<main class="app">
+<main class="app-wide">
   <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">設定は自動保存されます</span></p>
   <h1>excel2md</h1>
-  <p class="subtitle">Excelのセル範囲（TSV）⇔ Markdown テーブルを双方向変換 — 貼り付けで結合セルを展開・列の揃え指定つき</p>
+  <p class="subtitle">Excelのセル範囲（TSV）⇔ Markdown テーブルを双方向変換 — 貼り付けで結合セルを展開・表プレビュー上で列の揃え指定</p>
 
   <div class="toolbar">
     <label class="toggle"><input type="radio" name="direction" value="tsv2md" checked> TSV→MD</label>
     <label class="toggle"><input type="radio" name="direction" value="md2tsv"> MD→TSV</label>
     <label class="toggle"><input type="checkbox" id="opt-header" checked> 1行目をヘッダーにする</label>
     <label class="toggle"><input type="checkbox" id="opt-trim" checked> セル前後の空白を除去</label>
+    <label class="toggle" title="変換結果の表プレビュー。列の揃え指定もここで行います"><input type="checkbox" id="opt-preview" checked> プレビュー（揃え指定）</label>
     <span class="spacer"></span>
     <span class="muted" id="copy-hint" style="font-size:12px"></span>
     <button class="primary" id="copy-btn" title="Cmd/Ctrl+Enter">Markdownをコピー</button>
-  </div>
-
-  <div class="align-bar" id="align-bar" hidden>
-    <span class="muted">列の揃え:</span>
-    <span id="align-chips"></span>
-    <span class="muted" id="align-note" hidden>※ 61列目以降は揃え指定を省略しています</span>
   </div>
 
   <div class="banner" id="banner" hidden></div>
@@ -49,6 +72,12 @@
       <textarea id="output" readonly spellcheck="false"></textarea>
     </div>
   </div>
+
+  <section id="preview-section" hidden>
+    <h2>プレビュー <span class="muted" id="preview-hint"></span></h2>
+    <div id="preview-wrap"><table class="preview" id="preview"></table></div>
+    <p class="muted" id="preview-note" hidden></p>
+  </section>
 </main>
 
 <script src="../lib/storage.js"></script>
@@ -170,12 +199,12 @@ const MAX_INPUT_CHARS = 2000000; // 超過時は処理せず理由を表示（�
 const MAX_HTML_CELLS = 200000;   // HTML 展開後のセル数上限（性能ガード②）
 
 // 変換の入口。UI もテストもこの関数を通る。
-// 戻り値: { markdown, warnings: [{type: 'warn'|'info', message}], cols, firstRow }
-// cols/firstRow は揃えバーの描画用（列数とラベル元になる1行目）
+// 戻り値: { markdown, warnings: [{type: 'warn'|'info', message}], grid }
+// grid はプレビュー描画用（trim 適用後・矩形化済み）。参照を返すだけなので呼び出し側は読み取り専用で扱う
 function convert(text, opts) {
   const options = Object.assign({ header: true, trim: true, alignments: [] }, opts);
   const warnings = [];
-  const empty = { markdown: '', warnings, cols: 0, firstRow: [] };
+  const empty = { markdown: '', warnings, grid: [] };
   if (text.length > MAX_INPUT_CHARS) {
     warnings.push({ type: 'warn', message: '入力が上限（200万文字）を超えたため処理を中止しました' });
     return empty;
@@ -202,8 +231,7 @@ function convert(text, opts) {
   return {
     markdown: gridToMarkdown(grid, options.header, options.alignments),
     warnings,
-    cols: grid[0].length,
-    firstRow: grid[0].slice(),
+    grid,
   };
 }
 
@@ -290,19 +318,20 @@ function gridToHtmlTable(grid, hasHeader, alignments) {
 }
 
 // MD→TSV の変換入口。UI もテストもこの関数を通る。
-// 戻り値: { tsv, html, alignments, warnings }
+// 戻り値: { tsv, html, alignments, warnings, grid }（grid はプレビュー描画用。認識失敗時は []）
 function convertFromMd(text, opts) {
   const options = Object.assign({ header: true }, opts);
   const warnings = [];
+  const empty = { tsv: '', html: '', alignments: [], warnings, grid: [] };
   if (text.length > MAX_INPUT_CHARS) {
     warnings.push({ type: 'warn', message: '入力が上限（200万文字）を超えたため処理を中止しました' });
-    return { tsv: '', html: '', alignments: [], warnings };
+    return empty;
   }
-  if (text.trim() === '') return { tsv: '', html: '', alignments: [], warnings };
+  if (text.trim() === '') return empty;
   const parsed = parseMarkdownTable(text);
   if (!parsed) {
     warnings.push({ type: 'warn', message: 'Markdownの表として認識できませんでした（ヘッダー行と区切り行が必要です）' });
-    return { tsv: '', html: '', alignments: [], warnings };
+    return empty;
   }
   // TSV は列揃えを表現できない。HTML 経路（Excel用にコピー）では align 属性で保持される
   if (parsed.alignments.some(a => a !== 'none')) {
@@ -313,6 +342,7 @@ function convertFromMd(text, opts) {
     html: gridToHtmlTable(parsed.grid, options.header, parsed.alignments),
     alignments: parsed.alignments,
     warnings,
+    grid: parsed.grid,
   };
 }
 
@@ -405,12 +435,29 @@ function convertFromHtml(html) {
   return { tsv: gridToTsv(parsed.grid), merged: parsed.merged, warnings };
 }
 
+/* ========== プレビューの描画上限（純関数） ========== */
+
+const PREVIEW_MAX_COLS = 60;    // 描画する列数の上限（61列目以降は揃えも指定できない）
+const PREVIEW_MAX_ROWS = 200;   // 描画する grid 行数の上限（ヘッダー行を含む）
+const PREVIEW_MAX_CELLS = 5000; // 描画セル数の予算
+
+// 上限を当てはめた「描画する形」を返す。プレビューは入力の 200ms デバウンスで打鍵ごとに
+// 再描画されるため、行数上限だけでなくセル数の予算で守る（横長の Excel 範囲や rowspan 展開で
+// 列数は数百〜千になりうる）。DOM に依存しないのでテストから直接照合できる。
+function previewShape(rows, cols) {
+  const shownCols = Math.min(cols, PREVIEW_MAX_COLS);
+  const budget = shownCols > 0 ? Math.floor(PREVIEW_MAX_CELLS / shownCols) : 0;
+  const shownRows = Math.min(rows, PREVIEW_MAX_ROWS, budget);
+  return { shownRows, shownCols, omittedRows: rows - shownRows, omittedCols: cols - shownCols };
+}
+
 /* ========== テスト用フック ========== */
 
 window.excel2md = {
   parseTsv, gridToMarkdown, convert,
   parseMarkdownTable, gridToTsv, gridToHtmlTable, convertFromMd,
   parseHtmlTable, convertFromHtml,
+  previewShape,
 };
 
 /* ========== UI ========== */
@@ -425,16 +472,18 @@ const el = {
   copyBtn: $('copy-btn'),
   copyHint: $('copy-hint'),
   sampleBtn: $('sample-btn'),
-  alignBar: $('align-bar'),
-  alignChips: $('align-chips'),
-  alignNote: $('align-note'),
+  optPreview: $('opt-preview'),
+  previewSection: $('preview-section'),
+  previewHint: $('preview-hint'),
+  preview: $('preview'),
+  previewNote: $('preview-note'),
 };
 
 const TOOL = 'excel2md';
 
 let direction = 'tsv2md';
 let lastHtml = '';        // MD→TSV の「Excel用にコピー」で使う HTML 表
-let colAligns = [];       // 列ごとの揃え（永続化しない。列が0になったらリセット）
+let colAligns = [];       // 列ごとの揃え（永続化しない。grid が空になったらリセット）
 let importNotice = null;  // 直近の text/html 取り込み通知 { warnings, text }（text は通知が有効な入力値）
 
 const DIRECTION_UI = {
@@ -455,7 +504,12 @@ function currentOpts() {
 }
 
 function saveOpts() {
-  ToolStorage.save(TOOL, { header: el.optHeader.checked, trim: el.optTrim.checked, direction });
+  ToolStorage.save(TOOL, {
+    header: el.optHeader.checked,
+    trim: el.optTrim.checked,
+    preview: el.optPreview.checked,
+    direction,
+  });
 }
 
 function showBanner(warnings) {
@@ -478,50 +532,138 @@ function maybeSuggestSwitch(warnings) {
   }
 }
 
-/* ---------- 列の揃え指定バー ---------- */
+/* ---------- プレビュー表（最上段の揃え操作行で列の揃えを指定する） ---------- */
 
 const ALIGN_CYCLE = ['none', 'left', 'center', 'right'];
 const ALIGN_LABEL = { none: '−', left: '左', center: '中央', right: '右' };
-const ALIGN_MAX_COLS = 60; // 超過分はチップを出さない（大きな表での再構築コストを抑える）
+const PREVIEW_HINT = {
+  tsv2md: '（最上段のボタンで列の揃えを切替）',
+  md2tsv: '（区切り行から読んだ揃えを表示。変更は入力の Markdown 側で）',
+};
 
-function columnLabel(index, firstRow) {
-  const raw = el.optHeader.checked ? (firstRow[index] || '') : '';
-  const oneLine = raw.replace(/\s+/g, ' ').trim();
-  if (oneLine === '') return '列' + (index + 1);
-  return oneLine.length > 8 ? oneLine.slice(0, 8) + '…' : oneLine;
+// 揃え none は CSS の既定（左）に戻す
+const alignStyle = a => (a && a !== 'none') ? a : '';
+
+// 直近に描画した形。同じ形なら DOM を作り直さず中身だけ更新する（下の renderPreview 参照）
+let previewDom = null;
+
+// 形どおりの空の表を組む。生成は createElement + textContent のみで、
+// HTML 文字列は組み立てない（貼り付け内容による注入を防ぐ）
+function buildPreview(shape, hasHeader, editable) {
+  el.preview.textContent = '';
+  const thead = document.createElement('thead');
+
+  // 揃え操作行: TSV→MD は button（クリックで循環）、MD→TSV は静的テキスト（読み取り専用）
+  const alignRow = document.createElement('tr');
+  alignRow.className = 'align-row';
+  const alignCells = [];
+  for (let c = 0; c < shape.shownCols; c++) {
+    const th = document.createElement('th');
+    let inner;
+    if (editable) {
+      inner = document.createElement('button');
+      inner.type = 'button';
+      inner.className = 'align-btn';
+      inner.dataset.col = String(c);
+    } else {
+      inner = document.createElement('span');
+      inner.className = 'align-static';
+    }
+    th.appendChild(inner);
+    alignRow.appendChild(th);
+    alignCells.push(inner);
+  }
+  thead.appendChild(alignRow);
+
+  const headerCells = [];
+  if (hasHeader) {
+    const tr = document.createElement('tr');
+    for (let c = 0; c < shape.shownCols; c++) {
+      const th = document.createElement('th');
+      tr.appendChild(th);
+      headerCells.push(th);
+    }
+    thead.appendChild(tr);
+  }
+  el.preview.appendChild(thead);
+
+  const tbody = document.createElement('tbody');
+  const bodyCells = [];
+  for (let r = hasHeader ? 1 : 0; r < shape.shownRows; r++) {
+    const tr = document.createElement('tr');
+    const cells = [];
+    for (let c = 0; c < shape.shownCols; c++) {
+      const td = document.createElement('td');
+      tr.appendChild(td);
+      cells.push(td);
+    }
+    tbody.appendChild(tr);
+    bodyCells.push(cells);
+  }
+  el.preview.appendChild(tbody);
+
+  return { alignCells, headerCells, bodyCells };
 }
 
-function renderAlignBar(cols, firstRow) {
-  const shown = Math.min(cols, ALIGN_MAX_COLS);
-  el.alignBar.hidden = !(direction === 'tsv2md' && shown > 0);
-  if (el.alignBar.hidden) {
-    el.alignChips.textContent = '';
-    el.alignNote.hidden = true;
+// grid をプレビュー表に描画する。editable=false（MD→TSV）では揃えを読み取り専用で表示する。
+// 形（表示行数・表示列数・ヘッダー有無・操作可否）が前回と同じなら DOM を作り直さない:
+// 作り直すとクリックした揃えボタンが DOM から外れてフォーカスが body に戻り、
+// Enter 連打での連続切替ができなくなる。打鍵ごとの再描画コストも避けられる。
+function renderPreview(grid, aligns, editable) {
+  const rows = grid.length;
+  const shape = previewShape(rows, rows ? grid[0].length : 0);
+
+  el.previewSection.hidden = !el.optPreview.checked || shape.shownRows === 0;
+  if (el.previewSection.hidden) {
+    el.preview.textContent = '';
+    el.previewNote.hidden = true;
+    previewDom = null;
     return;
   }
 
-  // 列数が同じならチップ要素を作り直さずラベルだけ更新する。作り直すとクリックした
-  // 要素が DOM から外れてフォーカスが body に戻り、キーボードで連続切替できなくなる
-  const chips = el.alignChips.children;
-  if (chips.length !== shown) {
-    el.alignChips.textContent = '';
-    for (let c = 0; c < shown; c++) {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'align-chip';
-      btn.dataset.col = String(c);
-      btn.title = 'クリックで揃えを切替（なし→左→中央→右）';
-      el.alignChips.appendChild(btn);
-    }
+  const hasHeader = el.optHeader.checked;
+  const key = [shape.shownRows, shape.shownCols, hasHeader, editable].join('|');
+  if (!previewDom || previewDom.key !== key) {
+    previewDom = Object.assign({ key }, buildPreview(shape, hasHeader, editable));
   }
-  for (let c = 0; c < shown; c++) {
-    chips[c].textContent = columnLabel(c, firstRow) + ': ' + ALIGN_LABEL[colAligns[c] || 'none'];
+
+  el.previewHint.textContent = PREVIEW_HINT[direction];
+
+  previewDom.alignCells.forEach((cell, c) => {
+    const a = aligns[c] || 'none';
+    cell.textContent = ALIGN_LABEL[a];
+    const desc = '列' + (c + 1) + ' の揃え: ' + ALIGN_LABEL[a];
+    cell.title = editable ? desc + '（クリックで なし→左→中央→右）' : desc;
+    if (editable) cell.setAttribute('aria-label', cell.title);
+  });
+
+  previewDom.headerCells.forEach((th, c) => {
+    th.textContent = grid[0][c];
+    th.style.textAlign = alignStyle(aligns[c]);
+  });
+
+  const offset = hasHeader ? 1 : 0;
+  previewDom.bodyCells.forEach((cells, r) => {
+    const row = grid[r + offset];
+    cells.forEach((td, c) => {
+      td.textContent = row[c];
+      td.style.textAlign = alignStyle(aligns[c]);
+    });
+  });
+
+  const notes = [];
+  if (shape.omittedRows > 0) {
+    notes.push('残り' + shape.omittedRows + '行は省略されています（出力にはすべて含まれます）');
   }
-  el.alignNote.hidden = cols <= ALIGN_MAX_COLS;
+  if (shape.omittedCols > 0) {
+    notes.push((PREVIEW_MAX_COLS + 1) + '列目以降は省略されています（出力にはすべて含まれます）');
+  }
+  el.previewNote.textContent = notes.join(' / ');
+  el.previewNote.hidden = notes.length === 0;
 }
 
-el.alignChips.addEventListener('click', e => {
-  const btn = e.target.closest('.align-chip');
+el.preview.addEventListener('click', e => {
+  const btn = e.target.closest('.align-btn');
   if (!btn) return;
   const col = Number(btn.dataset.col);
   const current = colAligns[col] || 'none';
@@ -543,15 +685,16 @@ function run() {
     const result = convert(el.input.value, currentOpts());
     el.output.value = result.markdown;
     lastHtml = '';
-    if (result.cols === 0) colAligns.length = 0;
-    renderAlignBar(result.cols, result.firstRow);
+    if (result.grid.length === 0) colAligns.length = 0;
+    renderPreview(result.grid, colAligns, true);
     maybeSuggestSwitch(result.warnings);
     showBanner(noticeWarnings().concat(result.warnings));
   } else {
     const result = convertFromMd(el.input.value, { header: el.optHeader.checked });
     el.output.value = result.tsv;
     lastHtml = result.html;
-    renderAlignBar(0, []); // MD→TSV では揃えバーを出さない（揃えは区切り行から読む）
+    // MD→TSV の揃えは区切り行が正本。プレビューは読み取り専用で表示する
+    renderPreview(result.grid, result.alignments, false);
     maybeSuggestSwitch(result.warnings);
     showBanner(noticeWarnings().concat(result.warnings));
   }
@@ -637,6 +780,7 @@ function onOptionChange() {
 }
 el.optHeader.addEventListener('change', onOptionChange);
 el.optTrim.addEventListener('change', onOptionChange);
+el.optPreview.addEventListener('change', onOptionChange);
 
 for (const radio of document.querySelectorAll('input[name="direction"]')) {
   radio.addEventListener('change', () => {
@@ -731,6 +875,8 @@ el.copyBtn.addEventListener('click', () => {
   if (saved && typeof saved === 'object') {
     if (typeof saved.header === 'boolean') el.optHeader.checked = saved.header;
     if (typeof saved.trim === 'boolean') el.optTrim.checked = saved.trim;
+    // preview 未保存（Phase P 以前の payload）なら既定 ON のまま
+    if (typeof saved.preview === 'boolean') el.optPreview.checked = saved.preview;
     if (saved.direction === 'tsv2md' || saved.direction === 'md2tsv') {
       direction = saved.direction;
       document.querySelector('input[name="direction"][value="' + direction + '"]').checked = true;
