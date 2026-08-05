@@ -56,11 +56,26 @@ MCP 側の制約（`browser_navigate` が `file:` を拒否する等）も受け
 | `excel2md.js` | excel2md（E2M-01〜10 / R01〜R08 / H01〜H09 / P01〜P24） |
 | `hub.js` | index.html（HUB-1〜8: 表示順・検索・カテゴリ・リンク遷移・狭幅） |
 | `norm.js` | norm（NORM-01〜15・Q5 / NM-13: インポートバナーの回帰 / コピー・エクスポート） |
+| `diff.js` | diff（DIFF-01〜11・Q2 / 折り畳み・フォールバック・コピー。**DIFF-07 は性能計測**） |
 | `taskboard.js` | taskboard（TB-01〜20・parse / TB-I1〜I7: IME ガード / TB-U1〜U7: 追加の取り消し） |
 
 `taskboard.js` の TB-I6 は **CDP で実際の IME composition を張る**（`Input.imeSetComposition` →
 `Input.dispatchKeyEvent`）。MCP 経由ではなく playwright-core を直接起動しているので
 `context.newCDPSession(page)` がそのまま使える。
+
+## 性能を測るケース（DIFF-07）
+
+`diff.js` の DIFF-07 だけは**時間を測って閾値と比べる**（3,000行×30編集の中央値 <500ms）。
+マシン負荷で揺れるため spec どおり **5回計測して中央値**を採り、**不合格なら1回だけ再計測**してから
+失敗と数える。実測値（min/median/max）は常にログに出すので、閾値に近づいたら気づける。
+
+## クリップボードを触るケース
+
+**実クリップボードには書かない。** `navigator.clipboard.writeText` をページ内でスタブして
+渡された文字列を捕捉する（`norm.js` / `diff.js` がこの方式）。
+ユーザーが直前にコピーした内容を壊さないため、この方針は必須。
+エクスポート（ダウンロード）も同様に `URL.createObjectURL` に渡る Blob を捕捉して
+実ファイルを作らずに中身を読む（`norm.js` の NORM-12）。
 
 ## ハーネスを足すとき
 
