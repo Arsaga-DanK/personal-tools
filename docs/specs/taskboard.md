@@ -45,7 +45,7 @@ fixture で行う。
 | 編集（完了/📅/優先度/内容/追加/子追加） | 編集仕様 |
 | Excel 用コピー（TSV・子は字下げ） | Excel 用コピー仕様 |
 | 明示保存・成功と差分行数表示 | 保存仕様 |
-| **IME 変換確定の Enter で追加・編集が発火しないこと**（Phase I） | キーボードと IME 仕様 / TB-I1〜I6 |
+| **IME 変換確定の Enter で追加・編集が発火しないこと**（Phase I） | キーボードと IME 仕様 / TB-I1〜I7 |
 | **未保存の追加行を取り消せること**（Phase I） | 追加の取り消し仕様 / TB-U1〜U7 |
 
 ## 画面構成
@@ -138,9 +138,9 @@ CDP で未確定状態を作って測ると、IME が確定のために送る En
 **英数字だけ打つ場合は再現しない**ため「どの操作の後か特定できない」症状になっていた
 （操作の順序ではなく、変換を挟んだかどうかで決まる）。
 
-### ガード（3箇所・TB-Q6）
+### ガード（4箇所・TB-Q6 / TB-Q9）
 
-Enter を扱う次の3箇所すべてで、**ハンドラ先頭で変換中を判定して何もせず返す**:
+キー入力を扱う次の4箇所すべてで、**ハンドラ先頭で変換中を判定して何もせず返す**:
 
 ```js
 if (e.isComposing || e.keyCode === 229) return;
@@ -151,6 +151,7 @@ if (e.isComposing || e.keyCode === 229) return;
 | 追加フォームの内容欄 | `web/taskboard.html` の `#add-content` keydown | 未変換・変換途中の文字列でタスクが追加される |
 | 子タスク popover の入力欄 | `openChildPopover` 内の input keydown | 同様に子タスクが追加され、**popover も閉じて入力が失われる** |
 | 内容セルのインライン編集 | `startBodyEdit` 内の input keydown | **既存タスクの内容が未変換文字列で上書きされる**（被害が最も大きい） |
+| **Escape の popover 閉鎖**（TB-Q9） | `document` の keydown → `closePopover` | 子タスク popover で**変換候補を戻すための Escape** を押すと popover が閉じ、入力が失われる |
 
 - `keyCode === 229` の併用は **`isComposing` を立てない IME への保険**（deprecated だが現存する）
 - **ハンドラ全体を返す**（Enter 分岐だけでなく Escape 分岐も通さない）。変換中の Escape は
@@ -399,6 +400,7 @@ IME ガード（Phase I。UI 経路。合成 `KeyboardEvent` を dispatch して
 | TB-I4 | 子タスク popover の入力欄で isComposing Enter → 続けて通常 Enter | 前者では**追加されず popover も閉じない**（入力が失われない）。後者では追加され popover が閉じる（回帰） |
 | TB-I5 | 内容セルを dblclick → 編集欄で isComposing Enter → 続けて通常 Enter | 前者では**既存行が書き換わらず編集欄が開いたまま**。後者では従来どおり確定（回帰） |
 | TB-I6 | CDP `Input.imeSetComposition` で未確定の `'会議'` を作り、IME が送る Enter を `Input.dispatchKeyEvent` で送る | 追加されない。**ガード前は `会議` が追加され入力欄が空になることを 2026-08-05 に実測済み**（この経路が本件の再現手順） |
+| TB-I7 | 子タスク popover を開き、入力欄に値を入れて `keydown{key:'Escape', isComposing:true}` → 続けて通常の Escape（TB-Q9） | 前者では**popover が閉じず入力値も残る**（変換候補を戻す操作を奪わない）。後者では従来どおり閉じる（回帰） |
 
 追加の取り消し（Phase I。`applyOps` でバイト同一性、UI は `newSession` で照合）:
 
@@ -434,7 +436,7 @@ links=['2026-07-14_TODO','2026-07-21']・due='2026-08-05'・priority='high' /
    「tasks.md を開く」導線は残っている
 10. Cmd/Ctrl+S: 変更ありで保存が実行される・変更なしではブラウザ保存ダイアログだけ抑止される
 11. 全操作後にコンソール再取得 → 累計エラー0
-12. **IME ガードと取り消し（Phase I）**: TB-I1〜I6・TB-U1〜U7 を照合する。
+12. **IME ガードと取り消し（Phase I）**: TB-I1〜I7・TB-U1〜U7 を照合する。
     - TB-I6 は CDP セッション（`context.newCDPSession(page)`）で `Input.imeSetComposition` →
       `Input.dispatchKeyEvent` を送る。**`test/` のハーネスは playwright-core を直接起動しており
       CDP がそのまま使える**（`docs/verification-notes.md` §1）
@@ -502,10 +504,9 @@ links=['2026-07-14_TODO','2026-07-21']・due='2026-08-05'・priority='high' /
     今回の症状に対して過剰。「どこまで戻るか」が見えにくく多段化の圧力もかかる
   - 不採用「現状の周知のみ（保存前なら再読込で破棄できる）」: 実装ゼロだが**全変更が消える**ため、
     朝の計画を一通り入れた後には使えない
-- **TB-Q9（→要確認）**: **Escape の IME ガード**。調査中に見つけた同種の欠陥で、
-  承認された3箇所には含まれていない。
+- **TB-Q9**: **Escape の IME ガード** → **決定: Phase I に含める**。
   `document` の Escape ハンドラ（`closePopover`）は変換中でも発火するため、
-  **子タスク popover で変換を取り消そうと Escape を押すと popover が閉じて入力が失われる**。
-  対処は同じ1行（`if (e.isComposing || e.keyCode === 229) return;`）。
-  - **推奨: Phase I に含める**（原因・対処・テスト方法が TB-I4 と同型で、追加コストがほぼ無い）
-  - 含めない場合は ux-backlog に記録する
+  **子タスク popover で変換候補を戻そうと Escape を押すと popover が閉じて入力が失われる**。
+  変換候補を戻すための Escape は IME 利用者の日常的な操作であり、原因・対処・テスト方法が
+  すべて既存の枠と同一なので除外する理由がない（ユーザー判断）。
+  対処は他の3箇所と同じ1行（`if (e.isComposing || e.keyCode === 229) return;`）

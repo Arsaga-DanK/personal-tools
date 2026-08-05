@@ -15,7 +15,9 @@
   #task-table td { padding: 5px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
   #task-table tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
   #task-table .col-st { width: 28px; }
-  #task-table .col-act { width: 44px; }
+  #task-table .col-act { width: 88px; }
+  /* 操作列（＋子・↩︎）。class は th のみに付くため td 側は位置で指定する */
+  #task-table tbody td:last-child { white-space: nowrap; text-align: right; }
   #task-table td.cell-due, #task-table td.cell-pri { cursor: pointer; white-space: nowrap; }
   #task-table td.cell-body { width: 45%; }
   .due-over { color: var(--error); background: var(--error-bg); font-weight: 600; border-radius: 4px; }
@@ -28,6 +30,9 @@
   a.chip:hover { text-decoration: underline; }
   .btn-child { opacity: 0; font-size: 12px; padding: 1px 7px; }
   #task-table tbody tr:hover .btn-child { opacity: 1; }
+  /* 未保存の追加行。取り消しボタンは常時表示（＋子と違い「気づかせる」ことが目的） */
+  tr.row-added td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+  .btn-undo { font-size: 12px; padding: 1px 6px; margin-left: 4px; }
   .popover { position: absolute; z-index: 100; background: var(--panel);
     border: 1px solid var(--border); border-radius: 8px; padding: 10px;
     box-shadow: 0 4px 16px rgba(0,0,0,.18); display: flex; flex-direction: column; gap: 8px; }
@@ -241,6 +246,33 @@ function opAddChild(lines, op) {
   lines.splice(q + 1, 0, { raw: '\t'.repeat(d + 1) + '- [ ] ' + nfc(op.content).trim(), orig: null });
 }
 
+// 未保存の追加行の取り消し（Phase I）。既存タスク行の削除ではないので orig === null に限る。
+// opAddTask はタスクの無いセクションに追加するとき空行も一緒に挿入するため、
+// 「直前が orig===null の空行で、その前が ## 見出し」ならその空行も一緒に取り下げる
+// （この規則は取り消しの順序に依存せず元のバイト列に収束する。spec の図と TB-U3 参照）。
+function opUndoAdd(lines, op) {
+  const i = op.line - 1;
+  const L = lines[i];
+  if (!L) throw new Error(op.line + '行目は存在しません');
+  if (L.orig !== null) throw new Error(op.line + '行目は既存の行のため取り消せません（削除は Obsidian 側で行います）');
+  if (!TASK_RE.test(L.raw)) throw new Error(op.line + '行目はタスク行ではありません');
+  if (hasAddedDescendant(lines, i)) throw new Error(op.line + '行目には子タスクがあるため取り消せません');
+
+  const prev = lines[i - 1];
+  const beforePrev = lines[i - 2];
+  const withBlank = prev && prev.orig === null && prev.raw === ''
+    && beforePrev && HEAD_RE.test(beforePrev.raw);
+  lines.splice(withBlank ? i - 1 : i, withBlank ? 2 : 1);
+}
+
+// 取り消し対象の直下に、より深いタスク行が続いているか（子孫の有無）
+function hasAddedDescendant(lines, i) {
+  const m = TASK_RE.exec(lines[i].raw);
+  const d = m[1].length;
+  const next = lines[i + 1] && TASK_RE.exec(lines[i + 1].raw);
+  return !!(next && next[1].length > d);
+}
+
 function runOp(lines, op, today) {
   switch (op.type) {
     case 'complete':    opComplete(lines, op.line, today); break;
@@ -250,6 +282,7 @@ function runOp(lines, op, today) {
     case 'editContent': opEditContent(lines, op.line, op.text); break;
     case 'addTask':     opAddTask(lines, op); break;
     case 'addChild':    opAddChild(lines, op); break;
+    case 'undoAdd':     opUndoAdd(lines, op); break;
     default: throw new Error('不明な操作: ' + op.type);
   }
 }
@@ -689,13 +722,16 @@ function updateFileBar() {
 
 /* ---------- 描画 ---------- */
 
+// 戻り値: 成功したか（呼び出し側が成功時だけ案内バナーを出せるようにする）
 function applyUiOp(op) {
   try {
     runOp(state.lines, op, todayStr());
     hideBanner();
     render();
+    return true;
   } catch (e) {
     showBanner('error', '操作に失敗しました: ' + (e && e.message));
+    return false;
   }
 }
 
@@ -924,6 +960,9 @@ function renderRow(t, today) {
   const tr = document.createElement('tr');
   if (t.done) tr.className = 'row-done';
   tr.dataset.line = t.line;
+  // 未保存の追加行を見分けられるようにする（保存すると orig が実値になり自然に消える）
+  const isAdded = state.lines[t.line - 1] && state.lines[t.line - 1].orig === null;
+  if (isAdded) tr.classList.add('row-added');
 
   const tdSt = document.createElement('td');
   const cb = document.createElement('input');
@@ -1009,8 +1048,37 @@ function renderRow(t, today) {
     btn.addEventListener('click', (e) => openChildPopover(e.currentTarget, t));
     tdAct.appendChild(btn);
   }
+  // 未保存の追加行だけ取り消せる（既存行の削除は提供しない）
+  if (isAdded && !t.hasCR) {
+    const undo = document.createElement('button');
+    undo.className = 'btn-undo';
+    undo.textContent = '↩︎';
+    if (hasAddedDescendant(state.lines, t.line - 1)) {
+      undo.disabled = true;
+      undo.title = '先に子タスクを取り消してください';
+    } else {
+      undo.title = 'この追加を取り消す（未保存）';
+      undo.addEventListener('click', () => {
+        // 行が消えることを削除と誤解させない（UX監査 TB-1 と同じ配慮）。失敗時は
+        // applyUiOp のエラーバナーを潰さないよう成功時だけ出す
+        if (applyUiOp({ type: 'undoAdd', line: t.line })) showBanner('info', '追加を取り消しました');
+      });
+    }
+    tdAct.appendChild(undo);
+  }
   tr.appendChild(tdAct);
   return tr;
+}
+
+/* ---------- IME ガード（Phase I） ---------- */
+
+// 日本語などの変換確定・変換取り消しで押される Enter / Escape は、変換中であっても
+// keydown{key:'Enter'|'Escape'} としてページに届く（2026-08-05 に CDP で実測）。
+// ガードしないと「変換確定の Enter」がそのまま追加・編集確定を発火し、
+// 未変換の文字列でタスクが増えたり既存行が上書きされる。
+// keyCode 229 は isComposing を立てない IME への保険（deprecated だが現存する）。
+function isComposingKey(e) {
+  return e.isComposing || e.keyCode === 229;
 }
 
 function startBodyEdit(td, t) {
@@ -1029,6 +1097,7 @@ function startBodyEdit(td, t) {
     else render();
   };
   input.addEventListener('keydown', (e) => {
+    if (isComposingKey(e)) return;
     if (e.key === 'Enter') commit();
     else if (e.key === 'Escape') { done = true; render(); }
   });
@@ -1054,7 +1123,11 @@ document.addEventListener('mousedown', (e) => {
   const pop = el('popover');
   if (!pop.hidden && !pop.contains(e.target)) closePopover();
 });
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePopover(); });
+// 変換候補を戻すための Escape で popover を閉じない（閉じると入力中の値が失われる。TB-Q9）
+document.addEventListener('keydown', (e) => {
+  if (isComposingKey(e)) return;
+  if (e.key === 'Escape') closePopover();
+});
 
 function openDuePopover(anchor, t) {
   openPopover(anchor, (pop) => {
@@ -1114,7 +1187,10 @@ function openChildPopover(anchor, t) {
       applyUiOp({ type: 'addChild', parentLine: t.line, content: v });
       closePopover();
     };
-    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') add(); });
+    input.addEventListener('keydown', (e) => {
+      if (isComposingKey(e)) return;
+      if (e.key === 'Enter') add();
+    });
     pop.appendChild(input);
     const b = document.createElement('button');
     b.className = 'primary';
@@ -1199,8 +1275,12 @@ el('btn-add').addEventListener('click', () => {
   if (el('add-pri').value) op.priority = el('add-pri').value;
   applyUiOp(op);
   el('add-content').value = '';
+  el('add-content').focus(); // 連続追加を自然にする（ボタンにフォーカスを残さない。TB-Q7）
 });
-el('add-content').addEventListener('keydown', (e) => { if (e.key === 'Enter') el('btn-add').click(); });
+el('add-content').addEventListener('keydown', (e) => {
+  if (isComposingKey(e)) return;
+  if (e.key === 'Enter') el('btn-add').click();
+});
 
 el('btn-save').addEventListener('click', doSave);
 el('btn-archive').addEventListener('click', doArchive);

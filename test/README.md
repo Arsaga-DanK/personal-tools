@@ -55,6 +55,11 @@ MCP 側の制約（`browser_navigate` が `file:` を拒否する等）も受け
 | `helpers.js` | playwright-core / Chromium 実体の探索、合否集計、`file://` URL 組み立て |
 | `excel2md.js` | excel2md（E2M-01〜10 / R01〜R08 / H01〜H09 / P01〜P24） |
 | `hub.js` | index.html（HUB-1〜8: 表示順・検索・カテゴリ・リンク遷移・狭幅） |
+| `taskboard.js` | taskboard（TB-01〜20・parse / TB-I1〜I7: IME ガード / TB-U1〜U7: 追加の取り消し） |
+
+`taskboard.js` の TB-I6 は **CDP で実際の IME composition を張る**（`Input.imeSetComposition` →
+`Input.dispatchKeyEvent`）。MCP 経由ではなく playwright-core を直接起動しているので
+`context.newCDPSession(page)` がそのまま使える。
 
 ## ハーネスを足すとき
 
