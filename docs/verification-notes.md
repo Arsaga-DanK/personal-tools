@@ -1,0 +1,145 @@
+# 検証ノート（環境・道具・既知の罠）
+
+このリポジトリのブラウザツールを検証するときの環境知識と、実際に踏んだ罠の記録。
+**2026-08-03〜08-04 の検証で得た知見を、エディタ／アシスタント固有のメモリから移設したもの**
+（Claude Code のメモリに置いていたため他エディタへ移ると失われる。以後はこのファイルが正本）。
+
+役割分担:
+
+- **このファイル** = 環境・道具・ブラウザ挙動の知見（どのツールの検証でも再利用する）
+- **docs/specs/&lt;tool&gt;.md** = そのツールの仕様とテストケース（合否の契約。手順の要点もここ）
+
+追記の作法: 新しく踏んだ罠は「症状 → 原因 → 対処」の形で足す。日付と根拠（実測／静的解析）を書く。
+
+---
+
+## 1. 検証環境の立ち上げ
+
+- **通常は http 配信で検証する**。リポジトリ直下で
+  `/usr/bin/python3 -m http.server <port> --bind 127.0.0.1` を起動し
+  `http://127.0.0.1:<port>/web/<tool>.html` を開く。終了時にプロセスを止める
+  - この python3 は**検証用サーバー専用**。bin/ の CLI で python3 を使うのは引き続き禁止
+    （asdf shim のため GUI 起動時に落ちる。CLAUDE.md の制約）
+- **Playwright MCP の `browser_navigate` は `file:` スキームをブロックする**。
+  一方 `browser_run_code_unsafe` 内の `page.goto('file:///...')` は通る。
+  → 通常検証は http、**file:// 固有の挙動を見るときだけ** run_code_unsafe を使う
+- **ヘッドレス Chrome の `--dump-dom` はファイルピッカー呼び出しで固まる**ので使わない
+- 一時ハーネス（テスト用 HTML やスクリプト）は**リポジトリ内に置かない**。
+  セッションのスクラッチパッドに置く（`rm` が権限設定で拒否されるため後始末できないことがある）
+- リポジトリ直下の `.playwright-mcp/`（MCP のスナップショット置き場）は .gitignore 済み。放置してよい
+
+### 並列で検証するとき
+
+- ブラウザ操作を **`browser_run_code_unsafe` に限定する**。
+  `browser_click` / `browser_snapshot` などは**アクティブタブ共有のため並列実行で競合する**
+- 各実行の冒頭で**自分専用ページを URL で再取得**する:
+  `ctx.pages().find(q => q.url().startsWith('http://127.0.0.1:<自分のポート>'))`
+- **エージェントごとに http.server のポートを分ける**と、オリジンが変わるので localStorage も分離される
+- **flaky の主因は前回スクリプトの残タブ**。各実行の冒頭で対象 URL のページを close してから newPage する
+
+---
+
+## 2. file:// で実際に使えるもの／使えないもの（実測）
+
+`file://` で動くことが全ての前提（CLAUDE.md）なので、API ごとに実測して切り分けてある。
+
+- **File System Access API は file:// で利用可能**（2026-08-04 実検証。証跡は docs/specs/taskboard.md 冒頭）
+  - `isSecureContext === true`。`showOpenFilePicker` / `showSaveFilePicker` /
+    `createWritable` / `queryPermission` すべて存在する
+  - **ジェスチャ無し呼び出しで `SecurityError: Must be handling a user gesture` が出れば
+    scheme/origin チェックは通過している証拠**（file:// でブロックされる API は opaque origin 系の
+    エラーになる）。この切り分け方は他の API でも使える
+- **IndexedDB も file:// オリジンで put/get 動作する**（ハンドル永続化の土台）
+- **paste イベントの `clipboardData` は file:// でも全フレーバー取得できる**
+  （2026-08-04、実 Cmd+V で実証。excel2md Phase G）。
+  **ユーザージェスチャに紐づくため scheme 制約を受けない**。
+  能動的に読む `navigator.clipboard.read()` とは別扱いなので、
+  「クリップボード読み取りは file:// で不可」と一括りにしない
+- `<script src="../lib/*.js">` / `<link href="../lib/ui.css">` は file:// でも読める（全ツールが依存）。
+  ES モジュールは不可（CLAUDE.md）
+- **file:// では全ローカルページが localStorage を共有する** → キー接頭辞 `tools:<tool>` が衝突防止を担う
+  （lib/storage.js の設計理由）
+
+### 任意のクリップボードを作る（貼り付け経路の検証用）
+
+```sh
+# text/plain と text/html の両フレーバーを持つクリップボードを作る
+osascript -e "set the clipboard to {«class utf8»:«data utf8<hex>», «class HTML»:«data HTML<hex>»}"
+# hex は: xxd -p <file> | tr -d '\n'
+```
+
+- **HTML フレーバーのみを設定すると text/plain は空になる**。
+  「既定の貼り付けでは何も入らず、HTML 経路だけが取り込み手段になる」状況を再現できる（Excel の実挙動に近い）
+- 実 Excel のクリップボード HTML は `<!--StartFragment-->`・`<colgroup>`・MSO 独自 CSS を含む重装 HTML。
+  それでも `DOMParser` + `querySelector('table')` + `table.rows` 走査で正しく取れる（実測）
+
+---
+
+## 3. クリップボードを触る検証の作法
+
+- **コピーボタンの検証は実クリップボードを上書きする**（headless でも `navigator.clipboard.writeText` は成功する）。
+  ユーザーが直前にコピーした内容が失われる
+- 対処: 検証前に退避する、または**失う旨を先に報告する**
+
+```sh
+pbpaste                                     # text/plain の退避
+osascript -e 'the clipboard as «class HTML»' # HTML フレーバーの退避
+```
+
+---
+
+## 4. ブラウザ挙動の罠（実測）
+
+- **Chrome の `document.execCommand('insertText')` は複数行テキストで `input` を行ごとに発火する**
+  （`'A\tB\nA\tC'` の挿入で3回。2026-08-04 実測）。
+  → 「貼り付け由来の input を1回だけ通す」ようなイベント回数依存のフラグは2回目以降で貫通する。
+  **通知・バナーは回数ではなく「それを生んだ入力値」に紐づけて失効させる**
+  （excel2md の `importNotice = {warnings, text}` 方式）
+- **再描画でボタン要素を作り直す UI は、同じ要素参照に連続 click しても2回目以降が委譲リスナに届かない**
+  （DOM から外れるため）。
+  → テストは毎回 `querySelectorAll` で取り直す。同時に**実装側もフォーカスが body に戻る欠陥**なので、
+  要素数が変わらない限り作り直さず `textContent` だけ更新するのが正しい
+- **未保存編集ページ（beforeunload あり）からの `browser_navigate` はダイアログ待ちでタイムアウトする**。
+  → `browser_handle_dialog accept:true` で解除してから進める
+- **重い DOM 操作（千行描画・数 MB 入力）直後のデバウンス発火確認は 800ms 以上待つ**。
+  400〜500ms ではイベントループ渋滞で偽 fail する（diff DIFF-11 / devpad DEV-16 で実測）
+- **`pagehide` で状態をフラッシュ保存するツール（devpad）への localStorage 注入テスト**は、
+  reload 前に `window.ToolStorage.save = () => true` で保存を止める。
+  止めないとフラッシュが注入値を上書きして偽 fail する（devpad DEV-17 で実測）
+- **favicon 404 は解消済み**（2026-08-04 の UX 改善で全6ページに inline SVG data URI の favicon を追加）。
+  「コンソールエラー0」判定に除外ルールは不要
+
+---
+
+## 5. 偽陽性・偽陰性を避ける
+
+- **コンソールエラーは「ロード時」と「全操作後」の2回取得する**（累計0が合格条件）
+- 各ツールは `window.<tool>` のテストフックを公開している。
+  spec のテストケース（JS 文字列リテラル表記）を `browser_evaluate` にそのまま渡して照合する
+- **NFD 文字列は生成経路で NFC 化されうる**（テストデータ自体が正規化されて「一致した」ことになる）。
+  → NFD を扱うテストでは **`NFD !== NFC` の前提アサートを必ず入れる**
+- ダークモードは `page.emulateMedia({colorScheme:'dark'})`、狭幅は `page.setViewportSize({width:390,...})`
+  （どちらも run_code_unsafe）。**新規 UI は `scrollWidth > clientWidth` にならないことを必ず assert する**
+- **自動検証は Chromium のみ**。Safari 固有経路（クリップボードのフォールバック・JSON エラー位置なし・
+  file:// の localStorage・FSA 非対応フォールバック・`clipboardData.getData('text/html')`）は
+  各 spec の「Safari手動スモーク項目」で手動確認する
+- **ブラウザ再起動をまたぐ挙動**（IndexedDB のファイルハンドル復元など）は自動検証不能。
+  spec の「Chrome 実機スモーク項目」に落とす
+
+---
+
+## 6. 性能ガードの設計知見
+
+**入力サイズから出力サイズが非線形に増える処理は、入力側の指標では守れない。**
+展開の内側で実カウンタを増やし、上限超過で即座に打ち切る。
+
+事例（excel2md の結合セル展開・`parseHtmlTable`）:
+
+- 1セルの `rowspan × colspan` だけで数千万セルになりうる（ブラウザのクランプ上限は
+  rowspan 65534・colspan 1000）→ **text/html の文字数では守れない**
+- `rowspan` の張り出しで実列数も増える → **事前見積もり（行数×列数）でも過小評価になり守れない**
+- → 展開ループの内側で `filled += rowSpan * colSpan` を数え、`MAX_HTML_CELLS` 超過で
+  `{grid:null, tooLarge:true}` を返して**取り込みを中止し既定の貼り付けに委ねる**
+- 文字数ガード（`MAX_INPUT_CHARS`）は**別の層**として併存させる（安いので先に弾く）
+
+ガード発動時の UI 契約（全ツール共通）: **一部だけ処理せず、中止して理由をバナーに出す**。
