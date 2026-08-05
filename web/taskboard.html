@@ -18,7 +18,7 @@
   #task-table .col-act { width: 88px; }
   /* 操作列（＋子・↩︎）。class は th のみに付くため td 側は位置で指定する */
   #task-table tbody td:last-child { white-space: nowrap; text-align: right; }
-  #task-table td.cell-due, #task-table td.cell-pri { cursor: pointer; white-space: nowrap; }
+  #task-table td.cell-due, #task-table td.cell-pri, #task-table td.cell-sec { cursor: pointer; white-space: nowrap; }
   #task-table td.cell-body { width: 45%; }
   .due-over { color: var(--error); background: var(--error-bg); font-weight: 600; border-radius: 4px; }
   .due-today { background: var(--warn-bg); font-weight: 600; border-radius: 4px; }
@@ -213,24 +213,65 @@ function opEditContent(lines, lineNo, text) {
   if (done) rest += ' ✅ ' + done;
   setRest(t, rest);
 }
-function opAddTask(lines, op) {
+// 指定セクションの末尾（最終タスク行の直後。子孫を含む）へ block を挿入する。
+// タスクが無いセクションは見出しの直後に空行1つを挟む（既存の体裁に合わせる）。
+// 新規追加（opAddTask）とセクション移動（opMoveSection）で**同じ規則**を使う
+// （同じ「セクションへ入れる」操作で挿入位置の規則を分けない）
+function insertIntoSection(lines, section, block) {
   let hIdx = -1;
   for (let i = 0; i < lines.length; i++) {
     const hm = HEAD_RE.exec(lines[i].raw);
-    if (hm && hm[1] === op.section) { hIdx = i; break; }
+    if (hm && hm[1] === section) { hIdx = i; break; }
   }
-  if (hIdx < 0) throw new Error('セクションが見つかりません: ' + op.section);
+  if (hIdx < 0) throw new Error('セクションが見つかりません: ' + section);
   let end = lines.length;
   for (let i = hIdx + 1; i < lines.length; i++) {
     if (HEAD_RE.test(lines[i].raw)) { end = i; break; }
   }
   let last = -1;
   for (let i = hIdx + 1; i < end; i++) if (TASK_RE.test(lines[i].raw)) last = i;
+  if (last >= 0) lines.splice(last + 1, 0, ...block);
+  else lines.splice(hIdx + 1, 0, { raw: '', orig: null }, ...block);
+}
+
+function opAddTask(lines, op) {
   let raw = '- [ ] ' + nfc(op.content).trim();
   if (op.priority) raw += ' ' + PRI_EMOJI[op.priority];
   if (op.due) raw += ' 📅 ' + op.due;
-  if (last >= 0) lines.splice(last + 1, 0, { raw, orig: null });
-  else lines.splice(hIdx + 1, 0, { raw: '', orig: null }, { raw, orig: null }); // 見出し直後は空行を挟む
+  insertIntoSection(lines, op.section, [{ raw, orig: null }]);
+}
+
+// 行 i が属するセクション名（直上の ## 見出し）。見出しが無ければ null
+function sectionOfLine(lines, i) {
+  for (let k = i; k >= 0; k--) {
+    const hm = HEAD_RE.exec(lines[k].raw);
+    if (hm) return hm[1];
+  }
+  return null;
+}
+
+// 既存タスクを別セクションの末尾へ移す（子孫も一緒に、順序を保って移動）。
+// **元の位置には戻らない**（順序は保存されない）。行オブジェクトはそのまま移すので
+// 移動した行のバイトも、触っていない行のバイトも変わらない
+function opMoveSection(lines, op) {
+  const i = op.line - 1;
+  const L = lines[i];
+  const m = L && TASK_RE.exec(L.raw);
+  if (!m) throw new Error(op.line + '行目はタスク行ではありません');
+  if (L.raw.includes('\r')) throw new Error(op.line + '行目は CR 改行のため編集できません');
+  if (m[1].length > 0) {
+    throw new Error('子タスクのセクションは変更できません（親を移動すると一緒に移ります）');
+  }
+  if (sectionOfLine(lines, i) === op.section) return; // 同じセクションなら何もしない
+
+  // 部分木（自分＋より深いタスク行が続く限り）を切り出す
+  let end = i;
+  for (let k = i + 1; k < lines.length; k++) {
+    const mm = TASK_RE.exec(lines[k].raw);
+    if (mm && mm[1].length > m[1].length) end = k; else break;
+  }
+  const block = lines.splice(i, end - i + 1);
+  insertIntoSection(lines, op.section, block);
 }
 function opAddChild(lines, op) {
   const p = op.parentLine - 1;
@@ -283,6 +324,7 @@ function runOp(lines, op, today) {
     case 'addTask':     opAddTask(lines, op); break;
     case 'addChild':    opAddChild(lines, op); break;
     case 'undoAdd':     opUndoAdd(lines, op); break;
+    case 'moveSection': opMoveSection(lines, op); break;
     default: throw new Error('不明な操作: ' + op.type);
   }
 }
@@ -511,7 +553,10 @@ function loadText(text, adapter) {
 function isDirty() {
   if (!state.loaded) return false;
   const c = diffCounts(state.lines);
-  return c.changed + c.added > 0;
+  if (c.changed + c.added > 0) return true;
+  // セクション移動は行の中身を変えず並び替えるだけなので行単位の差分に出ない。
+  // 全文をスナップショットと比べて拾う（比較のみ。保存内容は正規化しない）
+  return joinLines(state.lines) !== state.snapshot;
 }
 
 // 未保存の「未完了 → 完了」の件数。カウンタを持たず行配列から導出するので同期ずれが起きない。
@@ -563,7 +608,10 @@ async function doSave() {
   state.snapshot = text;
   for (const l of state.lines) l.orig = l.raw;
   render();
-  const msg = '（変更' + counts.changed + '行・追加' + counts.added + '行）';
+  // 行の移動だけのときは変更0行・追加0行になるため、そのまま出すと誤解を招く
+  const msg = (counts.changed + counts.added > 0)
+    ? '（変更' + counts.changed + '行・追加' + counts.added + '行）'
+    : '（行の移動）';
   showBanner('success', state.adapter.mode === 'fallback'
     ? 'ダウンロードしました' + msg + '。vault の tasks.md と差し替えてください'
     : '保存しました' + msg);
@@ -845,8 +893,10 @@ function updateSaveButton() {
   const c = state.loaded ? diffCounts(state.lines) : { changed: 0, added: 0 };
   const n = c.changed + c.added;
   const base = (!fsaAvailable() && state.adapter && state.adapter.mode === 'fallback') ? '保存（ダウンロード）' : '保存';
+  // バッジは行単位の差分件数。有効・無効は isDirty() で判定する
+  // （セクション移動は行内容が変わらず件数0になるため、件数で判定すると保存できなくなる）
   btn.textContent = n > 0 ? base + '（' + n + '）' : base;
-  btn.disabled = n === 0;
+  btn.disabled = !isDirty();
 }
 
 /* ---------- 完了アーカイブ ---------- */
@@ -1065,6 +1115,12 @@ function renderRow(t, today) {
   const tdSec = document.createElement('td');
   tdSec.textContent = t.section || '';
   tdSec.classList.add('muted');
+  // 深さ0のタスクだけセクションを変更できる（子は親と一緒に移るため対象外）
+  if (!t.hasCR && t.indent === 0 && state.doc && state.doc.sections.length > 1) {
+    tdSec.classList.add('cell-sec');
+    tdSec.title = 'クリックでセクションを変更（移動先の末尾に移ります）';
+    tdSec.addEventListener('click', () => openSectionPopover(tdSec, t));
+  }
   tr.appendChild(tdSec);
 
   const tdLinks = document.createElement('td');
@@ -1207,6 +1263,35 @@ function openPriPopover(anchor, t) {
     mk('🔼 中', 'medium');
     mk('🔽 低', 'low');
     mk('なし', null);
+    pop.appendChild(btns);
+  });
+}
+
+// セクション変更（期限・優先度と同じポップオーバーの作法）。移動先の末尾に移る
+function openSectionPopover(anchor, t) {
+  openPopover(anchor, (pop) => {
+    const label = document.createElement('span');
+    label.textContent = 'セクションを変更（移動先の末尾へ）';
+    pop.appendChild(label);
+    const btns = document.createElement('div');
+    btns.className = 'row-btns';
+    for (const sec of state.doc.sections) {
+      const b = document.createElement('button');
+      b.textContent = sec;
+      if (sec === t.section) {
+        b.disabled = true;
+        b.title = '現在のセクション';
+      } else {
+        b.addEventListener('click', () => {
+          if (applyUiOp({ type: 'moveSection', line: t.line, section: sec })) {
+            // 行が別の場所へ動くことを「消えた」と誤解させない（UX監査 TB-1 と同じ配慮）
+            showBanner('info', '「' + sec + '」の末尾へ移動しました（ファイルへは保存時に反映）');
+          }
+          closePopover();
+        });
+      }
+      btns.appendChild(b);
+    }
     pop.appendChild(btns);
   });
 }

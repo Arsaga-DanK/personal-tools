@@ -240,6 +240,148 @@ const F3 = [
   r.check('TB-19（tasks 側の外部変更を検知して中止・archive も不変）',
     a19.res.ok === false && a19.res.reason === 'conflict' && a19.archive === '', JSON.stringify(a19.res));
 
+  /* ========== TB-S1〜S10: セクション移動（SM-1） ========== */
+  // 「移動した行以外が1バイトも変わらない」を、行の多重集合を比べて確かめる。
+  // 並びは変わるので行単位の集合として比較し、移動した行だけが位置を変えたことを見る
+  // 検証方法: **非空行の並びを完全一致で照合する**（各行のバイトと相対順序が保たれ、
+  // 移動した行だけが位置を変えたことが分かる）。空行は空セクションへの挿入で増えるため別途件数で見る
+  const NB = s => s.split('\n').filter(l => l !== '');
+  const BLANKS = s => s.split('\n').filter(l => l === '').length;
+  const F1NB = NB(F1);
+  // F1 の非空行: 0 <!-- / 1 ヘッダ / 2 --> / 3 # tasks / 4 ## PEW / 5 資料作成 / 6 外部IF /
+  //              7 PRODUCTS / 8 PRODUCTS_DETAIL / 9 資料Rv / 10 ## UL / 11 目標管理 / 12 ## その他
+  const perm = idxs => idxs.map(i => F1NB[i]);
+  const lineAt = (text, n) => text.split('\n')[n - 1];
+
+  const s1 = await ops(F1, [{ type: 'moveSection', line: 17, section: 'その他' }]);
+  r.check('TB-S1（空セクションへ移動: 見出し直後に空行を挟む・他行はバイト不変）',
+    // 目標管理(11) が ## その他(12) の後へ。他の非空行は順序もバイトも不変
+    eq(NB(s1), perm([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 11]))
+    // 末尾改行を保つため元の空行が最後に残り、挿入した空行が1つ増える（opAddTask と同じ規則）
+    && BLANKS(s1) === BLANKS(F1) + 1
+    && s1.split('\n').slice(17, 21).join('|') === '## その他||' + F1NB[11] + '|',
+    JSON.stringify(s1.split('\n').slice(15)));
+
+  // TB-S2: 元々セクション末尾だった13行目 → UL → PEW でバイト同一に戻る
+  const s2mid = await ops(F1, [{ type: 'moveSection', line: 13, section: 'UL' }]);
+  const s2back = await ops(F1, [
+    { type: 'moveSection', line: 13, section: 'UL' },
+    { type: 'moveSection', line: 17, section: 'PEW' }, // UL 末尾に来た13行目は17行目
+  ]);
+  r.check('TB-S2（セクション末尾のタスクは往復でバイト同一）',
+    s2back === F1 && s2mid !== F1
+    && eq(NB(s2mid), perm([0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 9, 12]))
+    && lineAt(s2mid, 17) === F1NB[9],
+    JSON.stringify([s2back === F1, lineAt(s2mid, 17)]));
+
+  const s3 = await ops(F1, [{ type: 'moveSection', line: 10, section: 'UL' }]);
+  r.check('TB-S3（子タスクも順序を保って一緒に移動・他行はバイト不変）',
+    // 外部IF(6) とその子 7・8 が UL の目標管理(11) の後へ、順序を保って並ぶ
+    eq(NB(s3), perm([0, 1, 2, 3, 4, 5, 9, 10, 11, 6, 7, 8, 12]))
+    && BLANKS(s3) === BLANKS(F1) && s3 !== F1,
+    JSON.stringify(NB(s3).slice(7, 12)));
+
+  const s4 = await ops(F1, [
+    { type: 'moveSection', line: 9, section: 'UL' },
+    { type: 'moveSection', line: 17, section: 'PEW' }, // UL 末尾（目標管理の直後）に来た9行目
+  ]);
+  r.check('TB-S4（先頭だったタスクは往復でバイト同一にならないが全行のバイトは保存）',
+    s4 !== F1
+    // 資料作成(5) は PEW の末尾（資料Rv=9 の後）に着地する。順序以外は不変
+    && eq(NB(s4), perm([0, 1, 2, 3, 4, 6, 7, 8, 9, 5, 10, 11, 12]))
+    && BLANKS(s4) === BLANKS(F1),
+    JSON.stringify([s4 !== F1, NB(s4).slice(4, 10)]));
+
+  const s5 = await opsError(F1, [{ type: 'moveSection', line: 11, section: 'UL' }]);
+  r.check('TB-S5（子タスクのセクションは変更できない）',
+    !!s5 && s5.includes('子タスク'), JSON.stringify(s5));
+
+  const s6 = await ops(F1, [{ type: 'moveSection', line: 9, section: 'PEW' }]);
+  r.check('TB-S6（同じセクションなら何もしない）', s6 === F1, JSON.stringify(s6 === F1));
+
+  const s7 = await opsError(F1, [{ type: 'moveSection', line: 9, section: '存在しない' }]);
+  r.check('TB-S7（存在しないセクションは例外）',
+    !!s7 && s7.includes('セクションが見つかりません'), JSON.stringify(s7));
+
+  const s8 = await ops(F1, [
+    { type: 'moveSection', line: 17, section: 'その他' },
+    { type: 'moveSection', line: 20, section: 'UL' }, // その他へ移った行（19が空行・20がタスク）
+  ]);
+  r.check('TB-S8（空セクションへ入れて出しても全行のバイトが保存される・空行だけ増える）',
+    // 非空行の並びは F1 に完全復帰する（各行のバイトも順序も保存されている）
+    eq(NB(s8), F1NB)
+    // 空セクションへの挿入ごとに空行が1つ増える（末尾改行を保つ規則の帰結）。2回で +2
+    && BLANKS(s8) === BLANKS(F1) + 2 && s8 !== F1,
+    JSON.stringify([eq(NB(s8), F1NB), BLANKS(s8), BLANKS(F1)]));
+
+  // TB-S9: UI 経路（クリック → 保存 → 永続）
+  const s9 = await withDialogs('accept', () => page.evaluate(([f1, today]) => {
+    window.taskboard.test.setToday(today);
+    const s = window.taskboard.test.newSession(f1);
+    window.__s = s;
+    const rows = Array.from(document.querySelectorAll('#task-table tbody tr'));
+    const target = rows.find(tr => tr.children[1].textContent.includes('目標管理'));
+    const secCell = target.children[5];
+    const clickable = secCell.classList.contains('cell-sec');
+    secCell.click();
+    const btn = Array.from(document.querySelectorAll('#popover button'))
+      .find(b => b.textContent === 'その他');
+    const disabledCurrent = Array.from(document.querySelectorAll('#popover button'))
+      .some(b => b.textContent === 'UL' && b.disabled);
+    btn.click();
+    const banner = document.getElementById('banner').textContent;
+    const saveEnabled = !document.getElementById('btn-save').disabled;
+    return s.save().then(res => ({
+      clickable, disabledCurrent, banner, saveEnabled, res,
+      adapter: s.getAdapterText(),
+      successBanner: document.getElementById('banner').textContent,
+    }));
+  }, [F1, TODAY]));
+  r.check('TB-S9（UI: クリックで移動・保存ボタン有効・保存で永続）',
+    s9.result.clickable === true && s9.result.disabledCurrent === true
+    && s9.result.banner === '「その他」の末尾へ移動しました（ファイルへは保存時に反映）'
+    && s9.result.saveEnabled === true && s9.result.res.ok === true
+    && s9.result.adapter === s1
+    // 空セクションへの移動は空行が1行増えるので「追加1行」が正しい
+    && s9.result.successBanner === '保存しました（変更0行・追加1行）',
+    JSON.stringify([s9.result.clickable, s9.result.disabledCurrent, s9.result.banner,
+      s9.result.saveEnabled, s9.result.adapter === s1, s9.result.successBanner]));
+
+  // TB-S11: タスクがあるセクションへの移動は行が増えないため「（行の移動）」と表示される
+  const s11 = await withDialogs('accept', () => page.evaluate(([f1, today]) => {
+    window.taskboard.test.setToday(today);
+    const s = window.taskboard.test.newSession(f1);
+    s.applyOps([{ type: 'moveSection', line: 13, section: 'UL' }]); // UL には既にタスクがある
+    const saveEnabled = !document.getElementById('btn-save').disabled;
+    return s.save().then(res => ({
+      res, saveEnabled, adapter: s.getAdapterText(),
+      successBanner: document.getElementById('banner').textContent,
+    }));
+  }, [F1, TODAY]));
+  r.check('TB-S11（行が増えない移動は「（行の移動）」と表示・isDirty が拾う）',
+    s11.result.saveEnabled === true && s11.result.res.ok === true
+    && s11.result.adapter === s2mid
+    && s11.result.successBanner === '保存しました（行の移動）',
+    JSON.stringify([s11.result.saveEnabled, s11.result.adapter === s2mid, s11.result.successBanner]));
+
+  // TB-S10: 子タスクの行と、セクションが1つだけのファイルではクリックできない
+  const s10 = await page.evaluate(([f1, today]) => {
+    window.taskboard.test.setToday(today);
+    const cb = document.getElementById('f-done');
+    cb.checked = true;
+    cb.dispatchEvent(new Event('change', { bubbles: true }));
+    window.taskboard.test.newSession(f1);
+    const rows = Array.from(document.querySelectorAll('#task-table tbody tr'));
+    const child = rows.find(tr => tr.children[1].textContent.includes('PRODUCTS_DETAIL'));
+    const childClickable = child ? child.children[5].classList.contains('cell-sec') : null;
+    // セクションが1つだけのファイル
+    window.taskboard.test.newSession('# tasks\n\n## PEW\n\n- [ ] only\n');
+    const single = Array.from(document.querySelectorAll('#task-table tbody tr'))[0];
+    return { childClickable, singleClickable: single.children[5].classList.contains('cell-sec') };
+  }, [F1, TODAY]);
+  r.check('TB-S10（子タスクとセクション1つだけのファイルではクリック不可）',
+    s10.childClickable === false && s10.singleClickable === false, JSON.stringify(s10));
+
   /* ========== TB-A1〜A7: アーカイブ先と一括操作の事故防止（AR-1 / AR-3） ========== */
   // 完了させたい行を ops で指定し、save() / archive() を確認ダイアログ込みで走らせる
   const bulkSession = (fixture, completeLines, mode) => page.evaluate(([text, today, lines, m]) => {
