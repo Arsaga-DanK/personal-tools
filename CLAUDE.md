@@ -24,6 +24,18 @@ docs/specs/  ツールごとの仕様書兼テストケース
 test/        検証ハーネス（`./test/run [ツール名]`。書き方は test/README.md）
 ```
 
+## 命名規約
+
+- ツールの**表示名**は日本語の分かりやすい名前（動詞的な名前を推奨）。
+  index.html の TOOLS の `name`、各ツールの `<h1>`、`<title>` の先頭に使う
+- **ファイル名・spec 名・localStorage キー（`tools:<name>`）・`window.<name>` フック・
+  spec のテスト ID** は英小文字で、一度決めたら変更しない
+  （テストと spec の参照が連動するため）
+- `<title>` は「表示名 — 英名」（例: `表変換 — excel2md`）。
+  タブでは日本語で判別でき、英名がファイル・spec・テストへの識別子として残る
+- 現在の対応: タスク管理=taskboard / 表変換=excel2md / 変換ツール箱=devpad /
+  表記そろえ=norm / 差分比較=diff
+
 ## ブラウザツールの制約（web/）
 
 - `file://` で開いて動作すること。これが全ての前提

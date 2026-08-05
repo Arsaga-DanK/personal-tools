@@ -54,7 +54,7 @@ MCP 側の制約（`browser_navigate` が `file:` を拒否する等）も受け
 | `run` | ランナー。PATH を固定して各ハーネスを実行 |
 | `helpers.js` | playwright-core / Chromium 実体の探索、合否集計、`file://` URL 組み立て |
 | `excel2md.js` | excel2md（E2M-01〜10 / R01〜R08 / H01〜H09 / P01〜P24） |
-| `hub.js` | index.html（HUB-1〜8: 表示順・検索・カテゴリ・リンク遷移・狭幅） |
+| `hub.js` | index.html（HUB-1〜10: 表示順・検索・カテゴリ・リンク遷移・狭幅・表示名と h1/title の整合） |
 | `norm.js` | norm（NORM-01〜15・Q5 / NM-13: インポートバナーの回帰 / コピー・エクスポート） |
 | `diff.js` | diff（DIFF-01〜11・Q2 / 折り畳み・フォールバック・コピー。**DIFF-07 は性能計測**） |
 | `devpad.js` | devpad（DEV-01〜17・Q1〜Q3 / 7タブの独立性・タブ切替・永続化・性能ガード2種） |

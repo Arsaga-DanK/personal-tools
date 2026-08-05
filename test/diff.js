@@ -323,10 +323,10 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
 
   /* ========== ハブからの導線 ========== */
   await page.goto(fileUrl('index.html'));
-  await page.click('ul.tool-list a:text-is("diff")');
+  await page.click('ul.tool-list a:text-is("差分比較")');
   await page.waitForLoadState('load');
   const title = await page.title();
-  r.check('ハブから diff へ遷移できる', title.includes('diff'), title);
+  r.check('ハブから「差分比較」→ diff へ遷移できる', title.includes('diff'), title);
 
   await browser.close();
   r.report('diff（docs/specs/diff.md）');

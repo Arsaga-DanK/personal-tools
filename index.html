@@ -38,15 +38,17 @@
 'use strict';
 
 // ツール登録: 1行追加するだけで一覧に載る。
-// スキーマ: { name: 表示名, path: index.html からの相対パス, desc: 1行説明,
+// スキーマ: { name: 表示名（日本語）, path: index.html からの相対パス, desc: 1行説明,
 //            category: 変換|タスク|設計|PM, when: いつ使うかの一言（省略可） }
 // 配列の順序が同一カテゴリ内の表示順になる。最も使うものを先頭に置く
+// name は表示専用。ファイル名・spec 名・localStorage キー・window フックの
+// 英小文字名（taskboard / excel2md / ...）とは独立で、変更しても連動しない
 const TOOLS = [
-  { name: 'taskboard', path: 'web/taskboard.html', desc: 'vault の tasks.md（正本）を表形式で閲覧・編集 — 完了・期限・優先度・Excel用コピー', category: 'タスク', when: '朝の計画と期限付け・週次の棚卸し・Excel報告への転記' },
-  { name: 'excel2md', path: 'web/excel2md.html', desc: 'Excelのセル範囲（TSV）⇔ Markdownテーブル 双方向変換 — 結合セルの展開・表プレビュー上で列の揃え指定', category: '変換', when: 'Excel の表を設計書や議事録の Markdown に貼るとき／その逆' },
-  { name: 'devpad', path: 'web/devpad.html', desc: 'JSON整形・エスケープ・URL・Base64・Unix時刻・UUID・文字数カウント', category: '変換', when: 'API レスポンスの整形・エンコード・時刻変換をその場で済ませたいとき' },
-  { name: 'norm', path: 'web/norm.html', desc: '日本語表記の正規化（全角半角・ハイフン・波ダッシュ・空白・NFKC）変更箇所ハイライト付き', category: '変換', when: '顧客提供テキストや仕様書の表記ゆれを揃えるとき' },
-  { name: 'diff', path: 'web/diff.html', desc: 'テキスト比較 — 行単位差分＋文字単位ハイライト、空白無視・全半角同一視オプション', category: '変換', when: '文言修正の前後比較や設計記述の突き合わせ' },
+  { name: 'タスク管理', path: 'web/taskboard.html', desc: 'vault の tasks.md（正本）を表形式で閲覧・編集 — 完了・期限・優先度・Excel用コピー', category: 'タスク', when: '朝の計画と期限付け・週次の棚卸し・Excel報告への転記' },
+  { name: '表変換', path: 'web/excel2md.html', desc: 'Excelのセル範囲（TSV）⇔ Markdownテーブル 双方向変換 — 結合セルの展開・表プレビュー上で列の揃え指定', category: '変換', when: 'Excel の表を設計書や議事録の Markdown に貼るとき／その逆' },
+  { name: '変換ツール箱', path: 'web/devpad.html', desc: 'JSON整形・エスケープ・URL・Base64・Unix時刻・UUID・文字数カウント', category: '変換', when: 'API レスポンスの整形・エンコード・時刻変換をその場で済ませたいとき' },
+  { name: '表記そろえ', path: 'web/norm.html', desc: '日本語表記の正規化（全角半角・ハイフン・波ダッシュ・空白・NFKC）変更箇所ハイライト付き', category: '変換', when: '顧客提供テキストや仕様書の表記ゆれを揃えるとき' },
+  { name: '差分比較', path: 'web/diff.html', desc: 'テキスト比較 — 行単位差分＋文字単位ハイライト、空白無視・全半角同一視オプション', category: '変換', when: '文言修正の前後比較や設計記述の突き合わせ' },
 ];
 
 // カテゴリの表示順。最も使う「タスク」を先頭に置く

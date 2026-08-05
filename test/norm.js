@@ -358,10 +358,10 @@ const ALL_OFF = {
 
   /* ========== ハブからの導線 ========== */
   await page.goto(fileUrl('index.html'));
-  await page.click('ul.tool-list a:text-is("norm")');
+  await page.click('ul.tool-list a:text-is("表記そろえ")');
   await page.waitForLoadState('load');
   const title = await page.title();
-  r.check('ハブから norm へ遷移できる', title.includes('norm'), title);
+  r.check('ハブから「表記そろえ」→ norm へ遷移できる', title.includes('norm'), title);
 
   await browser.close();
   r.report('norm（docs/specs/norm.md）');
