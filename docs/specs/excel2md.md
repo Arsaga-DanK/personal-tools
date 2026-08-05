@@ -6,6 +6,10 @@ Excel のセル範囲（TSV）⇔ Markdown テーブルを**双方向**に変換
 
 **Phase G（2026-08-04）で旧版固有の2機能（列の寄せ指定・結合セルの展開）を移植し、excel2md を本ツール1本に集約した。** 旧 `excel2md/` は読み取りのみ（変更しない）。index.html からは削除済みで、数週間の併用後に `~/Personal/archive/` へ git 履歴ごと移動予定（docs/ux-backlog.md に記録。移動自体は未実施）。
 
+**Phase P（2026-08-05）で変換結果の表プレビューを追加し、列の揃え指定を「プレビュー最上段の揃え操作行」に移した。** Phase G のチップ行（`.align-bar`）はどの列を操作しているか分かりにくく、実機で UI が後退したと判断したため撤去する。旧 `excel2md/excel2md.html` のプレビュー UI の直感性を回復する変更で、**変換ロジック（純関数）は変更しない**（表示層の追加＋戻り値へのフィールド追加のみ。P7）。ux-backlog.md の「表示系の薄さ: excel2md のプレビュー・列揃えなし」の後半に対応する。
+
+> フェーズ名を H ではなく P としたのは、テスト ID の `E2M-H##`（HTML・結合セル展開）と衝突させないため。プレビューのテスト ID は `E2M-P##`。
+
 ## 要件対応表
 
 | ユーザー要件 | spec 節 |
@@ -17,29 +21,28 @@ Excel のセル範囲（TSV）⇔ Markdown テーブルを**双方向**に変換
 | "囲みセル内改行（Alt+Enter由来）は `<br>` に | 変換仕様 1, 3 |
 | 列数不一致は空セル埋め＋警告 | エラー・警告仕様 |
 | 全角前提、文字化け厳禁 | テストケース E2M-01, 02 |
-| **列の寄せ指定（`:---` / `:---:` / `---:`）の出力と解釈**（Phase G） | 変換仕様 3・揃え指定 UI・変換仕様（MD→TSV）7 |
+| **列の寄せ指定（`:---` / `:---:` / `---:`）の出力と解釈**（Phase G） | 変換仕様 3・変換仕様（MD→TSV）7 |
 | **結合セル（colspan/rowspan）を全セル繰り返しで展開**（Phase G） | Excel貼り付けの取り込み |
+| **変換結果を実際の表として描画（プレビュー）**（Phase P） | プレビュー仕様 |
+| **プレビュー上で列の揃えを指定し、揃えを表の見た目に反映**（Phase P） | プレビュー仕様・揃え操作行 |
 
 ## 画面構成
 
+- `<main class="app-wide">`（Phase P で `app`→`app-wide` に変更。他4ツール（norm/diff/devpad/taskboard）が
+  全て `app-wide` で excel2md だけ 900px だった。表プレビューを載せるため 1200px に揃える。P6）
 - `<main>` 直下: `.tool-header`（「← ツール一覧」リンク＋「設定は自動保存されます」注記）
-- 上部: タイトル＋1行説明
-- ツールバー: **方向切替ラジオ［TSV→MD｜MD→TSV］** / 「1行目をヘッダーにする」チェック / 「セル前後の空白を除去」チェック（TSV→MD のみ有効） / コピーボタン（方向により「Markdownをコピー」/「Excel用にコピー」）
-- **揃えバー（`.align-bar`。ツールバーとバナーの間）**: **TSV→MD 方向かつ列が1以上のときのみ表示**。
-  列ごとに1チップ「`<ラベル>: −|左|中央|右`」を並べ、クリックで − → 左 → 中央 → 右 と循環
-  （旧版のプレビュー最上段クリックの翻案。本ツールにはプレビューが無いためチップ行に置く）。
-  - ラベル: ヘッダーON時は1行目のセル内容（改行・連続空白は1スペースに畳み、9文字以上は8文字＋`…`）、
-    ヘッダーOFF時および空セル時は「列N」（1始まり）
-  - 列数が変わっても**列位置で揃えを保持**（増えた列は −）。**列が0になったら（空入力・上限超過）リセット**
-  - **列数が変わらない限りチップ要素を作り直さない**（キーボードでフォーカスしたまま Enter 連打で
-    連続切替できるようにするため。作り直すとフォーカスが body に戻る）
-  - **表示は先頭60列まで**。超過時は「※ 61列目以降は揃え指定を省略しています」を muted で併記
-    （区切り行は `---`。大きな表でチップ再構築が重くなるのを防ぐ）
+- 上部: タイトル＋1行説明。**1行説明（subtitle）と index.html の `desc` に「表プレビュー」を追記する**
+  （現在はどちらも「結合セルの展開・列の揃え指定」までしか触れていない）
+- ツールバー: **方向切替ラジオ［TSV→MD｜MD→TSV］** / 「1行目をヘッダーにする」チェック /
+  「セル前後の空白を除去」チェック（TSV→MD のみ有効） / **「プレビュー」チェック**（既定ON・永続化。
+  title に「変換結果の表プレビュー（列の揃え指定もここで行います）」— OFF にすると揃えの操作手段も
+  無くなるため依存関係を title で示す） / コピーボタン（方向により「Markdownをコピー」/「Excel用にコピー」）
 - 2ペイン（`.panes`）: 左=入力 textarea、右=出力 textarea（readonly）。ペインタイトルは方向に追従
+- **プレビュー（`#preview-section`）: 2ペインの下に全幅**（P1）。詳細は「プレビュー仕様」節
 - 入力ペインタイトル横: 「サンプルを入れる」ボタン（**入力が空のときのみ表示**。方向に応じたサンプル
   — TSV→MD はセル内改行入り TSV、MD→TSV は `<br>` 入り Markdown表 — を投入し即変換）
 - コピーは **Cmd/Ctrl+Enter でも実行**（コピーボタンの title に表記）
-- 警告バナー領域（`.banner`）: 揃えバー直下
+- 警告バナー領域（`.banner`）: ツールバー直下（Phase P で揃えバーを撤去したため1段上がる）
 - 入力は 200ms デバウンスでリアルタイム変換
 - **方向は自動で反転しない**。入力が逆方向の形式に見えるとき（TSV→MD なのに Markdown 区切り行を検出等）は情報バナーで切替を提案する
 
@@ -96,6 +99,130 @@ Excel は結合セルを text/plain では「先頭セルに値・残りは空�
      `<!--StartFragment-->`・`<colgroup>`・MSO 独自 CSS を含む重装 HTML でも
      `DOMParser` + `querySelector('table')` + `table.rows` 走査で正しくセルを取れる
 
+## プレビュー仕様（Phase P）
+
+変換結果を**実際の表として描画**し、**プレビュー最上段の「揃え操作行」で列の揃えを指定する**
+（旧 `excel2md/excel2md.html` の `tr.align-row` 相当）。Phase G のチップ行 `.align-bar` は撤去する。
+
+### DOM 構造
+
+```
+<section id="preview-section" hidden>
+  <h2>プレビュー <span class="muted" id="preview-hint"></span></h2>
+  <div id="preview-wrap">
+    <table class="preview" id="preview">
+      <thead>
+        <tr class="align-row"><th>…列ごとの揃え操作…</th>…</tr>  ← 常に1行・sticky
+        <tr><th>…grid[0]…</th>…</tr>                            ← ヘッダーON のときだけ
+      </thead>
+      <tbody><tr><td>…</td>…</tr>…</tbody>
+    </table>
+  </div>
+  <p class="muted" id="preview-note" hidden></p>
+</section>
+```
+
+- 生成は `createElement` + `textContent` のみ。**HTML 文字列の組み立てはしない**
+  （貼り付け内容による注入を防ぐ。旧版と同じ方針）
+- `#preview-hint`（h2 内・muted・12px）は方向で切替:
+  - TSV→MD: 「（最上段のボタンで列の揃えを切替）」
+  - MD→TSV: 「（区切り行から読んだ揃えを表示。変更は入力の Markdown 側で）」
+- `#preview-wrap`: `max-height: 60vh; overflow: auto`。**揃え操作行は `position: sticky; top: 0`**
+  （長い表をスクロールしても揃えを操作できる）
+  - `border-collapse: collapse` では sticky セルの境界線がスクロールで消える（境界線が
+    セルではなくテーブルに属するため）。揃え操作行には `box-shadow: inset 0 -1px 0 var(--border)`
+    で下辺を描き、`z-index: 1` で本文セルより前面に置く
+- 表の寸法とセルの `white-space: pre-wrap`（セル内改行を実際の改行として見せる）、
+  `vertical-align: top`、`border: 1px solid var(--border)` は旧版 CSS を踏襲する
+- プレビュー用 CSS はツール側 `<style>` に置く（ui.css はツール共通部品のみ。lib/ui.css 冒頭の方針）
+
+### 揃え操作行（TSV→MD 方向）
+
+- 列ごとに `<th>` 1個、中に `<button class="align-btn">`。ラベルは `−` / `左` / `中央` / `右`
+- クリック（キーボードは Enter / Space）で **− → 左 → 中央 → 右** と循環。押した瞬間に
+  出力の区切り行と**表の見た目**（その列の全セルの `text-align`）の両方に反映される
+- `title` と `aria-label` は「列N の揃え: 左（クリックで なし→左→中央→右）」
+- ボタンは `min-width: 44px`（最長ラベル「中央」でも押すたびに幅が動かないようにする）
+- 列数が変わっても**列位置で揃えを保持**（増えた列は −）。**grid が空になったらリセット**
+  （空入力・入力上限超過。Phase G から不変）
+
+### 揃えの表示（MD→TSV 方向）
+
+- プレビューは**読み取り専用**。揃え操作行は `<button>` を置かず**静的テキスト**（muted）で
+  区切り行から読んだ揃え（`−`/`左`/`中央`/`右`）を表示する（P5）
+- 理由: この方向の揃えの正本は入力 Markdown の区切り行。プレビューから編集させると入力テキストの
+  書き換えが必要になり、「変換ロジックは変更しない」という本フェーズの制約を超える
+- 揃えが TSV で失われることは既存の info バナー（「変換仕様（MD→TSV）」7）で通知済み。
+  プレビューは**何が失われるのかを目で確認する手段**になる
+- 副作用として ux-backlog の **XL-1**（「MD→TSV 時に『1行目をヘッダーにする』が画面上無反応に見える」）が
+  緩和される: トグル OFF で grid[0] が `<thead>` から `<tbody>` に移り、`<th>`/`<td>` の切替（＝Excel 用
+  HTML に効いている変化）がプレビュー上で見えるようになる。TSV 出力が変わらないことは従来どおり
+
+### 描画上限（P4）
+
+プレビューは入力の 200ms デバウンスで**打鍵ごとに再描画**される（旧版は paste 1回につき1回だった）。
+また `rowspan`/`colspan` 展開や横長の Excel 範囲で列数は数百〜千になりうる。
+このため旧版の行数上限だけでは足りず、**セル数の予算**を追加する。
+
+| 定数 | 値 | 意味 |
+|---|---|---|
+| `PREVIEW_MAX_COLS` | 60 | 描画する列数の上限（Phase G の `ALIGN_MAX_COLS` を引き継ぐ） |
+| `PREVIEW_MAX_ROWS` | 200 | 描画する grid 行数の上限（旧版と同値） |
+| `PREVIEW_MAX_CELLS` | 5000 | 描画セル数の予算（**Phase P で新設**。打鍵ごと再描画のため） |
+
+```js
+function previewShape(rows, cols) {
+  const shownCols = Math.min(cols, PREVIEW_MAX_COLS);
+  const budget = shownCols > 0 ? Math.floor(PREVIEW_MAX_CELLS / shownCols) : 0;
+  const shownRows = Math.min(rows, PREVIEW_MAX_ROWS, budget);
+  return { shownRows, shownCols, omittedRows: rows - shownRows, omittedCols: cols - shownCols };
+}
+```
+
+- **超過分のみ省略**し、プレビュー自体は残す（P4。CLAUDE.md の「不正入力でも落ちず最善の出力を出す」
+  best-effort 原則。大きな表でも先頭は確認でき、先頭60列は揃えを操作できる）
+- 注記は `#preview-note`（muted・12px・プレビュー直下）に出す。**警告バナーは使わない**
+  （変換警告を潰さないため。既存の copy-hint と同じ方針）
+  - 行超過: 「残りN行は省略されています（出力にはすべて含まれます）」（旧版の文言）
+  - 列超過: 「61列目以降は省略されています（出力にはすべて含まれます）」
+  - 両方超過: ` / ` で連結
+- `shownRows` は **grid 行数**（ヘッダー行を含む）。ヘッダーON のとき `<tbody>` の行数は `shownRows - 1`
+- 揃え操作行の `<th>` 数とデータ行のセル数はどちらも `shownCols` で一致させる。
+  **61列目以降は揃えを指定できず区切り行は `---`**（Phase G と同じ。出力自体は全列そのまま出る）
+- **プレビューが丸ごと消えるのは3つの場合だけ**: grid が空（空入力・入力上限超過）/
+  「プレビュー」トグルOFF / MD→TSV で Markdown 表として認識できなかったとき
+- `previewShape` は `window.excel2md` に公開し、上限ロジックを DOM 抜きで照合できるようにする
+
+### 再描画（P8）
+
+`{shownRows, shownCols, hasHeader, direction}` を「形」として保持し、**形が前回と同じなら DOM を
+作り直さず**、各セルの `textContent` と `style.textAlign`、ボタンのラベル/`aria-label` だけ更新する。
+
+- 理由1（フォーカス保持）: 作り直すとクリックした揃えボタンが DOM から外れてフォーカスが body に戻り、
+  Enter 連打での連続切替ができない（Phase G のチップ行と同じ制約。`web/excel2md.html` の
+  「列数が同じならチップ要素を作り直さない」コメントと同趣旨）
+- 理由2（コスト）: 打鍵ごとの再描画で最大5000セルを毎回捨てて作り直すのを避ける
+- 揃えクリック時は形が変わらないため必ず再利用パスを通る
+
+### 純関数の戻り値の変更（P7・変換ロジックは不変）
+
+プレビューは grid そのものを必要とするため、変換入口の戻り値に `grid` を**追加**する。
+セル値の算出・出力生成のロジックは一切変更しない。
+
+| 関数 | 変更前 | 変更後 |
+|---|---|---|
+| `convert(text, opts)` | `{markdown, warnings, cols, firstRow}` | `{markdown, warnings, grid}` |
+| `convertFromMd(text, opts)` | `{tsv, html, alignments, warnings}` | `{tsv, html, alignments, warnings, grid}` |
+
+- `cols` / `firstRow` は撤去するチップ行のラベル描画専用だったため削除する
+  （必要なら `grid[0].length` / `grid[0]` で代替できる）
+- `convert` の `grid` は **trim 適用後**のもの（プレビューが出力と一致するため）。
+  `convertFromMd` の `grid` は `parseMarkdownTable` の結果そのもの
+- `grid` は**参照を返すだけでコピーしない**（大きな表での複製コストを避ける）。呼び出し側は読み取り専用で扱う
+- 認識失敗・上限超過時の `grid` は `[]`（プレビュー非表示の判定に使う）
+- 既存テスト（E2M-01〜10 / R01〜R08 / H01〜H09）は `markdown` / `tsv` / `html` / `alignments` /
+  `warnings` のみを照合するため影響を受けない
+
 ## オプション仕様
 
 | オプション | 既定値 | 永続化 |
@@ -103,7 +230,8 @@ Excel は結合セルを text/plain では「先頭セルに値・残りは空�
 | 方向（tsv2md / md2tsv） | tsv2md | する（`tools:excel2md`） |
 | 1行目をヘッダーにする | ON | する（E2M-Q3 で決定。`tools:excel2md`） |
 | セル前後の空白を除去 | ON | 同上（TSV→MD のみ有効） |
-| **列の揃え（alignments）** | 全列 none | **しない**（表の内容に従属する状態のため。列0でリセット） |
+| **プレビュー（Phase P）** | ON | する（`tools:excel2md`。UI 状態のため localStorage が正本） |
+| **列の揃え（alignments）** | 全列 none | **しない**（表の内容に従属する状態のため。grid が空でリセット） |
 
 ## エラー・警告仕様
 
@@ -125,12 +253,14 @@ Excel は結合セルを text/plain では「先頭セルに値・残りは空�
 
 ## 保存仕様
 
-キー `tools:excel2md`、payload `{header: bool, trim: bool, direction: 'tsv2md'|'md2tsv'}`（E2M-Q3 で決定＋双方向化で direction 追加）。入力テキスト自体・列の揃えは保存しない。
+キー `tools:excel2md`、payload `{header: bool, trim: bool, direction: 'tsv2md'|'md2tsv', preview: bool}`
+（E2M-Q3 で決定＋双方向化で direction 追加＋Phase P で preview 追加）。
+入力テキスト自体・列の揃えは保存しない。`preview` が未保存（旧 payload）のときは既定 ON として扱う。
 
 ## テストケース
 
-`window.excel2md.convert(input, {header, trim, alignments})` → `{markdown, warnings, cols, firstRow}` で照合
-（`cols`/`firstRow` は揃えバー描画用。省略時オプションは既定値 header:true, trim:true, alignments:[]）。
+`window.excel2md.convert(input, {header, trim, alignments})` → `{markdown, warnings, grid}` で照合
+（`grid` はプレビュー描画用。省略時オプションは既定値 header:true, trim:true, alignments:[]）。
 
 | ID | 前提 | 入力 | 期待出力（markdown） |
 |---|---|---|---|
@@ -174,6 +304,39 @@ MD→TSV 方向（`window.excel2md.convertFromMd(input, {header})` → `{tsv, ht
 | E2M-H08 | `'<table><tr><td rowspan="1000" colspan="1000">A</td></tr></table>'`（展開後100万セル）、maxCells=200000 | grid=null、tooLarge=true。`convertFromHtml` の tsv=null、warnings に「上限（20万セル）」warn 1件（**性能ガード②**） |
 | E2M-H09 | `'<table><tr><td rowspan="200" colspan="1000">A</td></tr></table>'`（展開後20万セル＝上限ちょうど）、maxCells=200000 | tooLarge=false、grid は 200行×1000列（正当な大きい表を誤って弾かない） |
 
+### プレビュー（Phase P）
+
+描画上限は純関数 `window.excel2md.previewShape(rows, cols)` → `{shownRows, shownCols, omittedRows, omittedCols}` で照合:
+
+| ID | 入力 | 期待 |
+|---|---|---|
+| E2M-P01 | `previewShape(3, 2)` | `{shownRows:3, shownCols:2, omittedRows:0, omittedCols:0}`（上限内はそのまま） |
+| E2M-P02 | `previewShape(1000, 3)` | `{shownRows:200, shownCols:3, omittedRows:800, omittedCols:0}`（行上限が効く） |
+| E2M-P03 | `previewShape(500, 60)` | `{shownRows:83, shownCols:60, omittedRows:417, omittedCols:0}`（セル予算 5000/60 が効く） |
+| E2M-P04 | `previewShape(10, 100)` | `{shownRows:10, shownCols:60, omittedRows:0, omittedCols:40}`（列上限のみ効く） |
+| E2M-P05 | `previewShape(0, 0)` | `{shownRows:0, shownCols:0, omittedRows:0, omittedCols:0}`（0除算しない） |
+| E2M-P06 | `previewShape(200, 25)` | `{shownRows:200, shownCols:25, omittedRows:0, omittedCols:0}`（5000セル＝予算ちょうど。正当な表を弾かない） |
+
+UI（`file://` で開き、入力 textarea に値を設定して `input` イベント発火 → デバウンス後に DOM を照合）:
+
+| ID | 前提・操作 | 期待 |
+|---|---|---|
+| E2M-P07 | E2M-01 の入力（3行2列）・ヘッダーON | `#preview-section` 表示。`thead tr`=2（揃え操作行＋ヘッダー行）、`tbody tr`=2、`thead tr:nth-child(2) th` の textContent=`['名前','年齢']`、揃えボタン=2個で両方ラベル `−`。**列数・行数が変換結果と一致** |
+| E2M-P08 | P07 で1列目の揃えボタンを click | ボタンラベル=`左`、1列目の `th`/`td` すべてが `text-align: left`、**出力の区切り行が `| :--- | --- |`**。続けて2回 click で `右`／`| ---: | --- |`、もう1回で `−`／`| --- | --- |` に戻る（− → 左 → 中央 → 右 の循環） |
+| E2M-P09 | P07 でヘッダーOFF | `thead tr`=1（揃え操作行のみ）、`tbody tr`=3（全行データ）、`tbody th` が0個、揃えボタンは2個のまま |
+| E2M-P10 | 入力を空にする | `#preview-section` が hidden、コンソールエラー0。再投入すると揃えが `−` に戻る（grid 空でリセット） |
+| E2M-P11 | E2M-04 の入力 `'A\tB\tC\nx\ty'`（列数不一致） | プレビューは3列。`tbody tr`=1・そのセル数=3で3番目の textContent=`''`（空セル補完が見える）。例外なし |
+| E2M-P12 | E2M-02 の入力（セル内改行） | 該当セルの textContent=`'1行目\n2行目'`（`'<br>'` という文字列を含まない）、算出スタイルの `white-space`=`pre-wrap` |
+| E2M-P13 | `'a\tb\n<b>x</b>\ty'` | セルの textContent=`'<b>x</b>'`、`#preview b` が存在しない（HTML 注入されない） |
+| E2M-P14 | 205行×3列 | `tbody tr`=199（=`shownRows` 200 − ヘッダー1行）、`#preview-note` が表示され「残り5行」を含む |
+| E2M-P15 | 2行×70列 | 揃えボタン=60個、`tbody tr`=1 のセル数=60、`#preview-note` が「61列目以降」を含む |
+| E2M-P16 | 500行×60列 | `tbody tr`=82（=`shownRows` 83 − ヘッダー1行）、`#preview-note` が「残り417行」を含む（セル予算） |
+| E2M-P17 | MD→TSV 方向で E2M-R05 の入力 | プレビュー表示。揃え操作行に `<button>` が0個（静的テキスト `左`/`右`）、1列目セルが `text-align: left`・2列目が `right`、`#preview-hint` が「変更は入力の Markdown 側で」を含む |
+| E2M-P18 | MD→TSV 方向で E2M-R06 の入力（表として認識できない） | `#preview-section` が hidden、認識失敗の warn バナーは従来どおり表示、例外なし |
+| E2M-P19 | 「プレビュー」トグル OFF | `#preview-section` が hidden。リロード後も OFF が復元。ON に戻すと即座に描画される |
+| E2M-P20 | 揃えボタンに Tab でフォーカス → Enter を続けて2回 | 2段進む（`−`→`左`→`中央`）。フォーカスが body に戻らない（形が同じなら DOM を作り直さない検証） |
+| E2M-P21 | E2M-01〜10 / R01〜R08 / H01〜H09 を再実行 | **全 pass**（プレビュー追加で変換出力が変わらないこと） |
+
 ## 検証手順（Playwright）
 
 1. `file:///Users/dan.kawazu/Personal/tools/web/excel2md.html` を開く → ロード時コンソールエラー0
@@ -185,11 +348,11 @@ MD→TSV 方向（`window.excel2md.convertFromMd(input, {header})` → `{tsv, ht
 7. index.html を開き直し excel2md のリンクを click で辿り `<title>` 確認。**旧 md2excel エントリが無いこと**も確認
 8. サンプルボタン: 空状態で表示 → click → 入力・出力とも非空になりボタンが消える。入力を空に戻すと再表示
 9. 入力フォーカス中に Cmd/Ctrl+Enter → コピー実行（`.copied` フィードバックまたは選択フォールバック案内）
-10. **揃えバー（Phase G）**: E2M-01 投入 → バーが表示されチップラベルが「名前」「年齢」（ヘッダーON）。
-    1列目チップを1回 click → 出力の区切り行が `| :--- | --- |`、3回で `---:`、4回で `---` に戻る。
-    ヘッダーOFF → ラベルが「列1」「列2」。入力を空に → バーが消え、再投入時は揃えが − に戻る。
-    MD→TSV に切替 → バー非表示。61列以上の入力で省略注記が出ること。
-    チップに Tab でフォーカス → Enter を続けて2回押して2段進むこと（フォーカスが外れない）
+10. **プレビューと揃え（Phase P）**: E2M-P01〜P06 を `browser_evaluate` で `previewShape` に投入し
+    オブジェクト一致を確認 → E2M-P07〜P21 を UI で照合。表の列数・行数、揃えボタンの click 循環と
+    出力区切り行の連動、ヘッダーON/OFF、空入力、列数不一致、行/列/セル予算の各上限注記、
+    MD→TSV の読み取り専用表示、トグル OFF とその復元、Tab→Enter 2回でのフォーカス保持を確認する
+    （Phase P でチップ行を撤去するため `.align-bar` が存在しないことも確認）
 11. **結合セル展開（Phase G）**: E2M-H05〜H07 を合成 `ClipboardEvent`（`new DataTransfer()` に
     setData した clipboardData）で dispatch し、`defaultPrevented`・入力値・出力・バナーを照合。
     実 Cmd+V での file:// 取得可否は 2026-08-04 に実測済み（「Excel貼り付けの取り込み」6 参照）
@@ -204,7 +367,9 @@ MD→TSV 方向（`window.excel2md.convertFromMd(input, {header})` → `{tsv, ht
 - **結合セル（Phase G）**: Excel で結合セルを含む範囲をコピー → 貼り付けで結合が全セルに展開されること
   （Safari の `clipboardData.getData('text/html')` 可否を含む。非対応なら既定の貼り付けにフォールバックし
   警告なしで従来どおり動くこと）
-- **揃え指定（Phase G）**: チップ click で区切り行が変わり、Markdown ビューア（Obsidian 等）で寄せが効くこと
+- **プレビューと揃え指定（Phase P）**: プレビュー最上段の揃えボタン click で区切り行と表の見た目が同時に
+  変わり、Markdown ビューア（Obsidian 等）に貼って寄せが効くこと。長い表でスクロールしても
+  揃え操作行が上端に残ること（sticky）。ダークモードでプレビューの境界線・ヘッダー背景が判別できること
 
 ## 決定事項（要確認の承認結果・2026-08-03）
 
@@ -218,6 +383,8 @@ MD→TSV 方向（`window.excel2md.convertFromMd(input, {header})` → `{tsv, ht
 
 - **G1**: 揃え指定 UI の形 → **決定: チップ行**（クリック循環。旧版プレビュー最上段クリックの操作感を継承）。
   代替案の列ごと `<select>`・テキスト指定欄（`l,c,r`）は不採用
+  → **Phase P（2026-08-05）で撤回。プレビュー表を追加し、揃え指定をその最上段の揃え操作行に移した**
+    （チップ行はどの列を操作しているか分かりにくく、実機で UI が後退したと判断。P2/P3）
 - **G2**: HTML 取り込みの適用方向 → **決定: TSV→MD のみ**（MD→TSV でレンダリング済み Markdown 表を
   貼ると TSV が混入し誤変換になるため）
 - **G3**: 取り込み時の挿入位置 → **決定: 選択位置に挿入**（通常の貼り付けと同じ textarea 意味論。
@@ -226,3 +393,33 @@ MD→TSV 方向（`window.excel2md.convertFromMd(input, {header})` → `{tsv, ht
   「結合セルがある時だけ」は不採用）
 - **G5**（追加要件）: HTML 経路も性能ガードの対象 → **決定: 文字数（①）＋展開後セル数 20万（②）の2段。
   超過時は展開せず警告し既定の貼り付けにフォールバック**
+
+## 決定事項（Phase P プレビュー・2026-08-05 承認）
+
+- **P1**: プレビューの配置 → **決定: 2ペインの下に全幅**＋ツールバーに「プレビュー」表示トグル（既定ON・永続化）。
+  - 不採用①「出力ペインをタブ切替（出力MD / プレビュー）」: 揃えを触りながら区切り行の変化を確認できない。
+    Markdown 本文は最終成果物であり常時見えている方が良い
+  - 不採用②「3ペイン（入力/出力/プレビュー）」: 1200px でも1列400px弱で表プレビューには狭すぎ、
+    800px 以下では1列に折り返るため縦積みと同じになる
+- **P2**: 揃えの操作方法 → **決定: プレビュー最上段の専用「揃え操作行」**（`tr.align-row` の `<th>` 内に
+  `<button>`。ラベル `−`/`左`/`中央`/`右` をクリックで循環）。旧版 `excel2md/excel2md.html:592-601` と同じ構造。
+  - 不採用「ヘッダーセル（`<th>`）自体をボタン化して兼用」: (a) ヘッダー行の全文が
+    ボタン内に押し込まれて省略表示になり、プレビューの「変換結果をそのまま見せる」目的が損なわれる。
+    (b) ヘッダーOFF のとき押す対象が無くなる（旧版の専用行はヘッダーON/OFF に依存しない）
+- **P3**: Phase G のチップ行（`.align-bar`）→ **決定: 撤去**。理由:
+  (a) 揃え操作行は列位置が表と視覚的に一致し、押した結果が表の見た目に出るため上位互換。
+  (b) 上限超過時もプレビュー本体は残る（P4）ので「プレビューが出ないときのフォールバック」として
+  残す必要がない。(c) 同じ状態を2箇所で操作できると不整合の疑いを生む
+- **P4**: 描画上限超過時のふるまい → **決定: 超過分のみ省略し、プレビューは残す**（先頭 最大200行/60列、
+  セル予算5000）。依頼時の案「超過時はプレビュー全体を省略＋バナー」は不採用 — CLAUDE.md の
+  best-effort 原則に反し、かつ Phase G では先頭60列の揃えを操作できていたので機能後退になる
+- **P5**: MD→TSV 方向のプレビュー → **決定: 表示する（読み取り専用）**。揃え操作行は静的テキスト。
+  揃えの正本は入力 Markdown の区切り行であり、プレビューから編集させると入力テキストの書き換えが
+  必要になって本フェーズの制約（変換ロジックを変更しない）を超える。
+  - 不採用「MD→TSV では隠す」: 区切り行の揃えが TSV で失われることを目で確認できる価値を捨てるため
+- **P6**: ページ幅 → **決定: `main.app`（900px）→ `main.app-wide`（1200px）**。
+  他4ツールは既に `app-wide` で excel2md だけ 900px だったため、表を載せる本フェーズで揃える
+- **P7**: 純関数の扱い → **決定: 戻り値に `grid` を追加**（`convert` / `convertFromMd`）。
+  セル値の算出・出力生成のロジックは変更しない。チップ行専用だった `cols`/`firstRow` は削除
+- **P8**: 再描画 → **決定: 形（表示行数×表示列数×ヘッダー有無×方向）が同じなら DOM を作り直さない**。
+  Phase G のチップ行と同じフォーカス喪失の制約＋打鍵ごと再描画のコスト対策
