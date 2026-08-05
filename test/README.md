@@ -57,6 +57,7 @@ MCP 側の制約（`browser_navigate` が `file:` を拒否する等）も受け
 | `hub.js` | index.html（HUB-1〜8: 表示順・検索・カテゴリ・リンク遷移・狭幅） |
 | `norm.js` | norm（NORM-01〜15・Q5 / NM-13: インポートバナーの回帰 / コピー・エクスポート） |
 | `diff.js` | diff（DIFF-01〜11・Q2 / 折り畳み・フォールバック・コピー。**DIFF-07 は性能計測**） |
+| `devpad.js` | devpad（DEV-01〜17・Q1〜Q3 / 7タブの独立性・タブ切替・永続化・性能ガード2種） |
 | `taskboard.js` | taskboard（TB-01〜20・parse / TB-I1〜I7: IME ガード / TB-U1〜U7: 追加の取り消し） |
 
 `taskboard.js` の TB-I6 は **CDP で実際の IME composition を張る**（`Input.imeSetComposition` →
@@ -86,5 +87,13 @@ MCP 側の制約（`browser_navigate` が `file:` を拒否する等）も受け
 4. 入力は 200ms デバウンス。**重い入力の後は 800ms 待つ**（400〜500ms だと偽 fail する）
 5. セレクタは実装から grep して確かめる。当てずっぽうのクラス名は0件でも例外にならず**偽 pass** になるので、
    件数を「0でないこと」まで assert する
+   - 同じツール内に**似た役割の要素が複数ある**ことがある。devpad は各タブに
+     `[data-tab-error]`（guard・init 失敗・復元通知）と `#<tab>-result`（操作結果）の
+     2つのバナーがあり、取り違えると偽 fail になる（実際に踏んだ）
+6. **存在チェック（`textContent !== ''`）ではなく内容そのものを assert する。**
+   「機能は正しいが表示が意図と違う」層のバグは文字列を照合しないと通り抜ける
+   （norm の NM-13／NM-14 はどちらもこれで発見した）
+7. 「触られないこと」を確かめるときは**目印を入れてから**操作する。
+   `=== ''` は前の操作で偶然空だっただけかもしれない（`'SENTINEL'` を置いて不変を見る）
 
 既知の罠と環境の詳細は `docs/verification-notes.md`。
