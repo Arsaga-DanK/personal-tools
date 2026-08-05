@@ -292,12 +292,16 @@ function applyOpts(o) {
 
 let lastResult = { text: '', tokens: [], counts: {} };
 
-function renderSummary(counts) {
+// 「変更はありません」は入力があるときだけ意味を持つフィードバックなので、
+// 空入力ではサマリを出さない（spec エラー・警告仕様）。
+// 性能ガード経路が summary を明示的に空にしているのと扱いを揃える。
+function renderSummary(counts, hasInput) {
   const parts = [];
   for (const tr of TRANSFORMS) {
     if (counts[tr.id] > 0) parts.push(tr.label + ': ' + counts[tr.id] + '件');
   }
-  el.summary.textContent = parts.length > 0 ? '適用: ' + parts.join(' / ') : '変更はありません';
+  if (parts.length > 0) el.summary.textContent = '適用: ' + parts.join(' / ');
+  else el.summary.textContent = hasInput ? '変更はありません' : '';
 }
 
 function showBanner(msg, kind) {
@@ -381,7 +385,7 @@ function run() {
   const opts = uiOpts();
   lastResult = normalize(el.input.value, opts);
   renderOutput(lastResult, opts.ruby);
-  renderSummary(lastResult.counts);
+  renderSummary(lastResult.counts, el.input.value.length > 0);
 }
 
 let debounceTimer = null;
@@ -467,8 +471,9 @@ el.importFile.addEventListener('change', () => {
     if (err) { showBanner('インポート失敗: ' + err, 'error'); return; }
     applyOpts(data && data.options);
     ToolStorage.save(TOOL, { options: uiOpts() });
-    showBanner('設定をインポートしました', 'info');
+    // run() を先に呼ぶ。run() は先頭でバナーを消すため、逆順だと成功通知が即消える（NM-13）
     run();
+    showBanner('設定をインポートしました', 'info');
   });
 });
 
