@@ -268,28 +268,45 @@ function splitMarkdownRow(line) {
   return cells.map(c => c.trim().replace(/<br\s*\/?\s*>/gi, '\n'));
 }
 
+// from 以降に別の表（「| を含む行」＋区切り行）があるか。ヘッダーの検出規則と同じ形で判定する
+function hasTableFrom(lines, from) {
+  for (let i = from; i < lines.length - 1; i++) {
+    if (lines[i].includes('|') && parseMarkdownSeparator(lines[i + 1])) return true;
+  }
+  return false;
+}
+
 // 「| を含む行」の直後に区切り行、が現れる位置をテーブル先頭とみなす。
-// 戻り値: { grid, alignments } / 認識できなければ null
+// 表の終端は Markdown と同じ**空行**（および「| を含まない行」）。
+// 空行を先に捨てると「空行区切りの2つ目の表」を1つ目に吸収し、その区切り行が
+// データ行として混入する（XL-2。2026-08-05 修正）。逆に空行なしで区切り行が
+// 現れる場合は GFM どおり単なるデータ行として扱う（表を切るには空行が必要）。
+// 戻り値: { grid, alignments, moreTables } / 認識できなければ null
 function parseMarkdownTable(text) {
-  const lines = normalizeNewlines(text).split('\n').map(l => l.trim()).filter(l => l !== '');
+  const lines = normalizeNewlines(text).split('\n').map(l => l.trim());
   let headerIdx = -1;
   let alignments = null;
   for (let i = 0; i < lines.length - 1; i++) {
-    if (!lines[i].includes('|')) continue;
+    if (!lines[i].includes('|')) continue; // 空行もここで飛ばされる
     alignments = parseMarkdownSeparator(lines[i + 1]);
     if (alignments) { headerIdx = i; break; }
   }
   if (headerIdx === -1) return null;
 
   const rows = [splitMarkdownRow(lines[headerIdx])];
+  let end = lines.length; // 1つ目の表が終わった位置（これ以降は変換対象外）
   for (let i = headerIdx + 2; i < lines.length; i++) {
-    if (!lines[i].includes('|')) break;
+    if (lines[i] === '' || !lines[i].includes('|')) { end = i; break; }
     rows.push(splitMarkdownRow(lines[i]));
   }
   const grid = padGrid(rows);
   const cols = grid[0].length;
   while (alignments.length < cols) alignments.push('none');
-  return { grid, alignments: alignments.slice(0, cols) };
+  return {
+    grid,
+    alignments: alignments.slice(0, cols),
+    moreTables: hasTableFrom(lines, end),
+  };
 }
 
 function gridToTsv(grid) {
@@ -332,6 +349,10 @@ function convertFromMd(text, opts) {
   if (!parsed) {
     warnings.push({ type: 'warn', message: 'Markdownの表として認識できませんでした（ヘッダー行と区切り行が必要です）' });
     return empty;
+  }
+  // 2つ目以降の表は黙って落とさない（XL-2。落ちたことに気づかず提出する事故を防ぐ）
+  if (parsed.moreTables) {
+    warnings.push({ type: 'info', message: '最初の表のみ変換しました（2つ目以降の表は無視されます）' });
   }
   // TSV は列揃えを表現できない。HTML 経路（Excel用にコピー）では align 属性で保持される
   if (parsed.alignments.some(a => a !== 'none')) {

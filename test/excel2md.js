@@ -95,6 +95,46 @@ const shotPath = name => path.join(REPO, '.playwright-mcp', name); // .gitignore
   r.check('E2M-R07', rev.r07tsv === 'A\tB\n1\t2' && eq(rev.r07al, ['left', 'right']) && rev.r07back === rev.r07md,
     JSON.stringify([rev.r07tsv, rev.r07al, rev.r07back]));
   r.check('E2M-R08', rev.r08a === 1 && rev.r08b === 0, JSON.stringify([rev.r08a, rev.r08b]));
+
+  /* ===== E2M-R09〜R12: 2つ目以降の表（XL-2） ===== */
+  const multi = await page.evaluate(() => {
+    const f = window.excel2md.convertFromMd;
+    const T1 = '| A | B |\n| --- | --- |\n| 1 | 2 |';
+    const T2 = '| C | D |\n| --- | --- |\n| 3 | 4 |';
+    const probe = text => {
+      const res = f(text, {});
+      return { tsv: res.tsv, warn: res.warnings.map(w => w.type + ':' + w.message) };
+    };
+    return {
+      r09: probe(T1 + '\n\n' + T2),
+      r10a: probe(T1 + '\n\n説明\n\n' + T2),
+      r10b: probe(T1 + '\n\n' + T2 + '\n\n| E | F |\n| --- | --- |\n| 5 | 6 |'),
+      r10c: probe(T1 + '\n\n| C | D | E |\n| --- | --- | --- |\n| 3 | 4 | 5 |'),
+      r11: probe(T1 + '\n| --- | --- |\n| 9 | 9 |'),
+      r12a: probe(T1),
+      r12b: probe('説明文\n\n' + T1),
+      r12c: probe(T1 + '\n\nこれは説明文です。'),
+      r12d: probe(T1 + '\n\n| C | D |'),
+      r12e: probe(T1 + '\n'),
+      // 区切り行の直後に区切り行（ヘッダーが無いので次の表ではない）
+      sep2: probe('| A | B |\n| --- | --- |\n| --- | --- |\n| 1 | 2 |'),
+    };
+  });
+  const FIRST = 'A\tB\n1\t2';
+  const MORE = 'info:最初の表のみ変換しました（2つ目以降の表は無視されます）';
+  r.check('E2M-R09（空行区切りの2表: 1つ目だけ変換し --- が混入しない＋info）',
+    multi.r09.tsv === FIRST && eq(multi.r09.warn, [MORE]), JSON.stringify(multi.r09));
+  r.check('E2M-R10（テキストを挟む/3表/列数違いでも1つ目だけ＋info）',
+    [multi.r10a, multi.r10b, multi.r10c].every(x => x.tsv === FIRST && eq(x.warn, [MORE])),
+    JSON.stringify([multi.r10a, multi.r10b, multi.r10c]));
+  r.check('E2M-R11（空行なしの区切り行は GFM どおりデータ行・誤検出しない）',
+    multi.r11.tsv === 'A\tB\n1\t2\n---\t---\n9\t9' && eq(multi.r11.warn, []),
+    JSON.stringify(multi.r11));
+  r.check('E2M-R12（1表のみ/前後にテキスト/区切りなしの | 行では info を出さない）',
+    [multi.r12a, multi.r12b, multi.r12c, multi.r12d, multi.r12e]
+      .every(x => x.tsv === FIRST && eq(x.warn, []))
+    && multi.sep2.tsv === 'A\tB\n---\t---\n1\t2' && eq(multi.sep2.warn, []),
+    JSON.stringify([multi.r12a, multi.r12b, multi.r12c, multi.r12d, multi.r12e, multi.sep2]));
   r.check('P7（convertFromMd 戻り値）', eq(rev.p7grid, [['A', 'B'], ['1', '2']]) && eq(rev.p7fail, []), JSON.stringify(rev.p7fail));
 
   /* ========== 純関数: E2M-H01〜H09（結合セル展開） ========== */
@@ -274,6 +314,25 @@ const shotPath = name => path.join(REPO, '.playwright-mcp', name); // .gitignore
   r.check('E2M-P17', !d.hidden && d.alignBtns === 0 && d.alignStatics === 2
     && eq(d.alignLabels, ['左', '右']) && d.col0Align[0] === 'left' && d.col1Align[0] === 'right'
     && d.hint.includes('変更は入力の Markdown 側で'), JSON.stringify(d));
+
+  /* ========== E2M-R09 の UI 面: バナー文言とプレビューが1つ目の表だけになる ========== */
+  await setInput('| A | B |\n| --- | --- |\n| 1 | 2 |\n\n| C | D |\n| --- | --- |\n| 3 | 4 |');
+  const multiUi = await page.evaluate(() => {
+    const b = document.getElementById('banner');
+    return {
+      banner: b.hidden ? '' : b.textContent,
+      cls: b.hidden ? '' : b.className,
+      output: document.getElementById('output').value,
+      previewRows: document.querySelectorAll('#preview tbody tr').length,
+      previewHeader: Array.from(document.querySelectorAll('#preview thead tr:nth-child(2) th')).map(t => t.textContent),
+    };
+  });
+  r.check('E2M-R09-UI（バナー文言・出力とプレビューが1つ目の表だけ）',
+    multiUi.banner === '最初の表のみ変換しました（2つ目以降の表は無視されます）'
+    && multiUi.cls.includes('banner-info')
+    && multiUi.output === 'A\tB\n1\t2'
+    && multiUi.previewRows === 1 && eq(multiUi.previewHeader, ['A', 'B']),
+    JSON.stringify(multiUi));
 
   /* ========== E2M-P18: MD として認識できない入力 ========== */
   await setInput('ただのテキスト');
