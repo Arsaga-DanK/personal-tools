@@ -18,7 +18,9 @@
   #task-table .col-act { width: 88px; }
   /* 操作列（＋子・↩︎）。class は th のみに付くため td 側は位置で指定する */
   #task-table tbody td:last-child { white-space: nowrap; text-align: right; }
-  #task-table td.cell-due, #task-table td.cell-pri, #task-table td.cell-sec { cursor: pointer; white-space: nowrap; }
+  #table-wrap { overflow-x: auto; }  /* 9列あるため狭幅では表の中だけを横スクロールさせる */
+  #task-table td.cell-due, #task-table td.cell-start,
+  #task-table td.cell-pri, #task-table td.cell-sec { cursor: pointer; white-space: nowrap; }
   #task-table td.cell-body { width: 45%; }
   .due-over { color: var(--error); background: var(--error-bg); font-weight: 600; border-radius: 4px; }
   .due-today { background: var(--warn-bg); font-weight: 600; border-radius: 4px; }
@@ -33,6 +35,34 @@
   /* 未保存の追加行。取り消しボタンは常時表示（＋子と違い「気づかせる」ことが目的） */
   tr.row-added td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
   .btn-undo { font-size: 12px; padding: 1px 6px; margin-left: 4px; }
+  /* 計画ビュー（タイムライン）。div の絶対配置のみで描く（SVG は使わない —
+     createElement('svg') は HTMLUnknownElement になり、名前空間 API が必要になる） */
+  #tl-scroll { overflow-x: auto; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 0; }
+  .tl-head, .tl-row { display: flex; align-items: stretch; }
+  .tl-label { flex: 0 0 auto; width: 260px; position: sticky; left: 0; z-index: 2;
+    background: var(--panel); font-size: 13px; padding: 3px 10px; box-sizing: border-box;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+  .tl-row:hover .tl-label { color: var(--accent); }
+  .tl-ticks, .tl-track { position: relative; flex: 0 0 auto; }
+  .tl-ticks { height: 20px; border-bottom: 1px solid var(--border); }
+  .tl-tick { position: absolute; top: 0; height: 20px; padding-left: 3px;
+    font-size: 11px; color: var(--muted); white-space: nowrap; border-left: 1px solid var(--border); }
+  .tl-rows { position: relative; }
+  .tl-track { height: 24px; }
+  .tl-bar { position: absolute; top: 3px; height: 18px; border-radius: 4px; box-sizing: border-box;
+    font-size: 11px; line-height: 16px; padding: 0 4px; overflow: hidden;
+    white-space: nowrap; cursor: pointer; }
+  .tl-bar-planned { background: var(--info-bg); border: 1px solid var(--info-border); }
+  .tl-bar-active { background: var(--accent); color: var(--accent-text); font-weight: 600; }
+  .tl-bar-late { background: var(--error-bg); border: 1px solid var(--error-border);
+    color: var(--error); font-weight: 600; }
+  /* 完了バーは muted の塗り＋取り消し線。--th-bg はダークモードで --panel とほぼ同色で
+     背景に溶けるため使わない（2026-08-05 にダークのスクリーンショットで実測） */
+  .tl-bar-done { background: color-mix(in srgb, var(--muted) 30%, transparent);
+    border: 1px solid var(--muted); color: var(--text); text-decoration: line-through; }
+  .tl-today { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--error);
+    opacity: .5; z-index: 1; }
   .popover { position: absolute; z-index: 100; background: var(--panel);
     border: 1px solid var(--border); border-radius: 8px; padding: 10px;
     box-shadow: 0 4px 16px rgba(0,0,0,.18); display: flex; flex-direction: column; gap: 8px; }
@@ -63,6 +93,11 @@
   <div class="banner banner-info" id="fallback-note" role="status" hidden></div>
   <div class="banner" id="banner" hidden></div>
 
+  <div class="tabs" id="view-tabs" hidden>
+    <button data-view="list">リスト</button>
+    <button data-view="timeline">タイムライン</button>
+  </div>
+
   <div class="toolbar" id="main-toolbar" hidden>
     <button id="btn-add-form">＋タスク追加</button>
     <span class="opts">
@@ -71,6 +106,7 @@
       <label class="toggle"><input type="checkbox" id="f-done"> 完了を含む</label>
       <label>並び順 <select id="f-sort">
         <option value="file">ファイル順</option>
+        <option value="start">開始日順</option>
         <option value="due">期限順</option>
         <option value="priority">優先度順</option>
       </select></label>
@@ -86,6 +122,7 @@
   <div id="add-form" class="addform" hidden>
     <label>内容 <input type="text" id="add-content" placeholder="タスクの内容"></label>
     <label>セクション <select id="add-section"></select></label>
+    <label>開始日 <input type="date" id="add-start"></label>
     <label>期限 <input type="date" id="add-due"></label>
     <label>優先度 <select id="add-pri">
       <option value="">なし</option>
@@ -99,11 +136,16 @@
   <div id="table-wrap" hidden>
     <table id="task-table">
       <thead><tr>
-        <th class="col-st"></th><th>内容</th><th>期限</th><th>優先度</th>
+        <th class="col-st"></th><th>内容</th><th>開始日</th><th>期限</th><th>優先度</th>
         <th>タグ</th><th>セクション</th><th>元ノート</th><th class="col-act"></th>
       </tr></thead>
       <tbody id="task-body"></tbody>
     </table>
+  </div>
+
+  <div id="timeline-view" hidden>
+    <div class="banner" id="tl-note" hidden></div>
+    <div id="tl-scroll"></div>
   </div>
   <p id="empty-msg" class="muted" hidden>ファイルを開くとタスクが表示されます — ブラウザから直接 tasks.md を読み書きします（初回のみ Chrome の許可ダイアログが出ます）</p>
 </main>
@@ -140,6 +182,13 @@ const PRI_CUT   = / ?(?:🔺|⏫|🔼|🔽|⏬)\uFE0F?/;
 const PRI_EMOJI = { highest: '🔺', high: '⏫', medium: '🔼', low: '🔽', lowest: '⏬' };
 const EMOJI_PRI = { '🔺': 'highest', '⏫': 'high', '🔼': 'medium', '🔽': 'low', '⏬': 'lowest' };
 const PRI_RANK  = { highest: 0, high: 0, medium: 1, low: 3, lowest: 3 }; // なし=2
+// 開始日 🛫（Phase T）。既存の 📅 と同じ扱い（異体字セレクタ付きも許容）
+const START_FIND = /🛫\uFE0F? (\d{4}-\d{2}-\d{2})/;
+const START_CUT  = / ?🛫\uFE0F? \d{4}-\d{2}-\d{2}/;
+const START_SET  = /(🛫\uFE0F? )\d{4}-\d{2}-\d{2}/;   // 日付部分のみ置換（位置不変）
+// ⏳（scheduled）は解析・表示・編集の対象外。**トークン挿入位置の目印としてのみ**参照する
+// （Obsidian 側で付いた ⏳ の前に 🛫 を入れないと Tasks 標準順が壊れる）
+const SCHED_CUT  = / ?⏳\uFE0F? \d{4}-\d{2}-\d{2}/;
 
 function nfc(s) { return s.normalize('NFC'); }
 
@@ -183,6 +232,23 @@ function opSetDue(lines, lineNo, date) {
   }
   setRest(t, rest);
 }
+// 開始日 🛫（Phase T）。既存の 📅 と同じインプレース方式で、他トークンの位置を動かさない
+function opSetStart(lines, lineNo, date) {
+  const t = taskAt(lines, lineNo);
+  let rest = t.rest;
+  if (date === null) {
+    rest = rest.replace(START_CUT, '');
+  } else if (START_FIND.test(rest)) {
+    rest = rest.replace(START_SET, '$1' + date); // インプレース置換
+  } else {
+    // Tasks 標準順（… 優先度 → 🛫 → ⏳ → 📅 → ✅）で自分の位置に入れる。
+    // 「最初に見つかったものの手前」なので、周囲が非標準順でも自分だけは正しい位置に入る
+    const anchor = SCHED_CUT.exec(rest) || DUE_CUT.exec(rest) || DONE_CUT.exec(rest);
+    rest = anchor ? rest.slice(0, anchor.index) + ' 🛫 ' + date + rest.slice(anchor.index)
+                  : rest + ' 🛫 ' + date;
+  }
+  setRest(t, rest);
+}
 function opSetPriority(lines, lineNo, value) {
   const t = taskAt(lines, lineNo);
   let rest = t.rest;
@@ -194,23 +260,28 @@ function opSetPriority(lines, lineNo, value) {
     if (PRI_RE.test(rest)) {
       rest = rest.replace(PRI_RE, e);
     } else {
-      const anchor = DUE_CUT.exec(rest) || DONE_CUT.exec(rest); // 📅 → ✅ → 行末 の順で手前に
+      // 🛫 → ⏳ → 📅 → ✅ → 行末 の順で手前に（標準順では Priority が 🛫 より前）
+      const anchor = START_CUT.exec(rest) || SCHED_CUT.exec(rest) ||
+                     DUE_CUT.exec(rest) || DONE_CUT.exec(rest);
       rest = anchor ? rest.slice(0, anchor.index) + ' ' + e + rest.slice(anchor.index)
                     : rest + ' ' + e;
     }
   }
   setRest(t, rest);
 }
-// 本文編集のみ行を再構成（メタトークンは Tasks 標準の行末順: 優先度→📅→✅）
+// 本文編集のみ行を再構成（メタトークンは Tasks 標準の行末順: 優先度→🛫→📅→✅）。
+// 🛫 を抽出しないと本文側に残り、再構成後に非標準順（本文 🛫 x ⏫ 📅 y）になる
 function opEditContent(lines, lineNo, text) {
   const t = taskAt(lines, lineNo);
+  const start = (START_FIND.exec(t.rest) || [])[1] || null;
   const due  = (DUE_FIND.exec(t.rest)  || [])[1] || null;
   const done = (DONE_FIND.exec(t.rest) || [])[1] || null;
   const pri  = (PRI_RE.exec(t.rest)    || [])[0] || null;
   let rest = nfc(text).trim();
-  if (pri)  rest += ' ' + pri;
-  if (due)  rest += ' 📅 ' + due;
-  if (done) rest += ' ✅ ' + done;
+  if (pri)   rest += ' ' + pri;
+  if (start) rest += ' 🛫 ' + start;
+  if (due)   rest += ' 📅 ' + due;
+  if (done)  rest += ' ✅ ' + done;
   setRest(t, rest);
 }
 // 指定セクションの末尾（最終タスク行の直後。子孫を含む）へ block を挿入する。
@@ -234,9 +305,11 @@ function insertIntoSection(lines, section, block) {
   else lines.splice(hIdx + 1, 0, { raw: '', orig: null }, ...block);
 }
 
+// 新規追加行は Tasks 標準順で書く（本文 → 優先度 → 🛫 → 📅）
 function opAddTask(lines, op) {
   let raw = '- [ ] ' + nfc(op.content).trim();
   if (op.priority) raw += ' ' + PRI_EMOJI[op.priority];
+  if (op.start) raw += ' 🛫 ' + op.start;
   if (op.due) raw += ' 📅 ' + op.due;
   insertIntoSection(lines, op.section, [{ raw, orig: null }]);
 }
@@ -319,6 +392,7 @@ function runOp(lines, op, today) {
     case 'complete':    opComplete(lines, op.line, today); break;
     case 'uncomplete':  opUncomplete(lines, op.line); break;
     case 'setDue':      opSetDue(lines, op.line, op.date === undefined ? null : op.date); break;
+    case 'setStart':    opSetStart(lines, op.line, op.date === undefined ? null : op.date); break;
     case 'setPriority': opSetPriority(lines, op.line, op.value === undefined ? null : op.value); break;
     case 'editContent': opEditContent(lines, op.line, op.text); break;
     case 'addTask':     opAddTask(lines, op); break;
@@ -362,6 +436,7 @@ function parseDoc(lines) {
     let body = rest
       .replace(new RegExp(DONE_CUT.source, 'g'), '')
       .replace(new RegExp(DUE_CUT.source, 'g'), '')
+      .replace(new RegExp(START_CUT.source, 'g'), '')
       .replace(new RegExp(PRI_CUT.source, 'g'), '')
       .trim();
     const tags = [];
@@ -383,6 +458,7 @@ function parseDoc(lines) {
       done: m[2] !== ' ',
       body,
       displayBody: body.replace(/ ?\[\[[^\]]+\]\]/g, '').replace(/\s+/g, ' ').trim(),
+      start: (START_FIND.exec(rest) || [])[1] || null,
       due: (DUE_FIND.exec(rest) || [])[1] || null,
       doneDate: (DONE_FIND.exec(rest) || [])[1] || null,
       priority: priEmoji ? EMOJI_PRI[priEmoji.replace(/\uFE0F/g, '')] : null,
@@ -396,6 +472,72 @@ function parseDoc(lines) {
     stack.push(t);
   }
   return { tasks, sections };
+}
+
+/* ---------- 計画ビュー（タイムライン）のモデル: 純関数 ---------- */
+
+const MAX_TIMELINE_ROWS = 200;   // 対象タスク数の上限（超過時は描画しない）
+const MAX_TIMELINE_DAYS = 400;   // 表示日数の上限（約13ヶ月）
+const DAY_PX = 16;               // 1日あたりの幅（1ヶ月≒480px）
+const TL_TODAY_NEAR = 31;        // today をこの日数以内なら表示範囲に含める
+const TL_PAD_DAYS = 3;           // 表示範囲の余白
+const TL_LABEL_W = 260;          // 行ラベル列の幅（sticky で固定する）
+
+// 日数の差は UTC 通日で取る。ローカル Date の減算は DST 境界で1日狂うため
+// （JST に DST は無いが回避コストがゼロなので固定する）。
+// 日付をずらす addDays はローカルのままで正しい（カレンダー演算は Date が処理する）
+function dayNum(ymd) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
+  return Date.UTC(+m[1], +m[2] - 1, +m[3]) / 86400000;
+}
+function diffDays(a, b) { return dayNum(b) - dayNum(a); }
+
+// rows（表示対象・絞り込みとソート反映後）から図の材料を作る。DOM も I/O も触らない
+function timelineModel(rows, today) {
+  const items = [];
+  let invalidCount = 0;
+  for (const t of rows) {
+    if (!t.start) continue;                        // 🛫 を持つ行だけが対象
+    const inverted = !!(t.due && t.due < t.start); // 逆転は無言で丸めず件数を出す
+    if (inverted) invalidCount++;
+    const hasDue = !!t.due && !inverted;
+    const end = hasDue ? t.due : t.start;          // 📅 なし・逆転は1日分のバー
+    let kind;
+    if (t.done) kind = 'done';
+    else if (t.due && t.due < today) kind = 'late';
+    else if (t.start <= today && today <= end) kind = 'active';
+    else kind = 'planned';
+    items.push({
+      line: t.line, indent: t.indent, body: t.displayBody || t.body || '(内容なし)',
+      done: t.done, section: t.section || '', start: t.start, due: t.due,
+      end, hasDue, inverted, state: kind,
+      days: hasDue ? diffDays(t.start, t.due) + 1 : null, // 両端含む。📅 なしは null
+    });
+  }
+  if (!items.length) {
+    return { items, from: null, to: null, days: 0, todayIn: false, invalidCount, guard: null };
+  }
+  let minStart = items[0].start, maxEnd = items[0].end;
+  for (const it of items) {
+    if (it.start < minStart) minStart = it.start;
+    if (it.end > maxEnd) maxEnd = it.end;
+  }
+  let from = addDays(minStart, -TL_PAD_DAYS);
+  let to = addDays(maxEnd, TL_PAD_DAYS);
+  // today が近ければ縦線を引けるよう範囲に含める。遠いときは含めない
+  // （古い日付のタスクだけが残っているとき図が無意味に横へ広がる。TB-Q12）
+  if (diffDays(minStart, today) >= -TL_TODAY_NEAR && diffDays(maxEnd, today) <= TL_TODAY_NEAR) {
+    if (today < from) from = addDays(today, -TL_PAD_DAYS);
+    if (today > to) to = addDays(today, TL_PAD_DAYS);
+  }
+  const days = diffDays(from, to) + 1;
+  let guard = null;
+  if (items.length > MAX_TIMELINE_ROWS) {
+    guard = { reason: 'rows', count: items.length, limit: MAX_TIMELINE_ROWS };
+  } else if (days > MAX_TIMELINE_DAYS) {
+    guard = { reason: 'days', count: days, limit: MAX_TIMELINE_DAYS };
+  }
+  return { items, from, to, days, todayIn: today >= from && today <= to, invalidCount, guard };
 }
 
 /* ========== IndexedDB（ハンドル永続化・専用実装） ==========
@@ -488,8 +630,13 @@ const state = {
   demo: false,       // デモデータ表示中（保存・アーカイブ無効）
   hasCRFile: false,  // CR 改行ファイル（表示のみ・追加/アーカイブ無効）
   archiveAdapter: null, archiveHandle: null,
-  ui: { sort: 'file', section: '', tag: '', showDone: false },
+  timeline: null,    // 直近の timelineModel（Excel 用コピーが参照する。リスト時は null）
+  ui: { view: 'list', sort: 'file', section: '', tag: '', showDone: false },
 };
+
+// restoreUi で受け入れる値の列挙（未知値が入ると <select> の値が空になり並び順が壊れる。TB-Q17）
+const UI_VIEWS = ['list', 'timeline'];
+const UI_SORTS = ['file', 'start', 'due', 'priority'];
 
 function fsaAvailable() { return !state.fsaOff && 'showOpenFilePicker' in window; }
 
@@ -726,8 +873,13 @@ function demoText() {
     '- [ ] 議事録の清書 📅 ' + addDays(T, -1),
     '\t- [ ] 決定事項の抜き出し',
     '- [x] キックオフ資料の準備 ✅ ' + addDays(T, -2),
+    // 計画ビューを試せるように 🛫 付きも入れる（遅延・進行中・予定・完了が1つずつ出る）
+    '- [ ] 外部IF定義書作成 🛫 ' + addDays(T, -7) + ' 📅 ' + addDays(T, -3),
+    '- [ ] 基本設計レビュー ⏫ 🛫 ' + addDays(T, -3) + ' 📅 ' + addDays(T, 6),
     '', '## 来週', '',
     '- [ ] 見積の見直し #見積 📅 ' + addDays(T, 3) + ' 🔽',
+    '- [ ] 結合テスト計画 🛫 ' + addDays(T, 16) + ' 📅 ' + addDays(T, 27),
+    '- [x] 要件ヒアリング 🛫 ' + addDays(T, -15) + ' 📅 ' + addDays(T, -11) + ' ✅ ' + addDays(T, -11),
     '', '## その他', ''].join('\n');
 }
 function loadDemo() {
@@ -826,12 +978,15 @@ function fillSelect(sel, values, current, allLabel) {
 function render() {
   if (!state.loaded) {
     el('main-toolbar').hidden = true;
+    el('view-tabs').hidden = true;
     el('table-wrap').hidden = true;
+    el('timeline-view').hidden = true;
     el('empty-msg').hidden = false;
     el('empty-msg').textContent = 'ファイルを開くとタスクが表示されます — ブラウザから直接 tasks.md を読み書きします（初回のみ Chrome の許可ダイアログが出ます）';
     return;
   }
   el('main-toolbar').hidden = false;
+  el('view-tabs').hidden = false;   // ビュー切替は常時表示（timeline のまま復帰しても戻れる）
   const doc = parseDoc(state.lines);
   state.doc = doc;
 
@@ -860,7 +1015,12 @@ function render() {
     return markVisible(r);
   });
   const rank = t => t.priority === null ? 2 : PRI_RANK[t.priority];
-  if (state.ui.sort === 'due') {
+  if (state.ui.sort === 'start') {
+    // 開始日昇順（開始日なしは最後、同値は期限→ファイル順）
+    groups = groups.slice().sort((a, b) =>
+      (a.start === null) - (b.start === null) || (a.start || '').localeCompare(b.start || '') ||
+      (a.due || '9999').localeCompare(b.due || '9999') || a.line - b.line);
+  } else if (state.ui.sort === 'due') {
     groups = groups.slice().sort((a, b) =>
       (a.due === null) - (b.due === null) || (a.due || '').localeCompare(b.due || '') || a.line - b.line);
   } else if (state.ui.sort === 'priority') {
@@ -876,15 +1036,152 @@ function render() {
   tbody.textContent = '';
   const today = todayStr();
   for (const t of rows) tbody.appendChild(renderRow(t, today));
-  el('table-wrap').hidden = false;
-  el('empty-msg').hidden = rows.length > 0;
-  el('empty-msg').textContent = '表示できるタスクがありません';
+
+  for (const b of el('view-tabs').querySelectorAll('button')) {
+    b.classList.toggle('active', b.dataset.view === state.ui.view);
+  }
+  if (state.ui.view === 'timeline') {
+    el('table-wrap').hidden = true;
+    el('empty-msg').hidden = true;
+    el('timeline-view').hidden = false;
+    renderTimeline();
+  } else {
+    el('timeline-view').hidden = true;
+    state.timeline = null;
+    el('table-wrap').hidden = false;
+    el('empty-msg').hidden = rows.length > 0;
+    el('empty-msg').textContent = '表示できるタスクがありません';
+  }
+  updateCopyButton();
 
   const open = doc.tasks.filter(t => !t.done).length;
   el('summary').textContent = '未完了 ' + open + ' / 全 ' + doc.tasks.length + ' 件 · 表示 ' + rows.length + ' 行';
   el('btn-add-form').disabled = state.hasCRFile;
   updateSaveButton();
   updateArchiveButton();
+}
+
+/* ---------- 計画ビュー（タイムライン）の描画 ---------- */
+
+// 案内・警告は #tl-note（ビュー内）に出す。共通バナー（#banner）に書くと、
+// 直後に呼び出し側が出す「完了にしました」等の情報バナーと奪い合うため
+function renderTimeline() {
+  const note = el('tl-note');
+  const scroll = el('tl-scroll');
+  scroll.textContent = '';
+  const today = todayStr();
+  const model = timelineModel(state.visibleRows, today);
+  state.timeline = model;
+
+  const msgs = [];
+  if (model.invalidCount > 0) {
+    msgs.push(model.invalidCount + '件のタスクで期限が開始日より前です（1日分のバーで表示しています）');
+  }
+  if (model.guard) {
+    msgs.push(model.guard.reason === 'rows'
+      ? '対象が' + model.guard.count + '件（上限' + model.guard.limit +
+        '件）のためタイムラインを表示しません。セクションやタグで絞り込んでください'
+      : '表示期間が' + model.guard.count + '日（上限' + model.guard.limit +
+        '日）のためタイムラインを表示しません。期限が極端に離れたタスクを絞り込んでください');
+  } else if (!model.items.length) {
+    if (!state.visibleRows.length) {
+      msgs.push('表示できるタスクがありません（絞り込みを確認してください）');
+    } else {
+      msgs.push('開始日（🛫）を設定したタスクがここに並びます — リストビューの開始日セルを' +
+        'クリックして設定できます' +
+        (state.ui.section || state.ui.tag ? '（絞り込みで隠れている行があるかもしれません）' : ''));
+    }
+  } else if (!model.todayIn) {
+    msgs.push('今日（' + today + '）は表示範囲外です');
+  }
+  const warn = !!model.guard || model.invalidCount > 0;
+  note.className = 'banner ' + (warn ? 'banner-warn' : 'banner-info');
+  note.setAttribute('role', warn ? 'alert' : 'status');
+  note.textContent = msgs.join(' / ');
+  note.hidden = msgs.length === 0;
+  if (model.guard || !model.items.length) return; // 一部のみ表示はしない（理由だけ出す）
+
+  const width = model.days * DAY_PX;
+  const head = document.createElement('div');
+  head.className = 'tl-head';
+  const headLabel = document.createElement('div');
+  headLabel.className = 'tl-label muted';
+  headLabel.textContent = model.from + ' 〜 ' + model.to;
+  headLabel.style.cursor = 'default';
+  head.appendChild(headLabel);
+  const ticks = document.createElement('div');
+  ticks.className = 'tl-ticks';
+  ticks.style.width = width + 'px';
+  for (let d = 0; d < model.days; d += 7) {
+    const tick = document.createElement('div');
+    tick.className = 'tl-tick';
+    tick.style.left = (d * DAY_PX) + 'px';
+    const ymd = addDays(model.from, d);
+    tick.textContent = Number(ymd.slice(5, 7)) + '/' + Number(ymd.slice(8, 10));
+    ticks.appendChild(tick);
+  }
+  head.appendChild(ticks);
+  scroll.appendChild(head);
+
+  const rowsEl = document.createElement('div');
+  rowsEl.className = 'tl-rows';
+  rowsEl.style.width = (TL_LABEL_W + width) + 'px';
+  if (model.todayIn) {
+    const line = document.createElement('div');
+    line.className = 'tl-today';
+    line.style.left = (TL_LABEL_W + diffDays(model.from, today) * DAY_PX) + 'px';
+    line.title = '今日（' + today + '）';
+    rowsEl.appendChild(line);
+  }
+  for (const it of model.items) {
+    const row = document.createElement('div');
+    row.className = 'tl-row';
+    row.dataset.line = it.line;
+    const label = document.createElement('div');
+    label.className = 'tl-label';
+    label.textContent = '　'.repeat(it.indent) + (it.indent > 0 ? '└ ' : '') + it.body;
+    const track = document.createElement('div');
+    track.className = 'tl-track';
+    track.style.width = width + 'px';
+    const bar = document.createElement('div');
+    bar.className = 'tl-bar tl-bar-' + it.state;
+    bar.style.left = (diffDays(model.from, it.start) * DAY_PX) + 'px';
+    bar.style.width = Math.max(DAY_PX, (diffDays(it.start, it.end) + 1) * DAY_PX) + 'px';
+    bar.textContent = it.days ? it.days + '日' : '';
+    const tip = '開始 ' + it.start +
+      (it.hasDue ? ' 〜 期限 ' + it.due + '（' + it.days + '日）' : ' 〜 期限なし') +
+      (it.section ? '・' + it.section : '') +
+      (it.inverted ? '・期限（' + it.due + '）が開始日より前です' : '');
+    bar.title = tip;
+    label.title = it.body + ' — ' + tip;
+    // バーは 📅 が無いと1日分（16px）で小さいので、行ラベルからも同じ操作を開ける
+    const openPlan = () => {
+      const t = state.doc.tasks.find(x => x.line === it.line);
+      if (t) openPlanPopover(bar, t);
+    };
+    bar.addEventListener('click', openPlan);
+    label.addEventListener('click', openPlan);
+    track.appendChild(bar);
+    row.appendChild(label);
+    row.appendChild(track);
+    rowsEl.appendChild(row);
+  }
+  scroll.appendChild(rowsEl);
+}
+
+// 列構成がビューで変わるので、気づけるようにラベルも変える。
+// ラベルは短く保ち（長くするとツールバーが折り返して保存ボタンの位置が動く）、
+// 列の内訳は title で示す。copyFeedback が復元に使う dataset.label も同時に更新する
+const COPY_LABELS = {
+  list: { text: 'Excel用コピー', title: '表示中の行を TSV でコピー（状態・内容・開始日・期限・優先度・タグ・セクション）' },
+  timeline: { text: '計画をコピー', title: '図の行を TSV でコピー（内容・開始日・期限・日数・状態・セクション）' },
+};
+function updateCopyButton() {
+  const b = el('btn-copy');
+  const cfg = COPY_LABELS[state.ui.view] || COPY_LABELS.list;
+  if (b.textContent !== cfg.text && !b.classList.contains('copied')) b.textContent = cfg.text;
+  b.dataset.label = cfg.text;
+  b.title = cfg.title;
 }
 
 function updateSaveButton() {
@@ -1082,6 +1379,19 @@ function renderRow(t, today) {
   }
   tr.appendChild(tdBody);
 
+  // 開始日は色分けしない（期限の遅延警告を埋もれさせない）
+  const tdStart = document.createElement('td');
+  tdStart.className = 'cell-start';
+  const startSpan = document.createElement('span');
+  startSpan.textContent = t.start || '—';
+  if (!t.start) startSpan.classList.add('muted');
+  tdStart.appendChild(startSpan);
+  if (!t.hasCR) {
+    tdStart.title = 'クリックで開始日を設定';
+    tdStart.addEventListener('click', (e) => openDatePopover(e.currentTarget, t, 'start'));
+  }
+  tr.appendChild(tdStart);
+
   const tdDue = document.createElement('td');
   tdDue.className = 'cell-due';
   const dueSpan = document.createElement('span');
@@ -1093,7 +1403,7 @@ function renderRow(t, today) {
   }
   if (!t.due) dueSpan.classList.add('muted');
   tdDue.appendChild(dueSpan);
-  if (!t.hasCR) tdDue.addEventListener('click', (e) => openDuePopover(e.currentTarget, t));
+  if (!t.hasCR) tdDue.addEventListener('click', (e) => openDatePopover(e.currentTarget, t, 'due'));
   tr.appendChild(tdDue);
 
   const tdPri = document.createElement('td');
@@ -1224,28 +1534,54 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') closePopover();
 });
 
-function openDuePopover(anchor, t) {
+// 開始日（🛫）と期限（📅）は同じ「日付を決める」操作なので部品を共用する
+const DATE_FIELDS = {
+  start: { label: '開始日', op: 'setStart', get: t => t.start },
+  due:   { label: '期限',   op: 'setDue',   get: t => t.due },
+};
+
+function dateRow(t, field) {
+  const cfg = DATE_FIELDS[field];
+  const cur = cfg.get(t);
+  const box = document.createElement('div');
+  box.className = 'row-btns';
+  const name = document.createElement('span');
+  name.textContent = cfg.label;
+  box.appendChild(name);
+  const input = document.createElement('input');
+  input.type = 'date';
+  input.dataset.field = field;
+  input.value = cur || todayStr();
+  const set = (date) => applyUiOp({ type: cfg.op, line: t.line, date });
+  input.addEventListener('change', () => {
+    if (input.value) { set(input.value); closePopover(); }
+  });
+  box.appendChild(input);
+  const mk = (label, fn) => {
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.addEventListener('click', () => { fn(); closePopover(); });
+    box.appendChild(b);
+  };
+  mk('今日', () => set(todayStr()));
+  mk('明日', () => set(addDays(todayStr(), 1)));
+  mk('+1週', () => set(addDays(cur || todayStr(), 7)));
+  if (cur) mk('クリア', () => set(null));
+  return box;
+}
+
+function openDatePopover(anchor, t, field) {
+  openPopover(anchor, (pop) => { pop.appendChild(dateRow(t, field)); });
+}
+
+// タイムラインのバー／行ラベルから開く。開始日と期限を1つのポップオーバーで扱う（TB-Q16）
+function openPlanPopover(anchor, t) {
   openPopover(anchor, (pop) => {
-    const input = document.createElement('input');
-    input.type = 'date';
-    input.value = t.due || todayStr();
-    input.addEventListener('change', () => {
-      if (input.value) { applyUiOp({ type: 'setDue', line: t.line, date: input.value }); closePopover(); }
-    });
-    pop.appendChild(input);
-    const btns = document.createElement('div');
-    btns.className = 'row-btns';
-    const mk = (label, fn) => {
-      const b = document.createElement('button');
-      b.textContent = label;
-      b.addEventListener('click', () => { fn(); closePopover(); });
-      btns.appendChild(b);
-    };
-    mk('今日', () => applyUiOp({ type: 'setDue', line: t.line, date: todayStr() }));
-    mk('明日', () => applyUiOp({ type: 'setDue', line: t.line, date: addDays(todayStr(), 1) }));
-    mk('+1週', () => applyUiOp({ type: 'setDue', line: t.line, date: addDays(t.due || todayStr(), 7) }));
-    if (t.due) mk('クリア', () => applyUiOp({ type: 'setDue', line: t.line, date: null }));
-    pop.appendChild(btns);
+    const label = document.createElement('span');
+    label.textContent = '計画（開始日と期限）';
+    pop.appendChild(label);
+    pop.appendChild(dateRow(t, 'start'));
+    pop.appendChild(dateRow(t, 'due'));
   });
 }
 
@@ -1327,18 +1663,37 @@ function openChildPopover(anchor, t) {
 
 /* ---------- Excel 用コピー ---------- */
 
+const tsvClean = (v) => String(v == null ? '' : v).replace(/[\t\n\r]/g, ' ');
+
+// リストビュー用。表に開始日列があるので TSV にも入れる（画面と出力を食い違わせない。TB-Q14）
 function buildTsv(rows) {
-  const clean = (v) => String(v == null ? '' : v).replace(/[\t\n\r]/g, ' ');
-  const out = ['状態\t内容\t期限\t優先度\tタグ\tセクション']; // ヘッダー行（TB-Q4 決定）
+  const out = ['状態\t内容\t開始日\t期限\t優先度\tタグ\tセクション']; // ヘッダー行（TB-Q4 決定）
   for (const t of rows) {
     out.push([
       t.done ? '済' : '未',
       '　'.repeat(t.indent) + (t.displayBody || t.body),
+      t.start || '',
       t.due || '',
       t.priority ? PRI_LABEL[t.priority] : '',
       t.tags.map(x => '#' + x).join(' '),
       t.section || '',
-    ].map(clean).join('\t'));
+    ].map(tsvClean).join('\t'));
+  }
+  return out.join('\n');
+}
+
+// タイムラインビュー用（WBS・報告資料への転記）。状態は図の色分けと一致させる
+function buildPlanTsv(items) {
+  const out = ['内容\t開始日\t期限\t日数\t状態\tセクション'];
+  for (const it of items) {
+    out.push([
+      '　'.repeat(it.indent) + it.body,
+      it.start,
+      it.due || '',
+      it.days === null ? '' : it.days,   // 📅 が無ければ空欄（推測値を書かない）
+      it.done ? '済' : (it.state === 'late' ? '遅延' : '未'),
+      it.section,
+    ].map(tsvClean).join('\t'));
   }
   return out.join('\n');
 }
@@ -1370,14 +1725,16 @@ async function copyText(text, btn) {
 
 function persistUi() {
   ToolStorage.save(TOOL, {
-    sort: state.ui.sort, section: state.ui.section,
+    view: state.ui.view, sort: state.ui.sort, section: state.ui.section,
     tag: state.ui.tag, showDone: state.ui.showDone,
   });
 }
 function restoreUi() {
   const s = ToolStorage.load(TOOL);
   if (!s || typeof s !== 'object') return;
-  if (typeof s.sort === 'string') state.ui.sort = s.sort;
+  // view / sort は既知値のみ採用する（未知値だと <select> が空になり並び順が壊れる）
+  if (UI_VIEWS.includes(s.view)) state.ui.view = s.view;
+  if (UI_SORTS.includes(s.sort)) state.ui.sort = s.sort;
   if (typeof s.section === 'string') state.ui.section = s.section;
   if (typeof s.tag === 'string') state.ui.tag = s.tag;
   if (typeof s.showDone === 'boolean') state.ui.showDone = s.showDone;
@@ -1389,12 +1746,20 @@ el('f-section').addEventListener('change', () => { state.ui.section = el('f-sect
 el('f-tag').addEventListener('change', () => { state.ui.tag = el('f-tag').value; persistUi(); render(); });
 el('f-done').addEventListener('change', () => { state.ui.showDone = el('f-done').checked; persistUi(); render(); });
 el('f-sort').addEventListener('change', () => { state.ui.sort = el('f-sort').value; persistUi(); render(); });
+el('view-tabs').addEventListener('click', (e) => {
+  const v = e.target.dataset && e.target.dataset.view;
+  if (!v || v === state.ui.view) return;
+  state.ui.view = v;
+  persistUi();
+  render();
+});
 
 el('btn-add-form').addEventListener('click', () => { el('add-form').hidden = !el('add-form').hidden; });
 el('btn-add').addEventListener('click', () => {
   const content = el('add-content').value.trim();
   if (!content) { showBanner('warn', 'タスクの内容を入力してください'); return; }
   const op = { type: 'addTask', section: el('add-section').value, content };
+  if (el('add-start').value) op.start = el('add-start').value;
   if (el('add-due').value) op.due = el('add-due').value;
   if (el('add-pri').value) op.priority = el('add-pri').value;
   applyUiOp(op);
@@ -1417,8 +1782,17 @@ document.addEventListener('keydown', (e) => {
   }
 });
 el('btn-copy').addEventListener('click', () => {
-  if (!state.visibleRows.length) { copyFeedback(el('btn-copy'), false, '出力がありません'); return; }
-  copyText(buildTsv(state.visibleRows), el('btn-copy'));
+  const btn = el('btn-copy');
+  if (state.ui.view === 'timeline') {
+    const m = state.timeline;
+    // 画面に無いものはコピーさせない（ガード発動中は描画していない）
+    if (m && m.guard) { copyFeedback(btn, false, '表示していないためコピーできません'); return; }
+    if (!m || !m.items.length) { copyFeedback(btn, false, '出力がありません'); return; }
+    copyText(buildPlanTsv(m.items), btn);
+    return;
+  }
+  if (!state.visibleRows.length) { copyFeedback(btn, false, '出力がありません'); return; }
+  copyText(buildTsv(state.visibleRows), btn);
 });
 el('btn-copy-all').addEventListener('click', () => {
   if (!state.loaded) return;
@@ -1430,13 +1804,14 @@ el('btn-copy-all').addEventListener('click', () => {
 window.taskboard = {
   test: {
     applyOps: applyOpsPure,
+    timelineModel: timelineModel,
     parse: (text) => {
       const doc = parseDoc(toLines(text));
       return {
         sections: doc.sections,
         tasks: doc.tasks.map(t => ({
           line: t.line, indent: t.indent, done: t.done, body: t.body,
-          displayBody: t.displayBody, due: t.due, doneDate: t.doneDate,
+          displayBody: t.displayBody, start: t.start, due: t.due, doneDate: t.doneDate,
           priority: t.priority, tags: t.tags, links: t.links,
           parentLine: t.parentLine, section: t.section,
         })),
@@ -1454,6 +1829,10 @@ window.taskboard = {
         archive: () => doArchive(),
         getText: () => joinLines(state.lines),
         getAdapterText: () => adapter._get(),
+        setView: (v) => { state.ui.view = v; persistUi(); render(); },
+        getTimeline: () => state.timeline,
+        getListTsv: () => buildTsv(state.visibleRows),
+        getPlanTsv: () => (state.timeline ? buildPlanTsv(state.timeline.items) : null),
         getArchiveText: () => state.archiveAdapter._get(),
         setArchiveText: (t) => state.archiveAdapter._external(t),
       };

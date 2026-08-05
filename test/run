@@ -24,6 +24,15 @@ if ! command -v node >/dev/null 2>&1; then
   exit 1
 fi
 
+# 制御文字の混入チェック。以前 test/taskboard.js に NUL が1バイト混入し、JS としては
+# 動くのに grep がバイナリ扱いして無言になる（＝道具が壊れる）症状が出たため。
+# 許可はタブ(09)と LF(0A) のみ。CR も検出する（このリポジトリは LF 統一）
+if ! perl -ne 'if (/[\x00-\x08\x0B-\x1F]/) { print "  $ARGV:$.\n"; $bad = 1 }
+               END { exit($bad ? 1 : 0) }' test/*.js web/*.html; then
+  print -r -- "制御文字が混入しています（上記の行）。混入したまま検証しても結果が信用できません" >&2
+  exit 1
+fi
+
 typeset -a targets
 if [[ -n "${1:-}" && "${1}" != --* ]]; then
   targets=("test/${1}.js")
