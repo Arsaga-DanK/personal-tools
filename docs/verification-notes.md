@@ -210,3 +210,33 @@ osascript -e 'the clipboard as «class HTML»' # HTML フレーバーの退避
   `banner-error` + `alert` に戻す）。流用箇所は「className を戻し忘れる」バグと同時に起きる
 - 検証は種別ごとに実際の経路を通して `banner.getAttribute('role')` を照合する
   （info=ハイライト省略、warn=性能ガード、error=インポート失敗、success=保存成功 など）
+
+---
+
+## 8. IME ガードが必要かの判定軸（2026-08-05 の監査）
+
+**キーイベントは修飾キー付きでも `isComposing: true` で届く**（CDP で composition を張って実測。
+5ツールすべてで確認）。つまり「イベントが来ないから安全」という理屈は成り立たない。
+
+```
+[{"key":"Enter","isComposing":true,"keyCode":13,"meta":false},
+ {"key":"Escape","isComposing":true,"keyCode":27,"meta":false},
+ {"key":"Enter","isComposing":true,"keyCode":13,"meta":true}]
+```
+
+**安全かどうかは、そのキーで発火する操作が破壊的かで決まる。**
+
+| 操作の性質 | 例 | ガード |
+|---|---|---|
+| データが増える／既存値が上書きされる／入力が失われる | taskboard の タスク追加・セル内編集の確定・popover 閉鎖 | **要ガード** |
+| 非破壊でやり直せる | コピー・整形（excel2md / norm / diff / devpad の Cmd+Enter） | 不要 |
+
+- **修飾キーなしの Enter / Escape をトリガーにする操作を新設するときは必ずガードを検討する**
+  （IME が確定・取り消しに送るのはこの2つ。修飾キー付きは IME が送らないので発火しない）
+- 変換中に利用者が誤って Cmd+Enter を押せば発火はする。それでも上表の右側なら実害は
+  「もう一度やれば直る」で収まる（2026-08-05 に現状維持と判断）
+- 共通判定は `web/taskboard.html:1080` の `isComposingKey(e)`
+  （`isComposing || keyCode === 229`。229 は isComposing を立てない IME への保険）。
+  現在 taskboard のみで使用。他ツールで必要になった時点で共通化を判断する
+- ガードは**キーごとではなくハンドラ先頭で early return** する。変換中の Escape は
+  IME の変換取り消しであり、編集中断やポップオーバー閉鎖に使われてはいけない
