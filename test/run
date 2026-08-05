@@ -1,0 +1,52 @@
+#!/bin/zsh
+# 目的: test/ 配下の検証ハーネスをまとめて実行する
+# 入力: 引数なしで全ツール / ツール名を渡すとそれだけ（例: ./test/run excel2md）
+# 出力: 各ハーネスの合否一覧。1つでも落ちたら exit 1
+# 例:   ./test/run          ./test/run excel2md          ./test/run excel2md --shots
+
+set -euo pipefail
+
+# asdf の shim を避ける（GUI 起動時に node が解決できない問題と同根。CLAUDE.md の制約）
+export PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
+cd "${0:A:h}/.."
+
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+  print -r -- "使い方: ./test/run [ツール名] [--shots]"
+  print -r -- "  引数なし   test/ の全ハーネスを実行"
+  print -r -- "  ツール名   そのハーネスだけ実行（test/<名前>.js）"
+  print -r -- "  --shots    .playwright-mcp/ にスクリーンショットを書く（gitignore 済み）"
+  exit 0
+fi
+
+if ! command -v node >/dev/null 2>&1; then
+  print -r -- "node が見つかりません（PATH: $PATH）" >&2
+  exit 1
+fi
+
+typeset -a targets
+if [[ -n "${1:-}" && "${1}" != --* ]]; then
+  targets=("test/${1}.js")
+  shift
+  if [[ ! -f "${targets[1]}" ]]; then
+    print -r -- "ハーネスがありません: ${targets[1]}" >&2
+    exit 1
+  fi
+else
+  targets=(test/*.js)
+  targets=(${targets:#test/helpers.js})   # 共通部品は単体実行しない
+fi
+
+failed=0
+for harness in $targets; do
+  print                      # -r は \n を解釈しないため空行は独立して出す
+  print -r -- "### $harness"
+  node "$harness" "$@" || failed=1
+done
+
+print
+if (( failed )); then
+  print -r -- "失敗したハーネスがあります" >&2
+  exit 1
+fi
+print -r -- "すべて pass"

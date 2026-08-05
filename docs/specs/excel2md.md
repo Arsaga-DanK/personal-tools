@@ -338,8 +338,15 @@ UI（`file://` で開き、入力 textarea に値を設定して `input` イベ�
 | E2M-P19 | 「プレビュー（揃え指定）」トグル OFF | `#preview-section` が hidden。リロード後も OFF が復元。ON に戻すと即座に描画される。ラベルの textContent が「（揃え指定）」を含む |
 | E2M-P20 | 揃えボタンに Tab でフォーカス → Enter を続けて2回 | 2段進む（`−`→`左`→`中央`）。フォーカスが body に戻らない（形が同じなら DOM を作り直さない検証） |
 | E2M-P21 | E2M-01〜10 / R01〜R08 / H01〜H09 を再実行 | **全 pass**（プレビュー追加で変換出力が変わらないこと） |
+| E2M-P22 | 境界ケース6種を順に投入 | いずれも例外・コンソールエラーなし。**1行だけの表は `<tbody>` が空**（ヘッダー行が `<thead>` に入るため）: `'A\tB'`→thead2・tbody0・ボタン2 / `'あ\nい\nう'`→thead2・tbody2・ボタン1 / `'   '`（空白のみ）→tbody0 / `'\t'`（タブのみ）→ボタン2 / `'A\tB\n'`（末尾改行）→tbody0 / 入力上限超過→プレビュー hidden・出力空 |
+| E2M-P23 | 30行の表で `#preview-wrap` を `scrollTop=400` までスクロール | 揃え操作行がラッパ上端に固定（`sticky`）、データヘッダ行は上へ流れて消える、`box-shadow` に `inset` が残る（collapse で枠線が消える対策が効いている） |
+| E2M-P24 | ダークモード（`prefers-color-scheme: dark`） | `body` 背景が `rgb(13,17,23)`・揃え操作行の背景が `rgb(33,38,45)`（ui.css のトークン経由）、右寄せ指定が `text-align: right` として効き、**横スクロールが発生しない**（`scrollWidth <= clientWidth`） |
 
 ## 検証手順（Playwright）
+
+**`./test/run excel2md` で下記1〜12を自動実行する**（ハーネスは `test/excel2md.js`。
+`--shots` を付けると `.playwright-mcp/` にスクリーンショットを書く）。
+以下は手順の意図の記録で、ハーネスが落ちたときの調査順にもなる。
 
 1. `file:///Users/dan.kawazu/Personal/tools/web/excel2md.html` を開く → ロード時コンソールエラー0
 2. 全テストケースを `browser_evaluate` で `window.excel2md.convert` に投入し文字列一致を確認
@@ -360,6 +367,9 @@ UI（`file://` で開き、入力 textarea に値を設定して `input` イベ�
     実 Cmd+V での file:// 取得可否は 2026-08-04 に実測済み（「Excel貼り付けの取り込み」6 参照）
 12. **取り込み通知の保持**: H05 の後 800ms 待ってバナーが残っていること（デバウンス後の再変換で
     消えないこと）→ その後入力を1文字編集して変換完了後にバナーから取り込み通知が消えること
+13. **境界と見た目（Phase P）**: E2M-P22（境界6種）・P23（sticky）・P24（ダークモード・横スクロールなし）
+    - 合成 paste の前には**空入力のデバウンスを待って揃えをリセットする**。待たないと直前のケースで
+      設定した揃えが区切り行に残り H05 が偽 fail する（2026-08-05 に実際に踏んだ）
 
 ## Safari手動スモーク項目
 

@@ -20,6 +20,7 @@ bin/         CLIツール。拡張子なし、chmod +x
 lib/         共通コード（web用 classic JS / CLI用 common.zsh）
 dict/        辞書・設定
 docs/specs/  ツールごとの仕様書兼テストケース
+test/        検証ハーネス（`./test/run [ツール名]`。書き方は test/README.md）
 ```
 
 ## ブラウザツールの制約（web/）
@@ -49,8 +50,10 @@ docs/specs/  ツールごとの仕様書兼テストケース
 - docs/specs/<tool></tool>.md 内のテストケースが全て一致すること。
   ブラウザツールも、変換ロジックを node 等で単体実行するのではなく、
   HTML から関数を切り出さずに済む範囲で、入力→期待出力の照合結果を提示する
+- ハーネスがあるツールは `./test/run <tool>` が全 pass すること。
+  新しく書いた検証は使い捨てにせず `test/<tool>.js` に残す（`.playwright-mcp/` は gitignore で消える）
 - CLI は `env -i /bin/zsh -c '<tool> --help'` が成功すること（asdf 混入検出）
-- テストの一時ファイルは削除する
+- ハーネスに残さない一時ファイルは削除する
 - 検証結果を報告してから作業を終える。検証が通らない状態で完了報告しない
 
 ## 環境メモ

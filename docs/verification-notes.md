@@ -24,11 +24,14 @@
   一方 `browser_run_code_unsafe` 内の `page.goto('file:///...')` は通る。
   → 通常検証は http、**file:// 固有の挙動を見るときだけ** run_code_unsafe を使う
 - **ヘッドレス Chrome の `--dump-dom` はファイルピッカー呼び出しで固まる**ので使わない
-- **`browser_run_code_unsafe` の `filename` はリポジトリ配下しか読めない**
-  （allowed roots = リポジトリと `.playwright-mcp/`。外部の一時ディレクトリは
-  「File access denied … outside allowed roots」で拒否）。
-  → **検証ハーネスは `.playwright-mcp/` に置く**（.gitignore 済みなのでコミットされない）。
-  それ以外の一時ファイルはセッションのスクラッチパッドへ（`rm` は権限設定で拒否されることがある）
+- **検証ハーネスは `test/` に置いてコミットする**（2026-08-05 に方針変更）。
+  実行は `./test/run [ツール名]`。書き方と必要な環境は `test/README.md`。
+  以前は `.playwright-mcp/` に置く方針だったが、**gitignore されていて永続しない**ため移した
+  - スクリーンショット等の**生成物**は引き続き `.playwright-mcp/`（gitignore 済み）へ
+  - `browser_run_code_unsafe` の `filename` はリポジトリ配下しか読めない
+    （allowed roots = リポジトリと `.playwright-mcp/`。外部の一時ディレクトリは
+    「File access denied … outside allowed roots」で拒否）。`test/` はリポジトリ配下なので読める
+  - 使い捨ての一時ファイルはセッションのスクラッチパッドへ（`rm` は権限設定で拒否されることがある）
 - リポジトリ直下の `.playwright-mcp/`（MCP のスナップショット置き場）は .gitignore 済み。放置してよい
 - **前セッションの Playwright Chrome が生きているとブラウザが起動できない**
   （`Browser is already in use for …/ms-playwright-mcp/mcp-chrome-<id>`）。
