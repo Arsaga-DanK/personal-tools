@@ -44,11 +44,34 @@ const NFC9 = '- [ ] ' + 'ポイント整理'.normalize('NFC') + ' [[2026-07-07]]
 const F2 = F1.split('\n').map((l, i) => (i === 8 ? NFD9 : l)).join('\n');
 const F2c = F1.split('\n').map((l, i) => (i === 8 ? NFC9 : l)).join('\n');
 
+// F3: 一括完了の閾値（5件）用。F1 の未完了は 9・12・13・17 の4件だけで閾値に届かない
+const F3 = [
+  '# tasks', '', '## PEW', '',
+  '- [ ] t1', '- [ ] t2', '- [ ] t3', '- [ ] t4', '- [ ] t5', '',
+].join('\n'); // タスク行は5〜9行目
+
 (async () => {
   const r = createRunner();
   const browser = await launch();
   const context = await browser.newContext();
   const page = r.watch(await context.newPage());
+
+  // confirm() の応答を制御する。Playwright の既定は dismiss なので、明示しないと
+  // AR-3 の確認ダイアログで全アーカイブ・一括保存がキャンセル扱いになる
+  let dialogAction = 'accept';
+  let dialogLog = [];
+  page.on('dialog', async d => {
+    dialogLog.push(d.message());
+    if (dialogAction === 'accept') await d.accept(); else await d.dismiss();
+  });
+  const withDialogs = async (action, fn) => {
+    const prev = dialogAction;
+    dialogAction = action;
+    dialogLog = [];
+    try { return { result: await fn(), messages: dialogLog.slice() }; }
+    finally { dialogAction = prev; }
+  };
+
   await page.goto(fileUrl('web/taskboard.html'));
 
   // テストデータ自体が正規化されて「一致した」ことにならないよう前提を先に確認する
@@ -190,6 +213,7 @@ const F2c = F1.split('\n').map((l, i) => (i === 8 ? NFC9 : l)).join('\n');
     return run();
   }, [F1, TODAY, script]);
 
+  // TB-16〜19 はアーカイブ確認ダイアログ（AR-3）を通す必要がある
   const a15 = await archive('TB-15');
   r.check('TB-15（グループ単位: 未完了の子を持つ完了親は対象外）',
     a15.res.ok === false && a15.res.reason === 'empty' && a15.archive === '' && a15.tasks === F1,
@@ -215,6 +239,78 @@ const F2c = F1.split('\n').map((l, i) => (i === 8 ? NFC9 : l)).join('\n');
   const a19 = await archive('TB-19');
   r.check('TB-19（tasks 側の外部変更を検知して中止・archive も不変）',
     a19.res.ok === false && a19.res.reason === 'conflict' && a19.archive === '', JSON.stringify(a19.res));
+
+  /* ========== TB-A1〜A7: アーカイブ先と一括操作の事故防止（AR-1 / AR-3） ========== */
+  // 完了させたい行を ops で指定し、save() / archive() を確認ダイアログ込みで走らせる
+  const bulkSession = (fixture, completeLines, mode) => page.evaluate(([text, today, lines, m]) => {
+    window.taskboard.test.setToday(today);
+    const s = window.taskboard.test.newSession(text);
+    window.__s = s;
+    s.applyOps(lines.map(n => ({ type: 'complete', line: n })));
+    if (m === 'uncomplete10') s.applyOps([{ type: 'uncomplete', line: 10 }]);
+    return s.save().then(res => ({ res, adapter: s.getAdapterText() }));
+  }, [fixture, TODAY, completeLines, mode || '']);
+
+  const archiveSession = () => page.evaluate(([f1, today]) => {
+    window.taskboard.test.setToday(today);
+    const s = window.taskboard.test.newSession(f1);
+    window.__s = s;
+    s.applyOps([{ type: 'complete', line: 9 }]);
+    return s.save().then(async () => {
+      const cb = document.getElementById('f-done');
+      cb.checked = true;
+      cb.dispatchEvent(new Event('change', { bubbles: true }));
+      const res = await s.archive();
+      return { res, archive: s.getArchiveText(), tasks: s.getAdapterText() };
+    });
+  }, [F1, TODAY]);
+
+  const a1 = await withDialogs('accept', archiveSession);
+  r.check('TB-A1（アーカイブ確認: 件数と対象ファイル名を出して実行）',
+    a1.result.res.ok === true && a1.result.res.moved === 1
+    && eq(a1.messages, ['1件を archive.md へ移動します。よろしいですか？']),
+    JSON.stringify([a1.result.res, a1.messages]));
+
+  // キャンセル時は「行が消えない」ことを見る（除去は archive 書込成功後にのみ起こる）。
+  // アーカイブ前の保存は済んでいるので9行目は完了済みで残る
+  const DONE9 = '- [x] 資料作成 #102 [[2026-07-07]] ✅ 2026-08-04';
+  const a2 = await withDialogs('dismiss', archiveSession);
+  r.check('TB-A2（アーカイブ確認をキャンセル: archive は空・tasks の行は消えない）',
+    a2.result.res.ok === false && a2.result.res.reason === 'cancel'
+    && a2.result.archive === ''
+    && a2.result.tasks === F1.split('\n').map((l, i) => (i === 8 ? DONE9 : l)).join('\n'),
+    JSON.stringify([a2.result.res, a2.result.archive === '', a2.result.tasks.split('\n')[8]]));
+
+  const FIVE = [5, 6, 7, 8, 9]; // F3 のタスク行
+  const a3 = await withDialogs('accept', () => bulkSession(F3, FIVE));
+  r.check('TB-A3（5件の完了は保存時に確認して実行）',
+    a3.result.res.ok === true && eq(a3.messages, ['5件を完了にします。よろしいですか？']),
+    JSON.stringify([a3.result.res, a3.messages]));
+
+  const a4 = await withDialogs('dismiss', () => bulkSession(F3, FIVE));
+  const a4kept = await page.evaluate(() => window.__s.getText() !== window.__s.getAdapterText());
+  r.check('TB-A4（確認をキャンセルすると保存されない・編集状態は保持）',
+    a4.result.res.ok === false && a4.result.res.reason === 'cancel'
+    && a4.result.adapter === F3 && a4kept === true,
+    JSON.stringify([a4.result.res, a4.result.adapter === F3, a4kept]));
+
+  const a5 = await withDialogs('accept', () => bulkSession(F3, [5, 6, 7, 8]));
+  r.check('TB-A5（4件では確認を出さない＝通常操作を重くしない）',
+    a5.result.res.ok === true && eq(a5.messages, []), JSON.stringify([a5.result.res, a5.messages]));
+
+  const a6 = await withDialogs('accept', () => bulkSession(F1, [9], 'uncomplete10'));
+  r.check('TB-A6（完了解除は数えない）',
+    a6.result.res.ok === true && eq(a6.messages, []), JSON.stringify([a6.result.res, a6.messages]));
+
+  const a7 = await withDialogs('accept', () => page.evaluate(([f1, today]) => {
+    window.taskboard.test.setToday(today);
+    const s = window.taskboard.test.newSession(f1);
+    // 既存の完了行（10・11行目）には触らず、期限だけ変える
+    s.applyOps([{ type: 'setDue', line: 9, date: '2026-08-05' }]);
+    return s.save().then(res => ({ res, adapter: s.getAdapterText() }));
+  }, [F1, TODAY]));
+  r.check('TB-A7（既に完了だった行は数えない）',
+    a7.result.res.ok === true && eq(a7.messages, []), JSON.stringify([a7.result.res, a7.messages]));
 
   /* ========== TB-20: CRLF ========== */
   const t20 = await page.evaluate(([f1, today]) => {

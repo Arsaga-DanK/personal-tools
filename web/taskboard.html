@@ -394,7 +394,8 @@ async function idbSet(key, val) {
 
 function makeFsaAdapter(handle) {
   return {
-    mode: 'fsa', name: handle.name, canCheck: true,
+    // handle は archive.md のピッカーを同じディレクトリで開くため（startIn）に公開する（AR-1）
+    mode: 'fsa', name: handle.name, canCheck: true, handle,
     read: async () => (await handle.getFile()).text(),
     write: async (text) => {
       const w = await handle.createWritable();
@@ -513,9 +514,29 @@ function isDirty() {
   return c.changed + c.added > 0;
 }
 
+// 未保存の「未完了 → 完了」の件数。カウンタを持たず行配列から導出するので同期ずれが起きない。
+// 保存時に1回だけ呼ぶ（通常操作を重くしない）。完了解除は数えない（AR-3）
+const UNCHECKED_RE = /^\t*- \[ \] /;
+const CHECKED_RE = /^\t*- \[[xX]\] /;
+function countNewlyCompleted(lines) {
+  let n = 0;
+  for (const l of lines) {
+    if (l.orig !== null && UNCHECKED_RE.test(l.orig) && CHECKED_RE.test(l.raw)) n++;
+  }
+  return n;
+}
+const BULK_COMPLETE_THRESHOLD = 5; // これ以上の一括完了は保存時に確認する（AR-3）
+
 async function doSave() {
   if (!state.loaded || !state.adapter) return { ok: false, reason: 'notloaded' };
   if (state.demo) { showBanner('info', 'デモ中は保存できません'); return { ok: false, reason: 'demo' }; }
+  // 一括完了チェックの事故防止: 5件以上の完了を含む保存は確認する
+  const completing = countNewlyCompleted(state.lines);
+  if (completing >= BULK_COMPLETE_THRESHOLD &&
+      !confirm(completing + '件を完了にします。よろしいですか？')) {
+    showBanner('info', '保存を中止しました');
+    return { ok: false, reason: 'cancel' };
+  }
   const text = joinLines(state.lines);
   const counts = diffCounts(state.lines);
   if (state.adapter.canCheck) {
@@ -871,8 +892,12 @@ async function getArchiveAdapter() {
     return makeFsaAdapter(handle);
   }
   try {
+    // startIn に tasks.md のハンドルを渡すと Chrome は同じディレクトリでピッカーを開く。
+    // FileSystemFileHandle から親ディレクトリは取得できない（getParent が無い）ため、
+    // 「別の場所に保存された」ことは検出できない。ここで取り違えを予防するのが唯一の手段（AR-1）
     handle = await window.showSaveFilePicker({
       suggestedName: 'archive.md',
+      startIn: state.adapter.handle || undefined,
       types: [{ description: 'Markdown', accept: { 'text/markdown': ['.md'] } }],
     });
   } catch (e) {
@@ -882,7 +907,15 @@ async function getArchiveAdapter() {
   if (!(await verifyPermission(handle))) return null;
   state.archiveHandle = handle;
   idbSet(IDB_KEY_ARCH, handle).catch(() => {});
+  // 保存場所は表示できないので、せめて選ばれたファイル名を知らせる（AR-1）
+  showBanner('info', 'アーカイブ先: ' + handle.name +
+    '（保存場所はブラウザの制約により表示できません。tasks.md と同じフォルダか確認してください）');
   return makeFsaAdapter(handle);
+}
+
+// アーカイブ先の表示名。メモリセッション（テスト）では 'archive.md' を名乗る
+function archiveTargetName() {
+  return (state.archiveHandle && state.archiveHandle.name) || 'archive.md';
 }
 
 // 順序は archive 追記 → tasks 除去保存（失敗しても行が消えない方向に倒す）
@@ -924,6 +957,12 @@ async function doArchive() {
     return { ok: false, reason: 'archopen' };
   }
   if (!arch) return { ok: false, reason: 'archcancel' };
+  // ファイルをまたぐ不可逆な移動なので件数によらず必ず確認する。保存場所は表示できないため
+  // 少なくとも「どのファイルへ」を示す（AR-1 / AR-3）
+  if (!confirm(lineNos.length + '件を ' + archiveTargetName() + ' へ移動します。よろしいですか？')) {
+    showBanner('info', 'アーカイブを中止しました');
+    return { ok: false, reason: 'cancel' };
+  }
   // 書き込み直前に読み直して末尾へ追記（外部編集を消さない）。無ければヘッダを付与して新規作成
   let archText = '';
   try { archText = await arch.read(); } catch (_) { archText = ''; }
