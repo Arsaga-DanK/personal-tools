@@ -24,9 +24,25 @@
   一方 `browser_run_code_unsafe` 内の `page.goto('file:///...')` は通る。
   → 通常検証は http、**file:// 固有の挙動を見るときだけ** run_code_unsafe を使う
 - **ヘッドレス Chrome の `--dump-dom` はファイルピッカー呼び出しで固まる**ので使わない
-- 一時ハーネス（テスト用 HTML やスクリプト）は**リポジトリ内に置かない**。
-  セッションのスクラッチパッドに置く（`rm` が権限設定で拒否されるため後始末できないことがある）
+- **`browser_run_code_unsafe` の `filename` はリポジトリ配下しか読めない**
+  （allowed roots = リポジトリと `.playwright-mcp/`。外部の一時ディレクトリは
+  「File access denied … outside allowed roots」で拒否）。
+  → **検証ハーネスは `.playwright-mcp/` に置く**（.gitignore 済みなのでコミットされない）。
+  それ以外の一時ファイルはセッションのスクラッチパッドへ（`rm` は権限設定で拒否されることがある）
 - リポジトリ直下の `.playwright-mcp/`（MCP のスナップショット置き場）は .gitignore 済み。放置してよい
+- **前セッションの Playwright Chrome が生きているとブラウザが起動できない**
+  （`Browser is already in use for …/ms-playwright-mcp/mcp-chrome-<id>`）。
+  `ps -o args= -p <pid>` で `--user-data-dir=…/ms-playwright-mcp/…` を確認してから、
+  その Chrome だけを kill する（利用者の通常 Chrome は別プロファイルなので巻き込まない）
+- **MCP のブラウザプロファイルは永続**。前セッションの `tools:*`（localStorage）が残っていると
+  「既定値のはず」の UI ケースが偽 fail する（既定 ON のオプションが OFF で始まる等）。
+  → **各ハーネスの冒頭で `localStorage.clear()` → `reload()`**。ポート違いはオリジン違いなので分離される
+- **`run_code_unsafe` のサンドボックスに Node の `Buffer` は無い**（`Buffer is not defined`）。
+  - ファイル入力は **in-page で作る**: `new DataTransfer()` に `new File([text], name, {type})` を
+    add → `input.files = dt.files` → `change` を dispatch（hidden な file input でも動く）
+  - ダウンロードした実ファイルの中身は `await download.createReadStream()` を
+    `for await (const chunk of stream)` で読む（`chunk.toString()` は使える）。
+    エクスポート→インポートの往復を実ファイル経由で検証できる
 
 ### 並列で検証するとき
 
@@ -125,6 +141,13 @@ osascript -e 'the clipboard as «class HTML»' # HTML フレーバーの退避
   各 spec の「Safari手動スモーク項目」で手動確認する
 - **ブラウザ再起動をまたぐ挙動**（IndexedDB のファイルハンドル復元など）は自動検証不能。
   spec の「Chrome 実機スモーク項目」に落とす
+- **セレクタは実装から grep して確かめる**。当てずっぽうのクラス名（`.del` / `.fold` 等）は
+  0件でも例外にならず「差分が無い」ように見えて**偽 pass になる**。
+  実際のクラス名は実装側に依存する（diff は `.row` / `.line-del` / `.line-add` / `.collapse-row` / `.chr`、
+  taskboard は `td.cell-body` の `paddingLeft` で字下げ・`.due-over` / `.due-today` で色分け）。
+  **件数は「0でないこと」まで assert する**
+- **フォールト注入で例外経路を通す**: `Object.defineProperty(el, 'value', {get(){throw …}})` を仕込んで
+  ボタンを click すると、try/catch でしか到達できないエラー表示（devpad の `guard`）を検証できる
 
 ---
 
@@ -143,3 +166,23 @@ osascript -e 'the clipboard as «class HTML»' # HTML フレーバーの退避
 - 文字数ガード（`MAX_INPUT_CHARS`）は**別の層**として併存させる（安いので先に弾く）
 
 ガード発動時の UI 契約（全ツール共通）: **一部だけ処理せず、中止して理由をバナーに出す**。
+
+---
+
+## 7. バナーの ARIA（CM-5・2026-08-05）
+
+規約は `lib/ui.css` の `.banner` ブロックに記載。対応は**クラスと1対1**:
+
+| クラス | role | 意味 |
+|---|---|---|
+| `banner-info` / `banner-success` | `status`（polite） | 結果・通知。読み上げに割り込まない |
+| `banner-warn` / `banner-error` | `alert`（assertive） | 中止・失敗・競合。割り込んで伝える |
+
+- **`hidden` の要素はアクセシビリティツリーに載らない**（`[hidden]{display:none!important}`）。
+  live region として効くのは表示された瞬間以降なので、**role は className を決める箇所で必ず一緒に設定する**。
+  種別が変わらないバナー（devpad のタブエラー枠・taskboard の `#fallback-note`）は HTML に静的に書く
+- **1つの要素を種別違いで流用している箇所は role も戻す**必要がある
+  （devpad のタブエラー枠は復元通知に `banner-info` で流用されるため、`guard` の catch で
+  `banner-error` + `alert` に戻す）。流用箇所は「className を戻し忘れる」バグと同時に起きる
+- 検証は種別ごとに実際の経路を通して `banner.getAttribute('role')` を照合する
+  （info=ハイライト省略、warn=性能ガード、error=インポート失敗、success=保存成功 など）

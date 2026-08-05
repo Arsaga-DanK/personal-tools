@@ -55,7 +55,7 @@
     <span class="summary" id="summary"></span>
   </div>
 
-  <div class="banner banner-info" id="fallback-note" hidden></div>
+  <div class="banner banner-info" id="fallback-note" role="status" hidden></div>
   <div class="banner" id="banner" hidden></div>
 
   <div class="toolbar" id="main-toolbar" hidden>
@@ -437,6 +437,7 @@ const el = (id) => document.getElementById(id);
 function showBanner(kind, text, actions) {
   const b = el('banner');
   b.className = 'banner banner-' + kind;
+  b.setAttribute('role', kind === 'error' || kind === 'warn' ? 'alert' : 'status'); // ui.css の ARIA 規約
   b.textContent = text;
   if (actions) {
     for (const a of actions) {

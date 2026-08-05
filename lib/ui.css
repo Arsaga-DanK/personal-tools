@@ -149,7 +149,12 @@ textarea {
   resize: vertical;
 }
 
-/* バナー（警告・エラー・情報） */
+/* バナー（警告・エラー・情報）
+   ARIA 規約（CM-5）: 生成側で role を必ず付ける。
+   banner-info / banner-success → role="status"（polite）、
+   banner-warn / banner-error   → role="alert"（assertive）。
+   hidden の間はアクセシビリティツリーに載らないため、role は
+   クラスを決める箇所で必ず一緒に切り替える（見た目と読み上げのずれを防ぐ）。 */
 .banner {
   margin: 10px 0;
   padding: 8px 12px;

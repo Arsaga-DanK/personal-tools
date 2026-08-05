@@ -27,7 +27,7 @@
   <div class="tabs" id="tabbar"></div>
 
   <section class="tab-panel" id="tab-json" hidden>
-    <div class="banner banner-error" data-tab-error hidden></div>
+    <div class="banner banner-error" data-tab-error role="alert" hidden></div>
     <div class="panes">
       <div class="pane"><p class="pane-title">入力（JSON）<button type="button" class="sample-btn" id="json-sample">サンプルを入れる</button></p>
         <textarea id="json-in" spellcheck="false"></textarea></div>
@@ -45,7 +45,7 @@
   </section>
 
   <section class="tab-panel" id="tab-escape" hidden>
-    <div class="banner banner-error" data-tab-error hidden></div>
+    <div class="banner banner-error" data-tab-error role="alert" hidden></div>
     <div class="panes">
       <div class="pane"><p class="pane-title">生テキスト</p>
         <textarea id="esc-raw" spellcheck="false"></textarea></div>
@@ -62,7 +62,7 @@
   </section>
 
   <section class="tab-panel" id="tab-url" hidden>
-    <div class="banner banner-error" data-tab-error hidden></div>
+    <div class="banner banner-error" data-tab-error role="alert" hidden></div>
     <div class="panes">
       <div class="pane"><p class="pane-title">生テキスト</p>
         <textarea id="url-raw" class="short" spellcheck="false"></textarea></div>
@@ -79,7 +79,7 @@
   </section>
 
   <section class="tab-panel" id="tab-base64" hidden>
-    <div class="banner banner-error" data-tab-error hidden></div>
+    <div class="banner banner-error" data-tab-error role="alert" hidden></div>
     <div class="panes">
       <div class="pane"><p class="pane-title">テキスト（UTF-8）</p>
         <textarea id="b64-raw" class="short" spellcheck="false"></textarea></div>
@@ -96,7 +96,7 @@
   </section>
 
   <section class="tab-panel" id="tab-time" hidden>
-    <div class="banner banner-error" data-tab-error hidden></div>
+    <div class="banner banner-error" data-tab-error role="alert" hidden></div>
     <div class="row">
       <label>Unix時刻: <input type="text" id="time-epoch" size="20" placeholder="1700000000"></label>
       <label class="toggle"><input type="radio" name="epoch-unit" value="auto" checked> 自動</label>
@@ -116,7 +116,7 @@
   </section>
 
   <section class="tab-panel" id="tab-uuid" hidden>
-    <div class="banner banner-error" data-tab-error hidden></div>
+    <div class="banner banner-error" data-tab-error role="alert" hidden></div>
     <div class="row">
       <label>件数: <input type="number" id="uuid-count" value="1" min="1" max="1000"></label>
       <button class="primary" id="uuid-gen">UUID v4 を生成</button>
@@ -127,7 +127,7 @@
   </section>
 
   <section class="tab-panel" id="tab-count" hidden>
-    <div class="banner banner-error" data-tab-error hidden></div>
+    <div class="banner banner-error" data-tab-error role="alert" hidden></div>
     <div class="panes">
       <div class="pane"><p class="pane-title">テキスト</p>
         <textarea id="count-in" spellcheck="false"></textarea></div>
@@ -301,7 +301,10 @@ function guard(tabId, fn) {
       tabErrorEl(tabId).hidden = true;
       return fn.apply(this, args);
     } catch (e) {
+      // このバナーは復元通知（banner-info）に流用されるため、見た目と role をエラー用に戻す
       const el = tabErrorEl(tabId);
+      el.className = 'banner banner-error';
+      el.setAttribute('role', 'alert'); // ui.css の ARIA 規約
       el.textContent = 'エラー: ' + (e && e.message ? e.message : String(e));
       el.hidden = false;
     }
@@ -311,6 +314,7 @@ function guard(tabId, fn) {
 function showResult(id, msg, kind) {
   const el = $(id);
   el.className = 'banner ' + (kind === 'error' ? 'banner-error' : 'banner-info');
+  el.setAttribute('role', kind === 'error' ? 'alert' : 'status'); // ui.css の ARIA 規約
   el.textContent = msg;
   el.hidden = !msg;
 }
@@ -372,6 +376,7 @@ const TABS = [
         }
         const el = $('json-result');
         el.className = 'banner banner-error json-error-pos mono';
+        el.setAttribute('role', 'alert'); // ui.css の ARIA 規約
         el.textContent = msg;
         el.hidden = false;
       };
@@ -695,6 +700,7 @@ function restoreState() {
       if (omitted) {
         const el = tabErrorEl(t.id);
         el.className = 'banner banner-info';
+        el.setAttribute('role', 'status'); // ui.css の ARIA 規約（タブエラー枠の流用のため alert から戻す）
         el.textContent = '前回の入力は大きすぎたため復元されませんでした（保存上限 100KB/フィールド）';
         el.hidden = false;
       }

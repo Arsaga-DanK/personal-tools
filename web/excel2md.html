@@ -462,6 +462,7 @@ function showBanner(warnings) {
   if (warnings.length === 0) { el.banner.hidden = true; return; }
   const hasWarn = warnings.some(w => w.type === 'warn');
   el.banner.className = 'banner ' + (hasWarn ? 'banner-warn' : 'banner-info');
+  el.banner.setAttribute('role', hasWarn ? 'alert' : 'status'); // ui.css の ARIA 規約
   el.banner.textContent = warnings.map(w => w.message).join(' / ');
   el.banner.hidden = false;
 }
