@@ -34,6 +34,27 @@
   （`Browser is already in use for …/ms-playwright-mcp/mcp-chrome-<id>`）。
   `ps -o args= -p <pid>` で `--user-data-dir=…/ms-playwright-mcp/…` を確認してから、
   その Chrome だけを kill する（利用者の通常 Chrome は別プロファイルなので巻き込まない）
+- **ロックの持ち主が「別セッションの進行中の作業」なら kill してはいけない**
+  （2026-08-05 実測。並列で別作業が走っていて MCP のブラウザを掴んでいた）。
+  `browser_tabs new` も同じロックに当たるので回避できない。
+  → **playwright-core を直接起動して自前のブラウザインスタンスを立てる**（user-data-dir が別なので競合しない）:
+
+  ```js
+  const { chromium } = require('/Users/dan.kawazu/.npm/_npx/<hash>/node_modules/playwright-core');
+  const browser = await chromium.launch({
+    // playwright-core が期待するビルド番号と ms-playwright にある実体がずれるため明示する
+    executablePath: '/Users/dan.kawazu/Library/Caches/ms-playwright/'
+      + 'chromium_headless_shell-<build>/chrome-headless-shell-mac-arm64/chrome-headless-shell',
+  });
+  ```
+
+  - `playwright-core` の場所は `find ~/.npm/_npx -type d -name playwright-core` で探す（npm global には無い）
+  - `executablePath` を省くと「Executable doesn't exist at …chromium_headless_shell-1232…」と出る。
+    実体は `ls ~/Library/Caches/ms-playwright/` で確認（2026-08-05 時点は 1234）。
+    `npx playwright install` を促されるが**ダウンロード不要**——番号を合わせるだけでよい
+  - この経路は MCP のサンドボックス外なので `page.goto('file:///…')`・`page.screenshot`・
+    `page.keyboard` がそのまま使える（file:// 固有挙動の検証も run_code_unsafe 抜きで完結する）
+  - node は asdf shim を避けて `export PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"` の下で叩く
 - **MCP のブラウザプロファイルは永続**。前セッションの `tools:*`（localStorage）が残っていると
   「既定値のはず」の UI ケースが偽 fail する（既定 ON のオプションが OFF で始まる等）。
   → **各ハーネスの冒頭で `localStorage.clear()` → `reload()`**。ポート違いはオリジン違いなので分離される
