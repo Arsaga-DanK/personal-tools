@@ -518,9 +518,21 @@ const F5 = [
   const session = (text) => page.evaluate(([t, today]) => {
     window.taskboard.test.setToday(today);
     window.__s = window.taskboard.test.newSession(t);
-    const form = document.getElementById('add-form');
-    if (form.hidden) document.getElementById('btn-add-form').click();
+    // モーダルは開かない: オーバーレイ（inset:0）が表のクリックを遮るため、
+    // 必要なテストだけが addModal()/closeModal() で開閉する（TB-Q26 で1行フォームを廃止）
+    if (!document.getElementById('modal').hidden) {
+      document.getElementById('modal-content').value = '';   // 破棄確認を出さずに閉じる
+      document.getElementById('modal-memo').value = '';
+      document.getElementById('modal-cancel').click();
+    }
   }, [text, TODAY]);
+  const addModal = () => page.evaluate(() => {
+    if (document.getElementById('modal').hidden) document.getElementById('btn-add-form').click();
+  });
+  const shutModal = () => page.evaluate(() => {
+    const m = document.getElementById('modal');
+    if (!m.hidden) { document.getElementById('modal-content').value = ''; document.getElementById('modal-memo').value = ''; document.getElementById('modal-cancel').click(); }
+  });
 
   const ui = () => page.evaluate(() => ({
     rows: document.querySelectorAll('#task-table tbody tr').length,
@@ -529,7 +541,7 @@ const F5 = [
     undoBtns: document.querySelectorAll('.btn-undo').length,
     undoDisabled: Array.from(document.querySelectorAll('.btn-undo')).map(b => b.disabled),
     undoTitles: Array.from(document.querySelectorAll('.btn-undo')).map(b => b.title),
-    input: document.getElementById('add-content').value,
+    input: document.getElementById('modal-content').value,
     activeId: document.activeElement ? document.activeElement.id : '',
     banner: document.getElementById('banner').hidden ? '' : document.getElementById('banner').textContent,
     popoverHidden: document.getElementById('popover').hidden,
@@ -548,27 +560,28 @@ const F5 = [
     target.dispatchEvent(ev);
   }, [selector, key, mode || 'plain']);
 
-  /* ========== TB-I1〜I3: 追加フォームの内容欄 ========== */
+  /* ========== TB-I1〜I3: 追加モーダルの内容欄（1行フォーム廃止に伴い移設） ========== */
   await session(F1);
-  await page.fill('#add-content', '誤追加');
+  await addModal();
+  await page.fill('#modal-content', '誤追加');
   const before1 = await ui();
-  await sendKey('#add-content', 'Enter', 'composing');
+  await sendKey('#modal-content', 'Enter', 'composing');
   const i1 = await ui();
   r.check('TB-I1（isComposing Enter で追加されない・入力値が残る）',
     i1.rows === before1.rows && i1.input === '誤追加' && i1.text === F1,
     JSON.stringify([before1.rows, i1.rows, i1.input]));
 
-  await sendKey('#add-content', 'Enter', 'keycode229');
+  await sendKey('#modal-content', 'Enter', 'keycode229');
   const i3 = await ui();
   r.check('TB-I3（keyCode 229 のみでも追加されない）',
     i3.rows === before1.rows && i3.input === '誤追加' && i3.text === F1,
     JSON.stringify([i3.rows, i3.input]));
 
-  await sendKey('#add-content', 'Enter', 'plain');
+  await sendKey('#modal-content', 'Enter', 'plain');
   const i2 = await ui();
   r.check('TB-I2（通常 Enter では追加される・入力欄クリア・フォーカス復帰）',
     i2.rows === before1.rows + 1 && i2.bodies.includes('誤追加')
-    && i2.input === '' && i2.activeId === 'add-content',
+    && i2.input === '' && i2.activeId === 'modal-content',
     JSON.stringify([i2.rows, i2.input, i2.activeId]));
 
   /* ========== TB-I4: 子タスク popover ========== */
@@ -614,13 +627,14 @@ const F5 = [
   /* ========== TB-I6: CDP による実 composition ========== */
   const cdp = await context.newCDPSession(page);
   await session(F1);
-  await page.click('#add-content');
-  await page.fill('#add-content', '');
+  await addModal();
+  await page.click('#modal-content');
+  await page.fill('#modal-content', '');
   await cdp.send('Input.imeSetComposition', { text: 'かいぎ', selectionStart: 3, selectionEnd: 3 });
   await page.waitForTimeout(60);
   await cdp.send('Input.imeSetComposition', { text: '会議', selectionStart: 2, selectionEnd: 2 });
   await page.waitForTimeout(60);
-  const composing = await page.inputValue('#add-content');
+  const composing = await page.inputValue('#modal-content');
   await cdp.send('Input.dispatchKeyEvent', {
     type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13,
   });
@@ -678,9 +692,11 @@ const F5 = [
 
   /* ========== TB-U6: UI 経路（追加→取り消し→保存でバイト同一） ========== */
   await session(F1);
-  await page.fill('#add-content', '間違えた追加');
-  await sendKey('#add-content', 'Enter', 'plain');
+  await addModal();
+  await page.fill('#modal-content', '間違えた追加');
+  await sendKey('#modal-content', 'Enter', 'plain');
   const u6mid = await ui();
+  await shutModal();   // 表の［↩︎］を実キーで押すのでオーバーレイを閉じる
   await page.click('.btn-undo');
   const u6after = await ui();
   const u6save = await page.evaluate(() => window.__s.save().then(res => ({ res, text: window.__s.getAdapterText() })));
@@ -692,10 +708,12 @@ const F5 = [
 
   /* ========== TB-U7: 追加行のマークとボタンの出方 ========== */
   await session(F1);
+  await addModal();
   const u7base = await ui();
-  await page.fill('#add-content', '親タスク');
-  await sendKey('#add-content', 'Enter', 'plain');
+  await page.fill('#modal-content', '親タスク');
+  await sendKey('#modal-content', 'Enter', 'plain');
   const u7added = await ui();
+  await shutModal();   // 以降は表の［＋子］とポップオーバーを操作する
   const parentLine = await page.evaluate(() =>
     Number(Array.from(document.querySelectorAll('#task-table tbody tr'))
       .find(tr => tr.children[1].textContent.includes('親タスク')).dataset.line));
@@ -716,15 +734,16 @@ const F5 = [
 
   /* ========== 実キー押下での回帰（合成イベントではなく本物の Enter） ========== */
   await session(F1);
+  await addModal();
   const realBase = await ui();
-  await page.click('#add-content');
-  await page.type('#add-content', '実キーで追加');
+  await page.click('#modal-content');
+  await page.type('#modal-content', '実キーで追加');
   await page.keyboard.press('Enter');
   await page.waitForTimeout(100);
   const real = await ui();
   r.check('実キー Enter での追加（合成イベント以外でも回帰しない）',
     real.rows === realBase.rows + 1 && real.bodies.some(b => b.includes('実キーで追加'))
-    && real.input === '' && real.activeId === 'add-content' && real.undoBtns === 1,
+    && real.input === '' && real.activeId === 'modal-content' && real.undoBtns === 1,
     JSON.stringify([real.rows, real.input, real.activeId, real.undoBtns]));
 
   /* ========== TB-P1〜P18: 計画ビュー（🛫 とタイムライン・Phase T） ========== */
@@ -1027,6 +1046,8 @@ const F5 = [
     && p15unknown.sortValue === 'file',
     JSON.stringify([p15restored, p15unknown]));
 
+  await shutModal();   // 以降は表を操作するのでオーバーレイを閉じておく
+
   /* ========== TB-M1〜M12: メモ（Phase N） ========== */
   const m1 = await ops(F5, [{ type: 'setMemo', line: 5, text: 'メモ1行目\nメモ2行目' }]);
   r.check('TB-M1（同じ本文の setMemo はバイト同一・1行も書き換えない）', m1 === F5,
@@ -1115,21 +1136,22 @@ const F5 = [
     mark.click();                                   // 展開
     const memoRow = document.querySelector('tr.memo-row .memo-text');
     const expanded = memoRow ? memoRow.textContent : null;
-    // メモを編集して Cmd+Enter で確定
-    rowOf('親A').querySelectorAll('.btn-child')[1].click();
-    const ta = document.getElementById('memo-input');
+    // メモの編集はモーダルに統合された（Phase E）。展開したメモ行のダブルクリックで開く
+    document.querySelector('tr.memo-row td')
+      .dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    const ta = document.getElementById('modal-memo');
     const before = ta.value;
     ta.value = 'メモ1行目\n差し替え2';
-    ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true }));
+    ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
     return s.save().then(res => ({
       markText, expanded, before, res, adapter: s.getAdapterText(),
-      collapsedAfter: document.querySelectorAll('tr.memo-row').length,
+      modalHidden: document.getElementById('modal').hidden,
     }));
   }, [F5, TODAY]));
-  r.check('TB-M11（📝2 マーカー・展開・Cmd+Enter で編集確定・保存で永続）',
+  r.check('TB-M11（📝2 マーカー・展開・メモ行の dblclick でモーダル・Cmd+Enter で確定・保存で永続）',
     m11.result.markText === '📝2' && m11.result.expanded === 'メモ1行目\nメモ2行目'
     && m11.result.before === 'メモ1行目\nメモ2行目'
-    && m11.result.res.ok === true
+    && m11.result.res.ok === true && m11.result.modalHidden === true
     && m11.result.adapter.split('\n')[6] === '\t- 差し替え2'
     && m11.result.adapter.split('\n')[5] === '\t- メモ1行目',
     JSON.stringify([m11.result.markText, m11.result.expanded, m11.result.adapter.split('\n').slice(4, 9)]));
@@ -1244,61 +1266,414 @@ const F5 = [
     && t5.afterPlain === '- [ ] 目標管理について考える [[2026-07-07]] #UL業務 #IME中 🔽',
     JSON.stringify(t5));
 
-  /* ========== TB-D1〜D3・TB-W1: 追加フォームの既定値と幅 ========== */
+  /* ========== TB-D1〜D3: 既定値（モーダルへ移設）==========
+     Step 6 の不具合は「記憶の入口が追加フォーム1箇所だけ」で、実運用で使われる
+     セルのポップオーバーから書かれていなかったこと。**利用者が実際に通る経路**で照合する
+     （docs/verification-notes.md §5b 型3） */
+  const openModal = (pg) => pg.evaluate(() => {
+    if (document.getElementById('modal').hidden) document.getElementById('btn-add-form').click();
+    return {
+      section: document.getElementById('modal-section').value,
+      start: document.getElementById('modal-start').value,
+      due: document.getElementById('modal-due').value,
+      pri: document.getElementById('modal-pri').value,
+      tags: Array.from(document.querySelectorAll('#modal-tag-list .chip')).map(c => c.textContent.replace('✕', '')),
+      moreOpen: document.getElementById('modal-more').open,
+      contentWidth: document.getElementById('modal-content').getBoundingClientRect().width,
+      modalInView: (() => {
+        const m = document.querySelector('.modal').getBoundingClientRect();
+        return m.top >= 0 && m.bottom <= document.documentElement.clientHeight
+          && m.left >= 0 && m.right <= document.documentElement.clientWidth;
+      })(),
+    };
+  });
+
+  // TB-D1: **セルのポップオーバー**で期限・開始日・優先度・タグ・セクションを設定 → 次の追加に出る
   const d1 = await page.evaluate(([f1, today]) => {
     window.taskboard.test.setToday(today);
-    const s = window.taskboard.test.newSession(f1);
-    document.getElementById('add-content').value = '既定値テスト';
-    document.getElementById('add-section').value = 'UL';
-    document.getElementById('add-start').value = '2026-08-10';
-    document.getElementById('add-due').value = '2026-08-20';
-    document.getElementById('add-pri').value = 'high';
-    document.getElementById('btn-add').click();
-    return { saved: JSON.parse(localStorage.getItem('tools:taskboard')).data.add, text: s.getText() };
-  }, [F1, TODAY]);
-  const d1page = r.watch(await context.newPage());
-  await d1page.goto(fileUrl('web/taskboard.html'));
-  const d1restored = await d1page.evaluate(f1 => {
     window.taskboard.test.newSession(f1);
-    document.getElementById('btn-add-form').click();   // 幅を測るためフォームを開く
-    return {
-      section: document.getElementById('add-section').value,
-      start: document.getElementById('add-start').value,
-      due: document.getElementById('add-due').value,
-      pri: document.getElementById('add-pri').value,
-      width: document.getElementById('add-content').getBoundingClientRect().width,
+    const rowOf = body => Array.from(document.querySelectorAll('#task-table tbody tr'))
+      .find(tr => tr.children[1] && tr.children[1].textContent.includes(body));
+    const pop = (cls, pick) => {
+      rowOf('資料作成').querySelector(cls).click();
+      pick();
     };
-  }, F1);
-  r.check('TB-D1（開始日・期限・優先度・セクションが前回値で復元される）',
-    eq(d1.saved, { section: 'UL', start: '2026-08-10', due: '2026-08-20', priority: 'high' })
-    && d1restored.section === 'UL' && d1restored.start === '2026-08-10'
-    && d1restored.due === '2026-08-20' && d1restored.pri === 'high',
-    JSON.stringify([d1.saved, d1restored]));
-  r.check('TB-W1（内容欄の幅が 320px 以上）', d1restored.width >= 320, String(d1restored.width));
-
-  const d2 = await d1page.evaluate(f1 => {
-    const s = window.taskboard.test.newSession(f1);
-    document.getElementById('add-content').value = 'クリア記憶';
-    document.getElementById('add-due').value = '';       // 期限をクリアして追加
-    document.getElementById('btn-add').click();
+    // 期限セル → ［今日］
+    pop('.cell-due', () => Array.from(document.querySelectorAll('#popover button'))
+      .find(b => b.textContent === '今日').click());
+    // 開始日セル → ［明日］
+    pop('.cell-start', () => Array.from(document.querySelectorAll('#popover button'))
+      .find(b => b.textContent === '明日').click());
+    // 優先度セル → ⏫ 高
+    pop('.cell-pri', () => Array.from(document.querySelectorAll('#popover button'))
+      .find(b => b.textContent === '⏫ 高').click());
+    // タグセル → 新規タグ
+    rowOf('資料作成').querySelector('.cell-tags').click();
+    document.getElementById('tag-input').value = 'ポップオーバー由来';
+    Array.from(document.querySelectorAll('#popover button')).find(b => b.textContent === '追加').click();
+    // セクションセル → UL
+    rowOf('資料作成').querySelector('.cell-sec').click();
+    Array.from(document.querySelectorAll('#popover button')).find(b => b.textContent === 'UL').click();
     return JSON.parse(localStorage.getItem('tools:taskboard')).data.add;
-  }, F1);
-  await d1page.reload();
-  const d2restored = await d1page.evaluate(f1 => {
-    window.taskboard.test.newSession(f1);
-    return document.getElementById('add-due').value;
-  }, F1);
-  r.check('TB-D2（クリアしたことも記憶する）', d2.due === '' && d2restored === '',
-    JSON.stringify([d2, d2restored]));
+  }, [F1, TODAY]);
+  const d1modal = await openModal(page);
+  r.check('TB-D1（セルのポップオーバーで設定した値が次の追加の既定値になる＝実運用の経路）',
+    d1.due === TODAY && d1.start === '2026-08-05' && d1.priority === 'high'
+    && eq(d1.tags, ['ポップオーバー由来']) && d1.section === 'UL'
+    && d1modal.due === TODAY && d1modal.start === '2026-08-05' && d1modal.pri === 'high'
+    && eq(d1modal.tags, ['#ポップオーバー由来']) && d1modal.section === 'UL'
+    && d1modal.moreOpen === true,   // 値が入っているので詳細が開く
+    JSON.stringify([d1, d1modal]));
+  r.check('TB-W1（モーダルの内容欄が 320px 以上・モーダルが画面内に収まる）',
+    d1modal.contentWidth >= 320 && d1modal.modalInView === true,
+    JSON.stringify([d1modal.contentWidth, d1modal.modalInView]));
 
-  const d3 = await d1page.evaluate(() => {
+  // TB-D2: クリアも記憶する（期限の［クリア］→ 次の追加は空）
+  const d2 = await page.evaluate(([f1, today]) => {
+    document.getElementById('modal-cancel').click();
+    window.taskboard.test.setToday(today);
+    window.taskboard.test.newSession(f1);
+    const tr = Array.from(document.querySelectorAll('#task-table tbody tr'))
+      .find(x => x.children[1] && x.children[1].textContent.includes('資料Rv'));
+    tr.querySelector('.cell-due').click();
+    Array.from(document.querySelectorAll('#popover button')).find(b => b.textContent === 'クリア').click();
+    return JSON.parse(localStorage.getItem('tools:taskboard')).data.add;
+  }, [F1, TODAY]);
+  const d2modal = await openModal(page);
+  r.check('TB-D2（クリアしたことも記憶する）', d2.due === '' && d2modal.due === '',
+    JSON.stringify([d2, d2modal]));
+
+  const d3page = r.watch(await context.newPage());
+  await d3page.goto(fileUrl('web/taskboard.html'));
+  const d3 = await d3page.evaluate(() => {
     // 記憶したセクション（UL）が無いファイル
     window.taskboard.test.newSession('# tasks\n\n## PEW\n\n- [ ] only\n');
-    return document.getElementById('add-section').value;
+    document.getElementById('btn-add-form').click();
+    return document.getElementById('modal-section').value;
   });
-  await d1page.close();
+  await d3page.close();
   r.check('TB-D3（記憶したセクションが無ければ先頭セクションへフォールバック）',
     d3 === 'PEW', JSON.stringify(d3));
+
+  /* ========== TB-X1〜X18: 追加・編集モーダル ==========
+     ページ側のヘルパは window.__h に1度だけ入れる（evaluate ごとに書き写さない）。
+     page.reload() で消えるので、リロードを挟んだら入れ直す */
+  const installHelpers = (pg) => pg.evaluate(() => {
+    window.__h = {
+      openEdit: (body, memoRow) => {
+        const tr = Array.from(document.querySelectorAll('#task-table tbody tr'))
+          .find(x => x.children[1] && x.children[1].textContent.includes(body));
+        if (memoRow) tr.nextSibling.querySelector('td').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+        else Array.from(tr.querySelectorAll('.btn-child')).find(x => x.textContent === '編集').click();
+      },
+      set: (id, v) => { document.getElementById(id).value = v; },
+      chips: (hostId) => Array.from(document.querySelectorAll('#' + hostId + ' .chip'))
+        .map(c => c.textContent.replace('✕', '')),
+      // 前回値（タグ・日付・優先度）は仕様どおり新規モーダルに引き継がれるので、
+      // 生成行を厳密に照合するテストでは先に全欄を空にする
+      resetModalFields: () => {
+        for (const id of ['modal-content', 'modal-memo', 'modal-start', 'modal-due', 'modal-pri']) {
+          document.getElementById(id).value = '';
+        }
+        for (const b of document.querySelectorAll('#modal-tag-list .chip-del')) b.click();
+        for (const b of document.querySelectorAll('#modal-link-list .chip-del')) b.click();
+      },
+    };
+  });
+  await installHelpers(page);
+  const x1 = await page.evaluate(([f1, today]) => {
+    window.taskboard.test.setToday(today);
+    const s = window.taskboard.test.newSession(f1);
+    document.getElementById('btn-add-form').click();
+    window.__h.resetModalFields();
+    window.__h.set('modal-content', '新規タスク');
+    window.__h.set('modal-memo', 'メモ1\nメモ2');
+    window.__h.set('modal-tag-input', '重要');
+    document.getElementById('modal-tag-add').click();
+    window.__h.set('modal-section', 'UL');
+    window.__h.set('modal-start', '2026-08-10');
+    window.__h.set('modal-due', '2026-08-20');
+    window.__h.set('modal-pri', 'high');
+    document.getElementById('modal-link-today').click();
+    document.getElementById('modal-save').click();
+    return {
+      text: s.getText(),
+      stillOpen: !document.getElementById('modal').hidden,
+      content: document.getElementById('modal-content').value,
+      activeId: document.activeElement.id,
+    };
+  }, [F1, TODAY]);
+  const x1lines = x1.text.split('\n');
+  r.check('TB-X1（全フィールド: Tasks 標準順の1行＋メモ2行・連続追加のため開いたまま）',
+    x1lines[17] === '- [ ] 新規タスク #重要 [[2026-08-04]] ⏫ 🛫 2026-08-10 📅 2026-08-20'
+    && x1lines[18] === '\t- メモ1' && x1lines[19] === '\t- メモ2'
+    && x1.stillOpen === true && x1.content === '' && x1.activeId === 'modal-content',
+    JSON.stringify([x1lines.slice(16, 21), x1.stillOpen, x1.content, x1.activeId]));
+
+  const x2 = await page.evaluate(([f1, today]) => {
+    window.taskboard.test.setToday(today);
+    const s = window.taskboard.test.newSession(f1);
+    document.getElementById('btn-add-form').click();
+    window.__h.resetModalFields();
+    window.__h.set('modal-content', '内容のみ');
+    window.__h.set('modal-memo', '');
+    window.__h.set('modal-start', ''); window.__h.set('modal-due', ''); window.__h.set('modal-pri', '');
+    for (const b of document.querySelectorAll('#modal-tag-list .chip-del')) b.click();
+    document.getElementById('modal-save').click();
+    document.getElementById('modal-cancel').click();
+    return s.getText();
+  }, [F1, TODAY]);
+  r.check('TB-X2（内容のみ: 他のトークンもメモ行も付かない）',
+    x2.split('\n')[17] === '- [ ] 内容のみ' && x2.split('\n').length === F1.split('\n').length + 1,
+    JSON.stringify(x2.split('\n').slice(16, 19)));
+
+  const x3 = await page.evaluate(([f1, today]) => {
+    window.taskboard.test.setToday(today);
+    const s = window.taskboard.test.newSession(f1);
+    window.__h.openEdit('資料Rv');
+    window.__h.set('modal-due', '2026-08-09');
+    document.getElementById('modal-save').click();
+    return { text: s.getText(), hidden: document.getElementById('modal').hidden };
+  }, [F1, TODAY]);
+  r.check('TB-X3（期限だけ変更: 他のバイトが1つも変わらない・編集モードは閉じる）',
+    lineOf(x3.text, 13) === '- [ ] 資料Rv #144 [[2026-07-14_TODO]] [[2026-07-21]] 📅 2026-08-09 ⏫'
+    && onlyChanged(x3.text, F1, [13]) && x3.hidden === true,
+    JSON.stringify(lineOf(x3.text, 13)));
+
+  const x4 = await page.evaluate(([f1, today]) => {
+    window.taskboard.test.setToday(today);
+    const s = window.taskboard.test.newSession(f1);
+    window.__h.openEdit('資料Rv');
+    document.getElementById('modal-save').click();
+    return s.getText();
+  }, [F1, TODAY]);
+  r.check('TB-X4（何も変えずに保存すると op 0件＝バイト同一）', x4 === F1,
+    JSON.stringify(x4 === F1 ? '' : x4));
+
+  const x5 = await page.evaluate(([f5, today]) => {
+    window.taskboard.test.setToday(today);
+    const out = {};
+    let s = window.taskboard.test.newSession(f5);
+    window.__h.openEdit('親A');
+    window.__h.set('modal-memo', 'メモ1行目\n変更2\n追加3');
+    document.getElementById('modal-save').click();
+    out.grow = s.getText().split('\n').slice(4, 10);
+    s = window.taskboard.test.newSession(f5);
+    window.__h.openEdit('親A');
+    window.__h.set('modal-memo', 'メモ1行目');
+    document.getElementById('modal-save').click();
+    out.shrink = s.getText().split('\n').slice(4, 9);
+    return out;
+  }, [F5, TODAY]);
+  r.check('TB-X5（メモの増減が最小差分: 据え置いた1行目は不変）',
+    eq(x5.grow, ['- [ ] 親A', '\t- メモ1行目', '\t- 変更2', '\t- 追加3', '\t- [ ] 子A1', '\t\t- 子のメモ'])
+    && eq(x5.shrink, ['- [ ] 親A', '\t- メモ1行目', '\t- [ ] 子A1', '\t\t- 子のメモ', '- [ ] 親B']),
+    JSON.stringify(x5));
+
+  const x6 = await page.evaluate(([f1, today]) => {
+    window.taskboard.test.setToday(today);
+    const s = window.taskboard.test.newSession(f1);
+    window.__h.openEdit('資料Rv');
+    window.__h.set('modal-content', '資料Rv 改');
+    document.getElementById('modal-save').click();
+    return s.getText();
+  }, [F1, TODAY]);
+  r.check('TB-X6（内容変更で editContent が走りメタトークンが標準順に並ぶ）',
+    lineOf(x6, 13) === '- [ ] 資料Rv 改 [[2026-07-14_TODO]] [[2026-07-21]] ⏫ 📅 2026-08-05'
+    && onlyChanged(x6, F1, [13]), JSON.stringify(lineOf(x6, 13)));
+
+  const x7 = await page.evaluate(([f1, today]) => {
+    window.taskboard.test.setToday(today);
+    const out = {};
+    let s = window.taskboard.test.newSession(f1);
+    window.__h.openEdit('資料作成');
+    window.__h.set('modal-link-input', '2026-08-06');
+    document.getElementById('modal-link-add').click();
+    document.getElementById('modal-save').click();
+    out.added = lineOfJs(s.getText(), 9);
+    // 削除
+    s = window.taskboard.test.newSession(f1);
+    window.__h.openEdit('資料作成');
+    document.querySelector('#modal-link-list .chip-del').click();
+    document.getElementById('modal-save').click();
+    out.removed = lineOfJs(s.getText(), 9);
+    // 未変更なら editContent を出さない
+    s = window.taskboard.test.newSession(f1);
+    window.__h.openEdit('資料作成');
+    window.__h.set('modal-due', '2026-08-30');
+    document.getElementById('modal-save').click();
+    out.untouched = lineOfJs(s.getText(), 9);
+    return out;
+    function lineOfJs(t, n) { return t.split('\n')[n - 1]; }
+  }, [F1, TODAY]);
+  r.check('TB-X7（関連ノートの追加・削除・未変更なら editContent を出さない）',
+    x7.added === '- [ ] 資料作成 #102 [[2026-07-07]] [[2026-08-06]]'
+    && x7.removed === '- [ ] 資料作成 #102'
+    // リンク未変更なので本文は再構成されず、📅 が末尾に足されるだけ
+    && x7.untouched === '- [ ] 資料作成 #102 [[2026-07-07]] 📅 2026-08-30',
+    JSON.stringify(x7));
+
+  const x8 = await page.evaluate(([f1, today]) => {
+    window.taskboard.test.setToday(today);
+    window.taskboard.test.newSession(f1);
+    document.getElementById('btn-add-form').click();
+    document.getElementById('modal-link-today').click();
+    const chips = Array.from(document.querySelectorAll('#modal-link-list .chip')).map(c => c.textContent.replace('✕', ''));
+    document.getElementById('modal-link-today').click();   // 2回押しても増えない
+    const after = Array.from(document.querySelectorAll('#modal-link-list .chip')).length;
+    document.getElementById('modal-cancel').click();
+    return { chips, after };
+  }, [F1, TODAY]);
+  r.check('TB-X8（今日のデイリーで [[今日]] が1クリックで入る・重複しない）',
+    eq(x8.chips, ['[[2026-08-04]]']) && x8.after === 1, JSON.stringify(x8));
+
+  const x12 = await withDialogs('dismiss', () => page.evaluate(([f1, today]) => {
+    window.taskboard.test.setToday(today);
+    window.taskboard.test.newSession(f1);
+    window.__h.openEdit('資料作成');
+    const esc = (composing) => {
+      const e = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+      if (composing) Object.defineProperty(e, 'isComposing', { get: () => true });
+      document.getElementById('modal-content').dispatchEvent(e);
+    };
+    esc(true);
+    const afterComposing = document.getElementById('modal').hidden;
+    esc(false);
+    return { afterComposing, afterPlain: document.getElementById('modal').hidden };
+  }, [F1, TODAY]));
+  r.check('TB-X12（Escape で閉じる・IME 変換中の Escape では閉じない）',
+    x12.result.afterComposing === false && x12.result.afterPlain === true
+    && x12.messages.length === 0,   // 何も変えていないので確認は出ない
+    JSON.stringify([x12.result, x12.messages]));
+
+  const x13 = await withDialogs('dismiss', () => page.evaluate(([f1, today]) => {
+    window.taskboard.test.setToday(today);
+    window.taskboard.test.newSession(f1);
+    window.__h.openEdit('資料作成');
+    document.getElementById('modal-content').value = '書きかけ';
+    document.getElementById('modal-cancel').click();
+    return { hidden: document.getElementById('modal').hidden, value: document.getElementById('modal-content').value };
+  }, [F1, TODAY]));
+  const x13b = await withDialogs('accept', () => page.evaluate(() => {
+    document.getElementById('modal-cancel').click();
+    return document.getElementById('modal').hidden;
+  }));
+  r.check('TB-X13（未保存で閉じると確認・dismiss で閉じず入力が残る・accept で閉じる）',
+    x13.messages[0] === '入力を破棄しますか？' && x13.result.hidden === false
+    && x13.result.value === '書きかけ' && x13b.result === true,
+    JSON.stringify([x13.messages, x13.result, x13b.result]));
+
+  const x14 = await page.evaluate(([f1, today]) => {
+    window.taskboard.test.setToday(today);
+    window.taskboard.test.newSession(f1);
+    const trigger = document.getElementById('btn-add-form');
+    trigger.focus();
+    trigger.click();
+    const sel = 'input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), summary';
+    const f = Array.from(document.getElementById('modal').querySelectorAll(sel))
+      .filter(x => x.getClientRects().length > 0);
+    const first = f[0], last = f[f.length - 1];
+    // 末尾で Tab → 先頭へ
+    last.focus();
+    last.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+    const afterTab = document.activeElement.id;
+    // 先頭で Shift+Tab → 末尾へ
+    first.focus();
+    first.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }));
+    const afterShiftTab = document.activeElement.id;
+    document.getElementById('modal-cancel').click();
+    return { firstId: first.id, lastId: last.id, afterTab, afterShiftTab,
+      returned: document.activeElement.id, count: f.length };
+  }, [F1, TODAY]);
+  r.check('TB-X14（Tab がモーダル内で循環し、閉じたら元の要素にフォーカスが戻る）',
+    x14.firstId === 'modal-content' && x14.lastId === 'modal-save'
+    && x14.afterTab === 'modal-content' && x14.afterShiftTab === 'modal-save'
+    && x14.returned === 'btn-add-form', JSON.stringify(x14));
+
+  // TB-X15: 狭幅・下端スクロールでモーダルが画面内に収まる
+  await page.setViewportSize({ width: 390, height: 640 });
+  const x15 = await page.evaluate(([f1, today]) => {
+    window.taskboard.test.setToday(today);
+    window.taskboard.test.newSession(f1);
+    window.scrollTo(0, document.documentElement.scrollHeight);
+    document.getElementById('btn-add-form').click();
+    const m = document.querySelector('.modal').getBoundingClientRect();
+    const out = {
+      inView: m.top >= 0 && m.bottom <= document.documentElement.clientHeight
+        && m.left >= 0 && m.right <= document.documentElement.clientWidth,
+      noHScroll: document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+      rect: [Math.round(m.top), Math.round(m.bottom), Math.round(m.left), Math.round(m.right)],
+    };
+    document.getElementById('modal-cancel').click();
+    return out;
+  }, [F1, TODAY]);
+  r.check('TB-X15（幅390px・下端スクロールでもモーダルが画面内・横スクロールなし）',
+    x15.inView && x15.noHScroll, JSON.stringify(x15));
+
+  // TB-X16: ポップオーバーのビューポート内クランプ（右端・下端）
+  const x16 = await page.evaluate(([f1, today]) => {
+    window.taskboard.test.setToday(today);
+    window.taskboard.test.newSession(f1);
+    const rows = Array.from(document.querySelectorAll('#task-table tbody tr'));
+    const last = rows[rows.length - 1];
+    window.scrollTo(0, document.documentElement.scrollHeight);
+    last.querySelector('.cell-due').click();            // 最下行 → 下端
+    const pop = document.getElementById('popover');
+    const a = pop.getBoundingClientRect();
+    const bottomOk = a.bottom <= document.documentElement.clientHeight && a.top >= 0;
+    // 右端のセル（関連ノート列の隣の操作列）を基準に開く
+    last.querySelector('.cell-sec').click();
+    const b = pop.getBoundingClientRect();
+    return {
+      bottomOk, rightOk: b.right <= document.documentElement.clientWidth && b.left >= 0,
+      noHScroll: document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+      a: [Math.round(a.top), Math.round(a.bottom)], b: [Math.round(b.left), Math.round(b.right)],
+    };
+  }, [F1, TODAY]);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  r.check('TB-X16（ポップオーバーが下端・右端でビューポート内に収まる）',
+    x16.bottomOk && x16.rightOk && x16.noHScroll, JSON.stringify(x16));
+
+  const x17 = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('#task-table thead th')).map(th => th.textContent));
+  r.check('TB-X17（列見出しが「関連ノート」・列順は不変）',
+    eq(x17, ['', '内容', '開始日', '期限', '優先度', 'タグ', 'セクション', '関連ノート', '']),
+    JSON.stringify(x17));
+
+  const x18 = await page.evaluate(([f1, today]) => {
+    window.taskboard.test.setToday(today);
+    const s = window.taskboard.test.newSession(f1);
+    document.getElementById('btn-add-form').click();
+    window.__h.resetModalFields();
+    window.__h.set('modal-content', 'Cmd+Enter で保存');
+    window.__h.set('modal-memo', 'メモにフォーカスがあっても保存される');
+    const ta = document.getElementById('modal-memo');
+    ta.focus();
+    ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
+    const text = s.getText();
+    document.getElementById('modal-cancel').click();
+    return text;
+  }, [F1, TODAY]);
+  // TB-X19: タグを持つ行の内容だけ変更 → タグが二重にならない（内容欄はタグを含まない）
+  const x19 = await page.evaluate(([f1, today]) => {
+    window.taskboard.test.setToday(today);
+    const s = window.taskboard.test.newSession(f1);
+    window.__h.openEdit('目標管理');
+    const contentField = document.getElementById('modal-content').value;
+    const tagChips = window.__h.chips('modal-tag-list');
+    window.__h.set('modal-content', '目標管理を見直す');
+    document.getElementById('modal-save').click();
+    return { contentField, tagChips, line: s.getText().split('\n')[16] };
+  }, [F1, TODAY]);
+  r.check('TB-X19（内容欄はタグを含まない・内容だけ変えてもタグが二重にならない）',
+    x19.contentField === '目標管理について考える' && eq(x19.tagChips, ['#UL業務'])
+    && x19.line === '- [ ] 目標管理を見直す #UL業務 [[2026-07-07]] 🔽',
+    JSON.stringify(x19));
+
+  r.check('TB-X18（メモ textarea にフォーカスがあっても Cmd/Ctrl+Enter で保存できる）',
+    x18.split('\n')[17] === '- [ ] Cmd+Enter で保存'
+    && x18.split('\n')[18] === '\t- メモにフォーカスがあっても保存される',
+    JSON.stringify(x18.split('\n').slice(16, 20)));
 
   // TB-P19: sticky ラベルが横スクロールで実際に固定されるかを実測する
   // （excel2md で border-collapse が sticky セルの枠線を落とした前例があるので CSS を信用しない）

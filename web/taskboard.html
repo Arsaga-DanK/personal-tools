@@ -80,8 +80,26 @@
   .addform { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 0 0 12px;
     padding: 10px 14px; background: var(--panel); border: 1px solid var(--border);
     border-radius: 8px; font-size: 13px; }
-  /* 内容欄は広く取る（単行のまま。複数行にすると Enter=追加 と衝突する。TB-Q23） */
-  .addform input[type="text"] { flex: 1 1 420px; min-width: 320px; }
+  /* 追加・編集モーダル。中央固定なので画面端で切れない（TB-Q26） */
+  .modal-overlay { position: fixed; inset: 0; z-index: 200; display: flex;
+    align-items: center; justify-content: center; padding: 16px;
+    background: rgba(0,0,0,.35); }
+  .modal { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    box-shadow: 0 8px 32px rgba(0,0,0,.28); padding: 16px 18px;
+    width: min(620px, 94vw); max-height: 88vh; overflow: auto; font-size: 13px; }
+  .modal-title { margin: 0 0 12px; font-size: 15px; font-weight: 600; }
+  .mf { display: flex; gap: 10px; align-items: flex-start; margin: 0 0 10px; }
+  .mf > span:first-child { flex: 0 0 5.5em; padding-top: 5px; color: var(--muted); }
+  .mf > input, .mf > textarea, .mf-body { flex: 1 1 auto; min-width: 0; }
+  .mf-body { display: flex; flex-direction: column; gap: 6px; }
+  #modal-memo { min-height: 84px; resize: vertical; }
+  #modal-more { margin: 4px 0 12px; }
+  #modal-more > summary { cursor: pointer; color: var(--accent); padding: 4px 0; }
+  #modal-more[open] > summary { margin-bottom: 10px; }
+  .modal-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    border-top: 1px solid var(--border); padding-top: 12px; }
+  .modal-actions .muted { font-size: 12px; }
+  .chip-del { font-size: 11px; padding: 0 6px; margin-left: 2px; }
   .offscreen { position: fixed; left: -9999px; top: 0; width: 10px; height: 10px; }
   .cell-edit-input { width: 100%; font: inherit; padding: 2px 6px; border: 1px solid var(--accent);
     border-radius: 4px; background: var(--panel); color: var(--text); }
@@ -130,25 +148,12 @@
     <button id="btn-save" class="primary" disabled title="Cmd/Ctrl+S">保存</button>
   </div>
 
-  <div id="add-form" class="addform" hidden>
-    <label>内容 <input type="text" id="add-content" placeholder="タスクの内容"></label>
-    <label>セクション <select id="add-section"></select></label>
-    <label>開始日 <input type="date" id="add-start"></label>
-    <label>期限 <input type="date" id="add-due"></label>
-    <label>優先度 <select id="add-pri">
-      <option value="">なし</option>
-      <option value="high">⏫ 高</option>
-      <option value="medium">🔼 中</option>
-      <option value="low">🔽 低</option>
-    </select></label>
-    <button id="btn-add" class="primary">追加</button>
-  </div>
 
   <div id="table-wrap" hidden>
     <table id="task-table">
       <thead><tr>
         <th class="col-st"></th><th>内容</th><th>開始日</th><th>期限</th><th>優先度</th>
-        <th>タグ</th><th>セクション</th><th>元ノート</th><th class="col-act"></th>
+        <th>タグ</th><th>セクション</th><th>関連ノート</th><th class="col-act"></th>
       </tr></thead>
       <tbody id="task-body"></tbody>
     </table>
@@ -160,6 +165,61 @@
   </div>
   <p id="empty-msg" class="muted" hidden>ファイルを開くとタスクが表示されます — ブラウザから直接 tasks.md を読み書きします（初回のみ Chrome の許可ダイアログが出ます）</p>
 </main>
+
+<div id="modal" class="modal-overlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <p class="modal-title" id="modal-title">タスクを追加</p>
+    <label class="mf"><span>内容</span>
+      <input type="text" id="modal-content" placeholder="タスクの内容（必須）" spellcheck="false"></label>
+    <label class="mf"><span>メモ</span>
+      <textarea id="modal-memo" spellcheck="false" placeholder="任意。複数行可（tasks.md ではタスクの下の箇条書きになります）"></textarea></label>
+    <details id="modal-more">
+      <summary>詳細（すべて任意） — タグ・セクション・開始日・期限・優先度・関連ノート</summary>
+      <div class="mf"><span>タグ</span>
+        <div class="mf-body">
+          <div class="row-btns" id="modal-tag-list"></div>
+          <div class="row-btns">
+            <input type="text" id="modal-tag-input" placeholder="新しいタグ" spellcheck="false">
+            <button type="button" id="modal-tag-add">追加</button>
+          </div>
+        </div>
+      </div>
+      <div class="mf"><span>分類</span>
+        <div class="mf-body row-btns">
+          <label>セクション <select id="modal-section"></select></label>
+          <label>優先度 <select id="modal-pri">
+            <option value="">なし</option>
+            <option value="high">⏫ 高</option>
+            <option value="medium">🔼 中</option>
+            <option value="low">🔽 低</option>
+          </select></label>
+        </div>
+      </div>
+      <div class="mf"><span>日付</span>
+        <div class="mf-body row-btns">
+          <label>開始日 <input type="date" id="modal-start"></label>
+          <label>期限 <input type="date" id="modal-due"></label>
+        </div>
+      </div>
+      <div class="mf"><span>関連ノート</span>
+        <div class="mf-body">
+          <div class="row-btns" id="modal-link-list"></div>
+          <div class="row-btns">
+            <input type="text" id="modal-link-input" placeholder="ノート名（[[ ]] は自動）" spellcheck="false">
+            <button type="button" id="modal-link-add">追加</button>
+            <button type="button" id="modal-link-today">今日のデイリー</button>
+          </div>
+        </div>
+      </div>
+    </details>
+    <div class="modal-actions">
+      <span class="muted" id="modal-hint">内容以外はすべて任意です（Cmd/Ctrl+Enter で保存）</span>
+      <span class="spacer"></span>
+      <button type="button" id="modal-cancel">キャンセル</button>
+      <button type="button" id="modal-save" class="primary">保存</button>
+    </div>
+  </div>
+</div>
 
 <div id="popover" class="popover" hidden></div>
 <textarea id="copy-helper" class="offscreen" aria-hidden="true" tabindex="-1"></textarea>
@@ -423,13 +483,22 @@ function insertIntoSection(lines, section, block) {
   else lines.splice(hIdx + 1, 0, { raw: '', orig: null }, ...block);
 }
 
-// 新規追加行は Tasks 標準順で書く（本文 → 優先度 → 🛫 → 📅）
+// 新規追加行は Tasks 標準順で書く（本文 → 優先度 → 🛫 → 📅）。
+// メモも同時に受け取り1ブロックで挿入する（後から行番号を探さずに済む）
 function opAddTask(lines, op) {
   let raw = '- [ ] ' + nfc(op.content).trim();
   if (op.priority) raw += ' ' + PRI_EMOJI[op.priority];
   if (op.start) raw += ' 🛫 ' + op.start;
   if (op.due) raw += ' 📅 ' + op.due;
-  insertIntoSection(lines, op.section, [{ raw, orig: null }]);
+  const block = [{ raw, orig: null }];
+  const memos = String(op.memo || '').split('\n').map(s => nfc(s).replace(/\s+$/, '')).filter(Boolean);
+  for (const m of memos) {
+    if (TASK_RE.test('\t- ' + m)) {
+      throw new Error('メモに「- [ ] 」で始まる行は書けません（タスク行になってしまいます）');
+    }
+    block.push({ raw: '\t- ' + m, orig: null });
+  }
+  insertIntoSection(lines, op.section, block);
 }
 
 // 行 i が属するセクション名（直上の ## 見出し）。見出しが無ければ null
@@ -767,8 +836,9 @@ const state = {
   memoOpen: new Set(),
   ui: {
     view: 'list', sort: 'file', section: '', tag: '', showDone: false,
-    // 追加フォームの前回値（クリアも '' として記憶する。固定デフォルトは実態に合わない）
-    add: { section: '', start: '', due: '', priority: '' },
+    // 追加モーダルの前回値（クリアも '' として記憶する。固定デフォルトは実態に合わない）。
+    // 書き込みは rememberFromOp（全編集経路）、投入は openTaskModal の1箇所だけ
+    add: { section: '', start: '', due: '', priority: '', tags: [] },
   },
 };
 
@@ -831,16 +901,8 @@ function loadText(text, adapter) {
     showBanner('warn', 'CR 改行（Windows形式）のファイルです。表示のみ可能で、該当行の編集・タスク追加・アーカイブはできません（Obsidian 標準は LF）');
   }
   render();
-  applyAddDefaults();   // セクション select は render が作るので、その後に入れる
   updateFileBar();
   return true;
-}
-
-// 追加フォームの既定値（前回値）を入れる。呼ぶのは読込時とフォームを開いたときだけ
-function applyAddDefaults() {
-  el('add-start').value = state.ui.add.start;
-  el('add-due').value = state.ui.add.due;
-  el('add-pri').value = state.ui.add.priority;
 }
 
 function isDirty() {
@@ -1096,6 +1158,7 @@ function updateFileBar() {
 function applyUiOp(op) {
   try {
     runOp(state.lines, op, todayStr());
+    rememberFromOp(op);
     hideBanner();
     render();
     return true;
@@ -1103,6 +1166,31 @@ function applyUiOp(op) {
     showBanner('error', '操作に失敗しました: ' + (e && e.message));
     return false;
   }
+}
+
+// 追加フォームの既定値を**すべての編集経路から**記憶する。
+// Step 6 の不具合は「記憶の入口が追加フォーム1箇所だけ」で、実運用で使われる
+// セルのポップオーバーから書かれていなかったことが原因（docs/verification-notes.md §5b 型3）
+function rememberFromOp(op) {
+  const a = state.ui.add;
+  switch (op.type) {
+    case 'setStart':    a.start = op.date || ''; break;
+    case 'setDue':      a.due = op.date || ''; break;
+    case 'setPriority': a.priority = op.value || ''; break;
+    case 'setTags':     a.tags = (op.tags || []).slice(); break;
+    case 'moveSection': a.section = op.section; break;
+    case 'addTask':
+      a.section = op.section || a.section;
+      a.start = op.start || '';
+      a.due = op.due || '';
+      a.priority = op.priority || '';
+      // タグは本文に埋め込まれるので op.tags は addTask 自身は使わない。
+      // 記憶の書き込み口を1つに保つため、記憶用にだけ運ぶ
+      if (Array.isArray(op.tags)) a.tags = op.tags.slice();
+      break;
+    default: return;
+  }
+  persistUi();
 }
 
 function fillSelect(sel, values, current, allLabel) {
@@ -1147,11 +1235,8 @@ function render() {
   state.ui.tag = el('f-tag').value;
   el('f-done').checked = state.ui.showDone;
   el('f-sort').value = state.ui.sort;
-  // セクションは select なので毎回作り直す（前回値を優先し、無ければ先頭へフォールバック）。
-  // 日付・優先度の既定値は applyAddDefaults() で「読込時とフォームを開いたとき」だけ入れる
-  // — render ごとに入れると、利用者がクリアした欄を次の再描画で復活させてしまう
-  fillSelect(el('add-section'), doc.sections,
-    el('add-section').value || state.ui.add.section || doc.sections[0] || '');
+  // 既定値の投入は openTaskModal（モーダルを開く瞬間）の1箇所だけ。
+  // render では触らない（再描画で利用者がクリアした欄を復活させてしまうため）
 
   // 表示判定は親子グループ単位（spec 決定事項）
   const roots = doc.tasks.filter(t => t.parentLine === null);
@@ -1651,12 +1736,13 @@ function renderRow(t, today) {
     btn.title = '子タスクを追加';
     btn.addEventListener('click', (e) => openChildPopover(e.currentTarget, t));
     tdAct.appendChild(btn);
-    const memoBtn = document.createElement('button');
-    memoBtn.className = 'btn-child';
-    memoBtn.textContent = t.memo.length ? 'メモ' : '＋メモ';
-    memoBtn.title = 'メモを編集（タスクの下にインデントした箇条書きとして保存されます）';
-    memoBtn.addEventListener('click', (e) => openMemoPopover(e.currentTarget, t));
-    tdAct.appendChild(memoBtn);
+    // 内容・メモ・タグ・分類・日付・関連ノートはモーダルで1画面で編集する
+    const editBtn = document.createElement('button');
+    editBtn.className = 'btn-child';
+    editBtn.textContent = '編集';
+    editBtn.title = 'このタスクを編集（内容・メモ・タグ・日付・関連ノート）';
+    editBtn.addEventListener('click', () => openTaskModal('edit', t));
+    tdAct.appendChild(editBtn);
   }
   // 未保存の追加行だけ取り消せる（既存行の削除は提供しない）
   if (isAdded && !t.hasCR) {
@@ -1694,7 +1780,7 @@ function renderMemoRow(t) {
   td.appendChild(pre);
   if (!t.hasCR) {
     td.title = 'ダブルクリックでメモを編集';
-    td.addEventListener('dblclick', () => openMemoPopover(td, t));
+    td.addEventListener('dblclick', () => openTaskModal('edit', t, { focus: 'memo' }));
   }
   tr.appendChild(td);
   return tr;
@@ -1739,14 +1825,30 @@ function startBodyEdit(td, t) {
 
 /* ---------- ポップオーバー ---------- */
 
+// ビューポート内にクランプする（右端で押し戻し・下端で上側へ反転）。
+// openPopover は全ポップオーバーの共通入口なので、ここ1箇所で「画面はじで途切れる」を防ぐ
 function openPopover(anchor, build) {
   const pop = el('popover');
   pop.textContent = '';
   build(pop);
+  // 実寸は表示してからでないと測れない。測る前に左上へ寄せてページを広げない
+  pop.style.left = '0px';
+  pop.style.top = '0px';
   pop.hidden = false;
   const r = anchor.getBoundingClientRect();
-  pop.style.left = Math.max(8, Math.min(r.left + window.scrollX, window.scrollX + window.innerWidth - 300)) + 'px';
-  pop.style.top = (r.bottom + window.scrollY + 4) + 'px';
+  const pw = pop.offsetWidth, ph = pop.offsetHeight;
+  const vw = document.documentElement.clientWidth, vh = document.documentElement.clientHeight;
+  const sx = window.scrollX, sy = window.scrollY;
+  let left = r.left + sx;
+  if (left + pw > sx + vw - 8) left = sx + vw - pw - 8;
+  if (left < sx + 8) left = sx + 8;
+  let top = r.bottom + sy + 4;
+  if (top + ph > sy + vh - 8) {
+    const above = r.top + sy - ph - 4;                     // アンカーの上側に出す
+    top = above >= sy + 8 ? above : Math.max(sy + 8, sy + vh - ph - 8);
+  }
+  pop.style.left = left + 'px';
+  pop.style.top = top + 'px';
 }
 function closePopover() { el('popover').hidden = true; }
 document.addEventListener('mousedown', (e) => {
@@ -1857,49 +1959,230 @@ function openSectionPopover(anchor, t) {
   });
 }
 
-// メモの編集（複数行）。Enter は改行なので確定は Cmd/Ctrl+Enter
-function openMemoPopover(anchor, t) {
-  openPopover(anchor, (pop) => {
-    const label = document.createElement('span');
-    label.textContent = 'メモ（複数行可・Cmd/Ctrl+Enter で確定）';
-    pop.appendChild(label);
-    const ta = document.createElement('textarea');
-    ta.id = 'memo-input';
-    ta.value = t.memo.join('\n');
-    ta.spellcheck = false;
-    ta.style.width = '360px';
-    ta.style.minHeight = '90px';
-    pop.appendChild(ta);
-    const commit = () => {
-      if (applyUiOp({ type: 'setMemo', line: t.line, text: ta.value })) {
-        const has = ta.value.trim() !== '';
-        if (has) state.memoOpen.add(t.line); else state.memoOpen.delete(t.line);
-        render();
-        showBanner('info', has ? 'メモを保存しました（ファイルへは保存時に反映）'
-                              : 'メモを削除しました（ファイルへは保存時に反映）');
-      }
-      closePopover();
-    };
-    ta.addEventListener('keydown', (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); commit(); }
-    });
-    const btns = document.createElement('div');
-    btns.className = 'row-btns';
-    const ok = document.createElement('button');
-    ok.className = 'primary';
-    ok.textContent = '保存';
-    ok.addEventListener('click', commit);
-    btns.appendChild(ok);
-    if (t.memo.length) {
-      const del = document.createElement('button');
-      del.textContent = 'メモを削除';
-      del.addEventListener('click', () => { ta.value = ''; commit(); });
-      btns.appendChild(del);
-    }
-    pop.appendChild(btns);
-    setTimeout(() => ta.focus(), 0);
+/* ---------- 追加・編集モーダル（Phase E・2026-08-06） ----------
+   既定値の投入は**この1箇所だけ**にする（Step 6 の不具合は投入箇所が2つあったことが温床）。 */
+
+let modalState = null;   // { mode, line, initial, returnFocus, tags, links }
+
+const FOCUSABLE_SEL = 'input:not([disabled]), select:not([disabled]), textarea:not([disabled]), ' +
+  'button:not([disabled]), summary, [tabindex]:not([tabindex="-1"])';
+// 表示されている要素だけを対象にする（閉じた <details> の中は getClientRects が空になる）
+function modalFocusables() {
+  return Array.from(el('modal').querySelectorAll(FOCUSABLE_SEL))
+    .filter(x => x.getClientRects().length > 0);
+}
+
+function renderModalChips(hostId, values, onDelete) {
+  const host = el(hostId);
+  host.textContent = '';
+  if (!values.length) {
+    const s = document.createElement('span');
+    s.className = 'muted';
+    s.textContent = 'なし';
+    host.appendChild(s);
+    return;
+  }
+  values.forEach((v, i) => {
+    const wrap = document.createElement('span');
+    wrap.className = 'chip';
+    wrap.textContent = v;
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'chip-del';
+    del.textContent = '✕';
+    del.title = v + ' を外す';
+    del.addEventListener('click', () => onDelete(i));
+    wrap.appendChild(del);
+    host.appendChild(wrap);
   });
 }
+function refreshModalTags() {
+  renderModalChips('modal-tag-list', modalState.tags.map(t => '#' + t), (i) => {
+    modalState.tags.splice(i, 1);
+    refreshModalTags();
+  });
+}
+function refreshModalLinks() {
+  renderModalChips('modal-link-list', modalState.links.map(l => '[[' + l + ']]'), (i) => {
+    modalState.links.splice(i, 1);
+    refreshModalLinks();
+  });
+}
+
+function readModal() {
+  return {
+    content: el('modal-content').value.trim(),
+    memo: el('modal-memo').value.replace(/\s+$/, ''),
+    tags: modalState.tags.slice(),
+    links: modalState.links.slice(),
+    section: el('modal-section').value,
+    start: el('modal-start').value,
+    due: el('modal-due').value,
+    priority: el('modal-pri').value,
+  };
+}
+
+// 本文（内容＋タグ＋関連ノート）。editContent はこの文字列で行を作り直す
+function bodyTextOf(v) {
+  return [v.content].concat(v.tags.map(t => '#' + t), v.links.map(l => '[[' + l + ']]'))
+    .filter(s => s !== '').join(' ');
+}
+// 内容欄に出す文字列。タグと関連ノートは専用の欄で編集するので本文からは外す
+// （外さないと内容欄にタグが残り、内容を編集したときに bodyTextOf でタグが二重になる）。
+// #102 のような数字のみはタグではないので内容側に残る
+function modalContentOf(t) {
+  let s = t.displayBody || t.body || '';
+  for (const tag of t.tags) {
+    s = s.replace(new RegExp(' ?#' + escapeRe(tag) +
+      '(?![^\\s#,、。()（）\\[\\]:：;；!！?？"\'`])'), '');
+  }
+  return s.replace(/\s+/g, ' ').trim();
+}
+
+function openTaskModal(mode, t, opts) {
+  const o = opts || {};
+  const sections = (state.doc && state.doc.sections) || [];
+  const a = state.ui.add;
+  modalState = {
+    mode, line: t ? t.line : null,
+    returnFocus: document.activeElement,
+    // 新規は前回値（記憶したセクションが無ければ先頭へフォールバック）。編集は既存値
+    tags: mode === 'edit' ? t.tags.slice() : (a.tags || []).slice(),
+    links: mode === 'edit' ? t.links.slice() : [],
+  };
+  el('modal-title').textContent = mode === 'edit' ? 'タスクを編集' : 'タスクを追加';
+  el('modal-content').value = mode === 'edit' ? modalContentOf(t) : '';
+  el('modal-memo').value = mode === 'edit' ? t.memo.join('\n') : '';
+  fillSelect(el('modal-section'), sections,
+    mode === 'edit' ? t.section : (sections.includes(a.section) ? a.section : (sections[0] || '')));
+  el('modal-start').value = mode === 'edit' ? (t.start || '') : a.start;
+  el('modal-due').value = mode === 'edit' ? (t.due || '') : a.due;
+  el('modal-pri').value = mode === 'edit' ? (t.priority || '') : a.priority;
+  refreshModalTags();
+  refreshModalLinks();
+  el('modal-tag-input').value = '';
+  el('modal-link-input').value = '';
+  // 値が入っている項目が1つでもあれば詳細を開く（隠れた値に気づかないのを防ぐ）
+  const v = readModal();
+  el('modal-more').open = !!(v.tags.length || v.links.length || v.start || v.due || v.priority);
+  modalState.initial = v;
+  el('modal').hidden = false;
+  const focusTarget = o.focus === 'memo' ? el('modal-memo') : el('modal-content');
+  setTimeout(() => { focusTarget.focus(); }, 0);
+}
+
+function isModalDirty() {
+  if (!modalState) return false;
+  const a = modalState.initial, b = readModal();
+  return JSON.stringify(a) !== JSON.stringify(b);
+}
+
+function closeModal() {
+  const back = modalState && modalState.returnFocus;
+  el('modal').hidden = true;
+  modalState = null;
+  if (back && back.isConnected) back.focus();
+}
+function tryCloseModal() {
+  // 入力を無言で捨てない
+  if (isModalDirty() && !confirm('入力を破棄しますか？')) return;
+  closeModal();
+}
+
+function saveModal() {
+  if (!modalState) return;
+  const v = readModal();
+  if (v.content === '') { showBanner('warn', 'タスクの内容を入力してください'); el('modal-content').focus(); return; }
+  const body = bodyTextOf(v);
+  if (modalState.mode === 'new') {
+    const op = { type: 'addTask', section: v.section, content: body, tags: v.tags };
+    if (v.start) op.start = v.start;
+    if (v.due) op.due = v.due;
+    if (v.priority) op.priority = v.priority;
+    if (v.memo !== '') op.memo = v.memo;
+    if (!applyUiOp(op)) return;
+    showBanner('info', 'タスクを追加しました（ファイルへは保存時に反映）');
+    // 連続追加を自然にする（Phase I の TB-Q7 と同じ意図）。内容とメモだけ空にして開いたまま保つ。
+    // 他の欄は前回値として残るので、同じ期限のタスクを続けて足せる
+    el('modal-content').value = '';
+    el('modal-memo').value = '';
+    modalState.initial = readModal();
+    el('modal-content').focus();
+    return;
+  }
+  // 編集: **変更したフィールドの op だけ**発行する（触っていない値のバイトを変えない）。
+  // 行番号が動く moveSection は最後（先に出すと後続の op が別の行を編集してしまう）
+  const a = modalState.initial;
+  const line = modalState.line;
+  const ops = [];
+  const bodyChanged = v.content !== a.content ||
+    JSON.stringify(v.links) !== JSON.stringify(a.links) ||
+    JSON.stringify(v.tags) !== JSON.stringify(a.tags);
+  const onlyTagsChanged = v.content === a.content &&
+    JSON.stringify(v.links) === JSON.stringify(a.links) &&
+    JSON.stringify(v.tags) !== JSON.stringify(a.tags);
+  if (onlyTagsChanged) ops.push({ type: 'setTags', line, tags: v.tags });
+  else if (bodyChanged) ops.push({ type: 'editContent', line, text: body });
+  if (v.start !== a.start) ops.push({ type: 'setStart', line, date: v.start || null });
+  if (v.due !== a.due) ops.push({ type: 'setDue', line, date: v.due || null });
+  if (v.priority !== a.priority) ops.push({ type: 'setPriority', line, value: v.priority || null });
+  if (v.memo !== a.memo) ops.push({ type: 'setMemo', line, text: v.memo });
+  if (v.section !== a.section) ops.push({ type: 'moveSection', line, section: v.section });
+  if (!ops.length) { closeModal(); return; }
+  for (const op of ops) if (!applyUiOp(op)) return;
+  showBanner('info', ops.length + '項目を変更しました（ファイルへは保存時に反映）');
+  closeModal();
+}
+
+el('modal-save').addEventListener('click', saveModal);
+el('modal-cancel').addEventListener('click', tryCloseModal);
+el('modal').addEventListener('mousedown', (e) => { if (e.target === el('modal')) tryCloseModal(); });
+el('modal-content').addEventListener('keydown', (e) => {
+  // Enter=追加 は Phase I の決定どおり維持する。変換確定の Enter で保存しない
+  if (isComposingKey(e)) return;
+  if (e.key === 'Enter') { e.preventDefault(); saveModal(); }
+});
+el('modal').addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    if (isComposingKey(e)) return;   // 変換候補を戻す Escape で閉じない
+    e.preventDefault();
+    tryCloseModal();
+    return;
+  }
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); saveModal(); return; }
+  if (e.key !== 'Tab') return;
+  const f = modalFocusables();
+  if (!f.length) return;
+  const first = f[0], last = f[f.length - 1];
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+});
+const addModalTag = () => {
+  const v = el('modal-tag-input').value.replace(/^#/, '').trim();
+  if (!v || modalState.tags.includes(v)) { el('modal-tag-input').value = ''; return; }
+  modalState.tags.push(v);
+  el('modal-tag-input').value = '';
+  refreshModalTags();
+};
+el('modal-tag-add').addEventListener('click', addModalTag);
+el('modal-tag-input').addEventListener('keydown', (e) => {
+  if (isComposingKey(e)) return;                 // 修飾キーなしの Enter なので IME ガードが必要
+  if (e.key === 'Enter') { e.preventDefault(); addModalTag(); }
+});
+const addModalLink = (name) => {
+  const v = String(name === undefined ? el('modal-link-input').value : name).replace(/^\[\[|\]\]$/g, '').trim();
+  if (!v || modalState.links.includes(v)) { el('modal-link-input').value = ''; return; }
+  modalState.links.push(v);
+  el('modal-link-input').value = '';
+  refreshModalLinks();
+};
+el('modal-link-add').addEventListener('click', () => addModalLink());
+el('modal-link-today').addEventListener('click', () => addModalLink(todayStr()));
+el('modal-link-input').addEventListener('keydown', (e) => {
+  if (isComposingKey(e)) return;
+  if (e.key === 'Enter') { e.preventDefault(); addModalLink(); }
+});
+
 
 // タグの付与・削除。既存タグをトグルし、新規はテキスト入力（Enter で追加）
 function openTagPopover(anchor, t) {
@@ -2069,6 +2352,9 @@ function restoreUi() {
     for (const k of ['section', 'start', 'due', 'priority']) {
       if (typeof s.add[k] === 'string') state.ui.add[k] = s.add[k];
     }
+    if (Array.isArray(s.add.tags)) {
+      state.ui.add.tags = s.add.tags.filter(x => typeof x === 'string');
+    }
   }
 }
 
@@ -2086,36 +2372,8 @@ el('view-tabs').addEventListener('click', (e) => {
   render();
 });
 
-el('btn-add-form').addEventListener('click', () => {
-  const open = el('add-form').hidden;
-  el('add-form').hidden = !open;
-  if (open) { applyAddDefaults(); el('add-content').focus(); }
-});
-el('btn-add').addEventListener('click', () => {
-  const content = el('add-content').value.trim();
-  if (!content) { showBanner('warn', 'タスクの内容を入力してください'); return; }
-  // 先に読む: applyUiOp → render の中で select が作り直されるため、後から読むと値が変わる
-  const chosen = {
-    section: el('add-section').value, start: el('add-start').value,
-    due: el('add-due').value, priority: el('add-pri').value,
-  };
-  const op = { type: 'addTask', section: chosen.section, content };
-  if (chosen.start) op.start = chosen.start;
-  if (chosen.due) op.due = chosen.due;
-  if (chosen.priority) op.priority = chosen.priority;
-  if (applyUiOp(op)) {
-    // 追加が成功したときだけ前回値として覚える（入力途中の値は覚えない）。
-    // クリアした欄は '' として覚える（次も空で出す）
-    state.ui.add = chosen;
-    persistUi();
-  }
-  el('add-content').value = '';
-  el('add-content').focus(); // 連続追加を自然にする（ボタンにフォーカスを残さない。TB-Q7）
-});
-el('add-content').addEventListener('keydown', (e) => {
-  if (isComposingKey(e)) return;
-  if (e.key === 'Enter') el('btn-add').click();
-});
+// ［＋タスク追加］はモーダルを開く（1行フォームは廃止。既定値の投入箇所を1つにする）
+el('btn-add-form').addEventListener('click', () => openTaskModal('new'));
 
 el('btn-save').addEventListener('click', doSave);
 el('btn-archive').addEventListener('click', doArchive);
