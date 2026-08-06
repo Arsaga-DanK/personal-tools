@@ -528,10 +528,10 @@ const TAB_IDS = ['json', 'escape', 'url', 'base64', 'time', 'uuid', 'count'];
 
   /* ========== ハブからの導線 ========== */
   await page.goto(fileUrl('index.html'));
-  await page.click('ul.tool-list a:text-is("開発ツール箱")');
+  await page.click('ul.tool-list a:text-is("Convert")');
   await page.waitForLoadState('load');
   const title = await page.title();
-  r.check('ハブから「開発ツール箱」→ devpad へ遷移できる', title.includes('devpad'), title);
+  r.check('ハブから「Convert」→ devpad へ遷移できる', title.includes('devpad'), title);
 
   await browser.close();
   r.report('devpad（docs/specs/devpad.md）');

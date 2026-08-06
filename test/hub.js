@@ -6,7 +6,7 @@
 
    ハブには spec ファイルが無いため、契約はこのハーネスと index.html の
    TOOLS / CATEGORY_ORDER のコメントが持つ。
-   表示名（日本語）と英名（ファイル名・spec・localStorage キー）の使い分けは
+   表示名（短い英語1語）と英名（ファイル名・spec・localStorage キー）の使い分けは
    CLAUDE.md「命名規約」が正本。HUB-9/HUB-10 がその規約を照合する。 */
 
 const { launch, fileUrl, createRunner, eq } = require('./helpers');
@@ -27,11 +27,11 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     toolsArray: window.hub.TOOLS.map(t => t.name),
   }));
   r.check('HUB-1（カテゴリ順: タスクが先頭）', order.categories[0] === 'タスク'
-    && eq(order.categories, ['タスク', '変換']), JSON.stringify(order.categories));
-  r.check('HUB-2（タスク管理 が最初のリンク）', order.firstLink === 'タスク管理', order.firstLink);
+    && eq(order.categories, ['タスク', '変換・比較']), JSON.stringify(order.categories));
+  r.check('HUB-2（Tasks が最初のリンク）', order.firstLink === 'Tasks', order.firstLink);
   r.check('HUB-3（TOOLS 配列順が同カテゴリ内の表示順）',
-    eq(order.toolsArray, ['タスク管理', '表変換', '開発ツール箱', '表記そろえ', '差分比較'])
-    && eq(order.groups, [['タスク管理'], ['表変換', '開発ツール箱', '表記そろえ', '差分比較']]),
+    eq(order.toolsArray, ['Tasks', 'Tables', 'Convert', 'Text', 'Diff'])
+    && eq(order.groups, [['Tasks'], ['Tables', 'Convert', 'Text', 'Diff']]),
     JSON.stringify([order.toolsArray, order.groups]));
 
   /* ---------- 全ツールが1回だけ載る ---------- */
@@ -48,28 +48,28 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     const f = window.hub.filter;
     return {
       empty: f('').map(t => t.name),
-      byName: f('タスク管理').map(t => t.name),
+      byName: f('Tasks').map(t => t.name),
       byDesc: f('vault').map(t => t.name),
       byWhen: f('週次').map(t => t.name),
       caseInsensitive: f('BASE64').map(t => t.name),   // devpad の desc の Base64
-      partial: f('そろえ').map(t => t.name),           // 表示名の部分一致
+      partial: f('able').map(t => t.name),             // 表示名 Tables の部分一致
       none: f('存在しない文字列').map(t => t.name),
       alias: f('norm').map(t => t.name),               // 英名（alias）でも辿れる
       aliasUpper: f('DEVPAD').map(t => t.name),        // alias も大文字小文字無視
       aliasPartial: f('excel2').map(t => t.name),      // alias の部分一致
       aliasHidden: Array.from(document.querySelectorAll('ul.tool-list')).some(
-        ul => /taskboard|excel2md|devpad/.test(ul.textContent)),  // 画面には出さない
+        ul => /taskboard|excel2md|devpad|norm/.test(ul.textContent)),  // 画面には出さない
     };
   });
   r.check('HUB-5（検索: 空・表示名・説明・用途・大文字小文字・部分一致）',
-    eq(search.empty, ['タスク管理', '表変換', '開発ツール箱', '表記そろえ', '差分比較'])
-    && eq(search.byName, ['タスク管理']) && eq(search.byDesc, ['タスク管理'])
-    && eq(search.byWhen, ['タスク管理']) && eq(search.caseInsensitive, ['開発ツール箱'])
-    && eq(search.partial, ['表記そろえ']) && eq(search.none, []),
+    eq(search.empty, ['Tasks', 'Tables', 'Convert', 'Text', 'Diff'])
+    && eq(search.byName, ['Tasks']) && eq(search.byDesc, ['Tasks'])
+    && eq(search.byWhen, ['Tasks']) && eq(search.caseInsensitive, ['Convert'])
+    && eq(search.partial, ['Tables']) && eq(search.none, []),
     JSON.stringify(search));
   r.check('HUB-9（英名でもヒットする・英名は画面に出さない）',
-    eq(search.alias, ['表記そろえ']) && eq(search.aliasUpper, ['開発ツール箱'])
-    && eq(search.aliasPartial, ['表変換']) && search.aliasHidden === false,
+    eq(search.alias, ['Text']) && eq(search.aliasUpper, ['Convert'])
+    && eq(search.aliasPartial, ['Tables']) && search.aliasHidden === false,
     JSON.stringify([search.alias, search.aliasUpper, search.aliasPartial, search.aliasHidden]));
 
   const typeSearch = async q => {
@@ -81,13 +81,13 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
       empty: document.getElementById('empty-msg').hidden ? '' : document.getElementById('empty-msg').textContent,
     }));
   };
-  const s1 = await typeSearch('表記そろえ');
+  const s1 = await typeSearch('Text');
   const s2 = await typeSearch('存在しない文字列');
   const s3 = await typeSearch('');
   r.check('HUB-6（UI 検索: 絞り込み・該当なし・クリアで復帰）',
-    eq(s1.names, ['表記そろえ']) && eq(s1.categories, ['変換'])       // 空のカテゴリ見出しは出ない
+    eq(s1.names, ['Text']) && eq(s1.categories, ['変換・比較'])       // 空のカテゴリ見出しは出ない
     && eq(s2.names, []) && s2.empty === '該当なし'
-    && eq(s3.names, ['タスク管理', '表変換', '開発ツール箱', '表記そろえ', '差分比較']) && s3.categories[0] === 'タスク',
+    && eq(s3.names, ['Tasks', 'Tables', 'Convert', 'Text', 'Diff']) && s3.categories[0] === 'タスク',
     JSON.stringify([s1, s2, s3]));
 
   /* ---------- リンク遷移（全ツール） ---------- */
@@ -103,17 +103,19 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     await page.waitForLoadState('load');
     const title = await page.title();
     const h1 = await page.evaluate(() => document.querySelector('h1').textContent);
+    // 命名規約（CLAUDE.md）: h1 = 表示名 / title = 「表示名 (英名)」
+    // ただし表示名と英名が同じなら表示名のみ（Diff (diff) は冗長）
+    const wantTitle = name.toLowerCase() === alias ? name : name + ' (' + alias + ')';
     navResults.push({
       name, alias, href, title, h1,
-      ok: title.includes(alias),
-      // 命名規約（CLAUDE.md）: h1 = 表示名 / title = 「表示名 — 英名」/ 英名 = ファイル名
-      naming: h1 === name && title === name + ' — ' + alias && alias === basename,
+      ok: title.toLowerCase().includes(alias),   // 表示名が英語なので大文字小文字を無視する
+      naming: h1 === name && title === wantTitle && alias === basename,
     });
   }
   r.check('HUB-7（5本すべてリンクで遷移でき title が一致）',
     navResults.length === 5 && navResults.every(n => n.ok),
     JSON.stringify(navResults));
-  r.check('HUB-10（h1 = 表示名・title = 「表示名 — 英名」・英名 = ファイル名）',
+  r.check('HUB-10（h1 = 表示名・title = 「表示名 (英名)」・英名 = ファイル名）',
     navResults.length === 5 && navResults.every(n => n.naming),
     JSON.stringify(navResults.map(n => [n.name, n.h1, n.title, n.href])));
 
@@ -125,7 +127,7 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     firstLink: document.querySelector('ul.tool-list a').textContent,
   }));
   r.check('HUB-8（幅390pxで横スクロールなし・順序は不変）',
-    narrow.noHScroll && narrow.firstLink === 'タスク管理', JSON.stringify(narrow));
+    narrow.noHScroll && narrow.firstLink === 'Tasks', JSON.stringify(narrow));
 
   await browser.close();
   r.report('ハブ（index.html）');

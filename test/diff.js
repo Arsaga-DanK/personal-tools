@@ -323,10 +323,11 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
 
   /* ========== ハブからの導線 ========== */
   await page.goto(fileUrl('index.html'));
-  await page.click('ul.tool-list a:text-is("差分比較")');
+  await page.click('ul.tool-list a:text-is("Diff")');
   await page.waitForLoadState('load');
   const title = await page.title();
-  r.check('ハブから「差分比較」→ diff へ遷移できる', title.includes('diff'), title);
+  // 表示名と英名が同じため title は 'Diff'（併記なし。CLAUDE.md 命名規約）
+  r.check('ハブから「Diff」→ diff へ遷移できる', title.toLowerCase().includes('diff'), title);
 
   await browser.close();
   r.report('diff（docs/specs/diff.md）');

@@ -26,17 +26,20 @@ test/        検証ハーネス（`./test/run [ツール名]`。書き方は tes
 
 ## 命名規約
 
-- ツールの**表示名**は日本語の分かりやすい名前（動詞的な名前を推奨）。
-  index.html の TOOLS の `name`、各ツールの `<h1>`、`<title>` の先頭に使う
+- ツールの**表示名**は**短い英語1語**（領域を指すラベル。`Tasks` `Tables` `Convert`）。
+  index.html の TOOLS の `name`、各ツールの `<h1>`、`<title>` の先頭に使う。
+  **名前で説明しようとしない** — 説明は `desc` と `when`（ハブ）と `.subtitle`（ツール内）が担う
 - **ファイル名・spec 名・localStorage キー（`tools:<name>`）・`window.<name>` フック・
   spec のテスト ID** は英小文字で、一度決めたら変更しない
   （テストと spec の参照が連動するため）
-- `<title>` は「表示名 — 英名」（例: `表変換 — excel2md`）。
-  タブでは日本語で判別でき、英名がファイル・spec・テストへの識別子として残る
+- `<title>` は「表示名 (英名)」（例: `Tables (excel2md)`）。
+  表示名だけではファイル名が分からないため、識別子を括弧で添える。
+  **表示名と英名が同じなら表示名のみ**（`Diff`。`Diff (diff)` は冗長）
 - 英名は TOOLS の `alias` にも書く（画面には出さず検索にだけ効く。
   過去のメモやファイル名が英名で書かれているため）
-- 現在の対応: タスク管理=taskboard / 表変換=excel2md / 開発ツール箱=devpad /
-  表記そろえ=norm / 差分比較=diff
+- 現在の対応: Tasks=taskboard / Tables=excel2md / Convert=devpad / Text=norm / Diff=diff
+- カテゴリ名は日本語のまま（英語にすると Convert ツールと同名になる。
+  日本語=分類 / 英語=ツール名 の対比で階層が読みやすくなる）
 
 ## ブラウザツールの制約（web/）
 
