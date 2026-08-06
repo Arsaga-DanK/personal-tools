@@ -66,6 +66,21 @@ const F4 = [
   '',
 ].join('\n');
 
+// F5: メモ（Phase N）用。メモ・複数行メモ・メモと子タスクの混在・メモだけを持つ完了タスク
+const F5 = [
+  '# tasks', '', '## PEW', '',
+  '- [ ] 親A',            //  5
+  '\t- メモ1行目',        //  6 メモ
+  '\t- メモ2行目',        //  7 メモ
+  '\t- [ ] 子A1',         //  8 子タスク
+  '\t\t- 子のメモ',       //  9 子A1 のメモ
+  '- [ ] 親B',            // 10 メモなし
+  '- [x] 親C',            // 11
+  '\t- Cのメモ',          // 12
+  '', '## UL', '',        // 13-15
+  '',                     // 16（join で末尾改行）
+].join('\n');
+
 (async () => {
   const r = createRunner();
   const browser = await launch();
@@ -1011,6 +1026,279 @@ const F4 = [
     && p15unknown.tlHidden === true && p15unknown.tabActive === 'リスト'
     && p15unknown.sortValue === 'file',
     JSON.stringify([p15restored, p15unknown]));
+
+  /* ========== TB-M1〜M12: メモ（Phase N） ========== */
+  const m1 = await ops(F5, [{ type: 'setMemo', line: 5, text: 'メモ1行目\nメモ2行目' }]);
+  r.check('TB-M1（同じ本文の setMemo はバイト同一・1行も書き換えない）', m1 === F5,
+    JSON.stringify(m1 === F5 ? '' : m1));
+
+  const m2 = await ops(F5, [{ type: 'setMemo', line: 10, text: '新規メモ' }]);
+  r.check('TB-M2（メモなしのタスクに1行追加・他行はバイト不変）',
+    lineOf(m2, 11) === '\t- 新規メモ'
+    && eq(NB(m2).filter(l => l !== '\t- 新規メモ'), NB(F5)),
+    JSON.stringify([lineOf(m2, 11), m2.split('\n').length, F5.split('\n').length]));
+
+  const m3 = await ops(F5, [{ type: 'setMemo', line: 5, text: 'メモ1行目\n変更2\n追加3' }]);
+  r.check('TB-M3（2行→3行: 変えない1行目は不変・2行目を変更・3行目を挿入）',
+    lineOf(m3, 6) === '\t- メモ1行目' && lineOf(m3, 7) === '\t- 変更2'
+    && lineOf(m3, 8) === '\t- 追加3' && lineOf(m3, 9) === '\t- [ ] 子A1'
+    && m3.split('\n').length === F5.split('\n').length + 1,
+    JSON.stringify(m3.split('\n').slice(4, 10)));
+
+  const m4 = await ops(F5, [{ type: 'setMemo', line: 5, text: 'メモ1行目' }]);
+  r.check('TB-M4（2行→1行: 2行目が除去され他はバイト不変）',
+    lineOf(m4, 6) === '\t- メモ1行目' && lineOf(m4, 7) === '\t- [ ] 子A1'
+    && m4.split('\n').length === F5.split('\n').length - 1,
+    JSON.stringify(m4.split('\n').slice(4, 9)));
+
+  const m5 = await ops(F5, [{ type: 'setMemo', line: 5, text: '' }]);
+  r.check('TB-M5（メモ削除で子タスクとその メモは残る）',
+    lineOf(m5, 6) === '\t- [ ] 子A1' && lineOf(m5, 7) === '\t\t- 子のメモ'
+    && m5.split('\n').length === F5.split('\n').length - 2,
+    JSON.stringify(m5.split('\n').slice(4, 8)));
+
+  // 危険なのは本文が `[ ] ` で始まる場合（`\t- [ ] …` = タスク行になる）。
+  // `- [ ] …` は `\t- - [ ] …` になり箇条書きの本文なので許してよい
+  const m6 = await opsError(F5, [{ type: 'setMemo', line: 5, text: '[ ] やること' }]);
+  const m6ok = await ops(F5, [{ type: 'setMemo', line: 10, text: '- [ ] 見た目だけ' }]);
+  r.check('TB-M6（メモがタスク行になる本文は拒否・箇条書きの本文としては許す）',
+    !!m6 && m6.includes('タスク行になってしまいます')
+    && lineOf(m6ok, 11) === '\t- - [ ] 見た目だけ',
+    JSON.stringify([m6, lineOf(m6ok, 11)]));
+
+  const m7 = await ops(F1, [{ type: 'complete', line: 9 }, { type: 'setDue', line: 13, date: null }]);
+  const m7parse = await page.evaluate(f1 => window.taskboard.test.parse(f1).tasks.map(t => t.memo), F1);
+  r.check('TB-M7（F1 は空行・HTML コメントをメモと誤認しない）',
+    eq(m7parse, [[], [], [], [], [], []]) && onlyChanged(m7, F1, [9, 13]),
+    JSON.stringify(m7parse));
+
+  const m8 = await ops(F5, [{ type: 'moveSection', line: 5, section: 'UL' }]);
+  r.check('TB-M8（セクション移動でメモ2行・子タスク・子のメモの5行がまとめて移る）',
+    eq(NB(m8).slice(0, 4), ['# tasks', '## PEW', '- [ ] 親B', '- [x] 親C'])
+    && eq(NB(m8).slice(4), ['\t- Cのメモ', '## UL', '- [ ] 親A', '\t- メモ1行目',
+      '\t- メモ2行目', '\t- [ ] 子A1', '\t\t- 子のメモ']),
+    JSON.stringify(NB(m8)));
+
+  const m9 = await ops(F5, [{ type: 'addChild', parentLine: 5, content: '子A2' }]);
+  r.check('TB-M9（子タスクはメモ2行と既存の子（とそのメモ）より後に入る）',
+    lineOf(m9, 10) === '\t- [ ] 子A2' && lineOf(m9, 9) === '\t\t- 子のメモ',
+    JSON.stringify(m9.split('\n').slice(4, 11)));
+
+  // TB-M10: 完了＋メモのアーカイブ（メモも一緒に移る）
+  const m10 = await withDialogs('accept', () => page.evaluate(([f5, today]) => {
+    window.taskboard.test.setToday(today);
+    const cb = document.getElementById('f-done');
+    cb.checked = true;
+    cb.dispatchEvent(new Event('change', { bubbles: true }));
+    const s = window.taskboard.test.newSession(f5);
+    return s.archive().then(res => ({
+      res, archive: s.getArchiveText(), tasks: s.getAdapterText(),
+      badge: document.getElementById('btn-archive').textContent,
+    }));
+  }, [F5, TODAY]));
+  r.check('TB-M10（アーカイブでメモ行も archive.md へ移り tasks.md から消える）',
+    m10.result.res.ok === true && m10.result.res.moved === 2
+    && m10.result.archive.includes('- [x] 親C\n\t- Cのメモ\n')
+    && !m10.result.tasks.includes('親C') && !m10.result.tasks.includes('Cのメモ')
+    // 件数はタスク数で数える（メモ行で膨らませない）
+    && m10.messages[0] === '1件を archive.md へ移動します。よろしいですか？',
+    JSON.stringify([m10.result.res, m10.messages, m10.result.archive]));
+
+  // TB-M11: UI（マーカー → 展開 → 編集 → 保存で永続）
+  const m11 = await withDialogs('accept', () => page.evaluate(([f5, today]) => {
+    window.taskboard.test.setToday(today);
+    const s = window.taskboard.test.newSession(f5);
+    const rowOf = body => Array.from(document.querySelectorAll('#task-table tbody tr'))
+      .find(tr => tr.children[1] && tr.children[1].textContent.includes(body));
+    const mark = rowOf('親A').querySelector('.memo-mark');
+    const markText = mark.textContent;
+    mark.click();                                   // 展開
+    const memoRow = document.querySelector('tr.memo-row .memo-text');
+    const expanded = memoRow ? memoRow.textContent : null;
+    // メモを編集して Cmd+Enter で確定
+    rowOf('親A').querySelectorAll('.btn-child')[1].click();
+    const ta = document.getElementById('memo-input');
+    const before = ta.value;
+    ta.value = 'メモ1行目\n差し替え2';
+    ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true }));
+    return s.save().then(res => ({
+      markText, expanded, before, res, adapter: s.getAdapterText(),
+      collapsedAfter: document.querySelectorAll('tr.memo-row').length,
+    }));
+  }, [F5, TODAY]));
+  r.check('TB-M11（📝2 マーカー・展開・Cmd+Enter で編集確定・保存で永続）',
+    m11.result.markText === '📝2' && m11.result.expanded === 'メモ1行目\nメモ2行目'
+    && m11.result.before === 'メモ1行目\nメモ2行目'
+    && m11.result.res.ok === true
+    && m11.result.adapter.split('\n')[6] === '\t- 差し替え2'
+    && m11.result.adapter.split('\n')[5] === '\t- メモ1行目',
+    JSON.stringify([m11.result.markText, m11.result.expanded, m11.result.adapter.split('\n').slice(4, 9)]));
+
+  // TB-M13: 保存バナーで差分の実測（位置ごと比較が最小差分になっているかの確認）と
+  // メモ削除の文言（行数が減るだけなので「行の移動」と出ると誤解を招く）
+  const m13 = await withDialogs('accept', () => page.evaluate(([f5, today]) => {
+    window.taskboard.test.setToday(today);
+    const run = (text) => {
+      const s = window.taskboard.test.newSession(f5);
+      s.applyOps([{ type: 'setMemo', line: 5, text }]);
+      const badge = document.getElementById('btn-save').textContent;
+      return s.save().then(() => ({
+        badge, banner: document.getElementById('banner').textContent,
+      }));
+    };
+    return run('メモ1行目\n変更2\n追加3')
+      .then(grow => run('メモ1行目').then(shrink => ({ grow, shrink })));
+  }, [F5, TODAY]));
+  r.check('TB-M13（2行→3行は「変更1行・追加1行」/ 2行→1行は「1行を削除」）',
+    m13.result.grow.banner === '保存しました（変更1行・追加1行）'
+    && m13.result.grow.badge === '保存（2）'
+    && m13.result.shrink.banner === '保存しました（1行を削除）',
+    JSON.stringify(m13.result));
+
+  const m12 = await ops(F1, [
+    { type: 'addTask', section: 'UL', content: '誤追加' },
+    { type: 'setMemo', line: 18, text: 'メモも追加' },
+    { type: 'undoAdd', line: 18 },
+  ]);
+  r.check('TB-M12（追加行の取り消しで追加されたメモ行も一緒に消えて F1 に戻る）',
+    m12 === F1, JSON.stringify(m12 === F1 ? '' : m12));
+
+  /* ========== TB-C1〜C3: 完了タスクを常に最下部 ========== */
+  // F1 の9行目を完了させた状態で並びを見る（10行目は完了だが子12が未完了なので上に残る）
+  const c1done = await ops(F1, [{ type: 'complete', line: 9 }]);
+  const listOrder = (text, sort) => page.evaluate(([t, today, s]) => {
+    window.taskboard.test.setToday(today);
+    const cb = document.getElementById('f-done');
+    cb.checked = true;
+    cb.dispatchEvent(new Event('change', { bubbles: true }));
+    const sel = document.getElementById('f-sort');
+    sel.value = s;
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+    const sess = window.taskboard.test.newSession(t);
+    sess.setView('list');   // 直前のテストで timeline のままだと並べ替えが効かない
+    return Array.from(document.querySelectorAll('#task-table tbody tr'))
+      .filter(tr => !tr.classList.contains('memo-row'))
+      .map(tr => Number(tr.dataset.line));
+  }, [text, TODAY, sort]);
+  const c1b = await listOrder(c1done, 'file');
+  r.check('TB-C1（完了グループは最下部・未完了の子孫を持つ完了親は上に残る）',
+    eq(c1b, [10, 11, 12, 13, 17, 9]), JSON.stringify(c1b));
+
+  const c2 = {};
+  for (const s of ['due', 'priority', 'start']) c2[s] = await listOrder(c1done, s);
+  r.check('TB-C2（どのソートでも完了は最下部＝第1キー）',
+    ['due', 'priority', 'start'].every(s => c2[s][c2[s].length - 1] === 9)
+    && Object.keys(c2).length === 3, JSON.stringify(c2));
+
+  const c3 = await plan(F4, { showDone: true });
+  r.check('TB-C3（タイムラインの行順は従来どおり＝完了を下に動かさない）',
+    eq(c3.model.items.map(i => i.line), [5, 6, 7, 8, 9]),
+    JSON.stringify(c3.model.items.map(i => i.line)));
+
+  /* ========== TB-T1〜T5: タグの付与・削除 ========== */
+  const t1 = await ops(F1, [{ type: 'setTags', line: 17, tags: ['UL業務', '重要'] }]);
+  r.check('TB-T1（タグ追加は本文末尾＝優先度の直前・他行は不変）',
+    lineOf(t1, 17) === '- [ ] 目標管理について考える [[2026-07-07]] #UL業務 #重要 🔽'
+    && onlyChanged(t1, F1, [17]), JSON.stringify(lineOf(t1, 17)));
+
+  const t2 = await ops(F1, [{ type: 'setTags', line: 17, tags: [] }]);
+  r.check('TB-T2（タグ削除はトークンと直前の空白1個のみ除去）',
+    lineOf(t2, 17) === '- [ ] 目標管理について考える [[2026-07-07]] 🔽'
+    && onlyChanged(t2, F1, [17]), JSON.stringify(lineOf(t2, 17)));
+
+  const t3 = await ops(F1, [{ type: 'setTags', line: 13, tags: ['新タグ'] }]);
+  r.check('TB-T3（#144 は数字のみなのでタグ扱いせず触らない・📅 の直前に挿入）',
+    lineOf(t3, 13) === '- [ ] 資料Rv #144 [[2026-07-14_TODO]] [[2026-07-21]] #新タグ 📅 2026-08-05 ⏫'
+    && onlyChanged(t3, F1, [13]), JSON.stringify(lineOf(t3, 13)));
+
+  const t4 = await ops(F1, [
+    { type: 'setTags', line: 17, tags: ['UL業務', '一時'] },
+    { type: 'setTags', line: 17, tags: ['UL業務'] },
+  ]);
+  r.check('TB-T4（追加→削除の往復でバイト同一）', t4 === F1, JSON.stringify(lineOf(t4, 17)));
+
+  const t5 = await page.evaluate(([f1, today]) => {
+    window.taskboard.test.setToday(today);
+    const s = window.taskboard.test.newSession(f1);
+    const rowOf = body => Array.from(document.querySelectorAll('#task-table tbody tr'))
+      .find(tr => tr.children[1] && tr.children[1].textContent.includes(body));
+    rowOf('目標管理').querySelector('.cell-tags').click();
+    const existing = Array.from(document.querySelectorAll('#popover button'))
+      .filter(b => b.textContent.startsWith('#')).map(b => ({ t: b.textContent, on: b.classList.contains('active') }));
+    const input = document.getElementById('tag-input');
+    input.value = 'IME中';
+    const ev = (composing) => {
+      const e = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+      if (composing) Object.defineProperty(e, 'isComposing', { get: () => true });
+      return e;
+    };
+    input.dispatchEvent(ev(true));
+    const afterComposing = { tags: s.getText().split('\n')[16], popoverOpen: !document.getElementById('popover').hidden };
+    input.dispatchEvent(ev(false));
+    return { existing, afterComposing, afterPlain: s.getText().split('\n')[16] };
+  }, [F1, TODAY]);
+  r.check('TB-T5（既存タグのトグル表示・IME 変換中の Enter では追加されない）',
+    t5.existing.length === 1 && t5.existing[0].t === '#UL業務' && t5.existing[0].on === true
+    && t5.afterComposing.tags === '- [ ] 目標管理について考える [[2026-07-07]] #UL業務 🔽'
+    && t5.afterComposing.popoverOpen === true
+    && t5.afterPlain === '- [ ] 目標管理について考える [[2026-07-07]] #UL業務 #IME中 🔽',
+    JSON.stringify(t5));
+
+  /* ========== TB-D1〜D3・TB-W1: 追加フォームの既定値と幅 ========== */
+  const d1 = await page.evaluate(([f1, today]) => {
+    window.taskboard.test.setToday(today);
+    const s = window.taskboard.test.newSession(f1);
+    document.getElementById('add-content').value = '既定値テスト';
+    document.getElementById('add-section').value = 'UL';
+    document.getElementById('add-start').value = '2026-08-10';
+    document.getElementById('add-due').value = '2026-08-20';
+    document.getElementById('add-pri').value = 'high';
+    document.getElementById('btn-add').click();
+    return { saved: JSON.parse(localStorage.getItem('tools:taskboard')).data.add, text: s.getText() };
+  }, [F1, TODAY]);
+  const d1page = r.watch(await context.newPage());
+  await d1page.goto(fileUrl('web/taskboard.html'));
+  const d1restored = await d1page.evaluate(f1 => {
+    window.taskboard.test.newSession(f1);
+    document.getElementById('btn-add-form').click();   // 幅を測るためフォームを開く
+    return {
+      section: document.getElementById('add-section').value,
+      start: document.getElementById('add-start').value,
+      due: document.getElementById('add-due').value,
+      pri: document.getElementById('add-pri').value,
+      width: document.getElementById('add-content').getBoundingClientRect().width,
+    };
+  }, F1);
+  r.check('TB-D1（開始日・期限・優先度・セクションが前回値で復元される）',
+    eq(d1.saved, { section: 'UL', start: '2026-08-10', due: '2026-08-20', priority: 'high' })
+    && d1restored.section === 'UL' && d1restored.start === '2026-08-10'
+    && d1restored.due === '2026-08-20' && d1restored.pri === 'high',
+    JSON.stringify([d1.saved, d1restored]));
+  r.check('TB-W1（内容欄の幅が 320px 以上）', d1restored.width >= 320, String(d1restored.width));
+
+  const d2 = await d1page.evaluate(f1 => {
+    const s = window.taskboard.test.newSession(f1);
+    document.getElementById('add-content').value = 'クリア記憶';
+    document.getElementById('add-due').value = '';       // 期限をクリアして追加
+    document.getElementById('btn-add').click();
+    return JSON.parse(localStorage.getItem('tools:taskboard')).data.add;
+  }, F1);
+  await d1page.reload();
+  const d2restored = await d1page.evaluate(f1 => {
+    window.taskboard.test.newSession(f1);
+    return document.getElementById('add-due').value;
+  }, F1);
+  r.check('TB-D2（クリアしたことも記憶する）', d2.due === '' && d2restored === '',
+    JSON.stringify([d2, d2restored]));
+
+  const d3 = await d1page.evaluate(() => {
+    // 記憶したセクション（UL）が無いファイル
+    window.taskboard.test.newSession('# tasks\n\n## PEW\n\n- [ ] only\n');
+    return document.getElementById('add-section').value;
+  });
+  await d1page.close();
+  r.check('TB-D3（記憶したセクションが無ければ先頭セクションへフォールバック）',
+    d3 === 'PEW', JSON.stringify(d3));
 
   // TB-P19: sticky ラベルが横スクロールで実際に固定されるかを実測する
   // （excel2md で border-collapse が sticky セルの枠線を落とした前例があるので CSS を信用しない）

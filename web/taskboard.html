@@ -16,11 +16,19 @@
   #task-table tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
   #task-table .col-st { width: 28px; }
   #task-table .col-act { width: 88px; }
-  /* 操作列（＋子・↩︎）。class は th のみに付くため td 側は位置で指定する */
-  #task-table tbody td:last-child { white-space: nowrap; text-align: right; }
+  /* 操作列（＋子・＋メモ・↩︎）。class は th のみに付くため td 側は位置で指定する。
+     メモ行は td が1つ（colspan）で last-child にも当たるため除外する */
+  #task-table tbody tr:not(.memo-row) td:last-child { white-space: nowrap; text-align: right; }
   #table-wrap { overflow-x: auto; }  /* 9列あるため狭幅では表の中だけを横スクロールさせる */
   #task-table td.cell-due, #task-table td.cell-start,
   #task-table td.cell-pri, #task-table td.cell-sec { cursor: pointer; white-space: nowrap; }
+  #task-table td.cell-tags { cursor: pointer; }
+  /* メモ（タスクの下のインデント箇条書き）。印は常時表示・本文は展開時だけ */
+  .memo-mark { font-size: 11px; padding: 0 5px; margin-left: 6px; vertical-align: 1px; }
+  tr.memo-row td { background: color-mix(in srgb, var(--accent) 4%, transparent);
+    border-bottom: 1px solid var(--border); }
+  .memo-text { white-space: pre-wrap; font-size: 12px; color: var(--muted);
+    padding: 2px 0; word-break: break-word; }
   #task-table td.cell-body { width: 45%; }
   .due-over { color: var(--error); background: var(--error-bg); font-weight: 600; border-radius: 4px; }
   .due-today { background: var(--warn-bg); font-weight: 600; border-radius: 4px; }
@@ -66,11 +74,14 @@
   .popover { position: absolute; z-index: 100; background: var(--panel);
     border: 1px solid var(--border); border-radius: 8px; padding: 10px;
     box-shadow: 0 4px 16px rgba(0,0,0,.18); display: flex; flex-direction: column; gap: 8px; }
-  .popover .row-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+  .popover .row-btns { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  /* 付与済みのタグ（.tabs の外なので ui.css の .active は効かない） */
+  .popover button.active { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
   .addform { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 0 0 12px;
     padding: 10px 14px; background: var(--panel); border: 1px solid var(--border);
     border-radius: 8px; font-size: 13px; }
-  .addform input[type="text"] { flex: 1; min-width: 200px; }
+  /* 内容欄は広く取る（単行のまま。複数行にすると Enter=追加 と衝突する。TB-Q23） */
+  .addform input[type="text"] { flex: 1 1 420px; min-width: 320px; }
   .offscreen { position: fixed; left: -9999px; top: 0; width: 10px; height: 10px; }
   .cell-edit-input { width: 100%; font: inherit; padding: 2px 6px; border: 1px solid var(--accent);
     border-radius: 4px; background: var(--panel); color: var(--text); }
@@ -287,6 +298,112 @@ function opEditContent(lines, lineNo, text) {
 // 指定セクションの末尾（最終タスク行の直後。子孫を含む）へ block を挿入する。
 // タスクが無いセクションは見出しの直後に空行1つを挟む（既存の体裁に合わせる）。
 // 新規追加（opAddTask）とセクション移動（opMoveSection）で**同じ規則**を使う
+// タグの付与・削除（Phase N）。本文の末尾（最初のメタトークンの直前）に挿入し、
+// 削除は該当トークンと直前の空白1個のみ除去する。#102 のような数字のみは触らない
+function opSetTags(lines, op) {
+  const t = taskAt(lines, op.line);
+  const want = (op.tags || []).map(s => String(s).replace(/^#/, '').trim()).filter(Boolean);
+  let rest = t.rest;
+  const current = tagsOf(rest);
+  for (const tag of current) {
+    if (want.includes(tag)) continue;
+    // 直前の空白1個ごと除去（同名の別トークンを壊さないよう境界を見る）
+    const re = new RegExp(' ?#' + escapeRe(tag) + '(?![^\\s#,、。()（）\\[\\]:：;；!！?？"\'`])');
+    rest = rest.replace(re, '');
+  }
+  const after = tagsOf(rest);
+  const add = want.filter(tag => !after.includes(tag));
+  if (add.length) {
+    // 本文の末尾＝メタトークンのうち**最も前にあるもの**の直前。
+    // 「最初にマッチした正規表現」で決めると、F1 の13行目（📅 … ⏫ の非標準順）で
+    // ⏫ の直前＝📅 の後ろに入ってしまう
+    let at = rest.length;
+    for (const re of [PRI_CUT, START_CUT, SCHED_CUT, DUE_CUT, DONE_CUT]) {
+      const m = re.exec(rest);
+      if (m && m.index < at) at = m.index;
+    }
+    const ins = add.map(tag => ' #' + tag).join('');
+    rest = rest.slice(0, at) + ins + rest.slice(at);
+  }
+  setRest(t, rest);
+}
+function escapeRe(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+/* ---------- メモ行と部分木の境界（Phase N・2026-08-06） ----------
+   メモ = タスク行の直後に連続する「インデントした箇条書きで `- [` では始まらない行」。
+   Obsidian Tasks は複数行タスクを扱わず、この行を**無視するがファイル上は変更しない**
+   （公式ドキュメントで確認）。プレーンなインデント行はメモとして読まない
+   （両形式を読むと編集時の再整形で触っていない行のバイトが変わる。TB-Q19）。
+   空行・HTML コメント・見出しは `^\t+- ` に一致しないので構造的に巻き込まない。 */
+
+const MEMO_PREFIX_RE = /^(\t+)- /;
+function isMemoLine(raw, parentIndent) {
+  const m = MEMO_PREFIX_RE.exec(raw);
+  return !!m && !TASK_RE.test(raw) && m[1].length > parentIndent;
+}
+// タスク行 i の部分木の最終行インデックス（より深いタスク行とメモ行が続く限り）。
+// **部分木の境界計算はこの1関数に集約する**（以前は5箇所に散っていて、
+// メモ行に当たると打ち切られるためメモが移動・アーカイブから取り残された）
+function subtreeEnd(lines, i) {
+  const m = TASK_RE.exec(lines[i].raw);
+  if (!m) return i;
+  const d = m[1].length;
+  let end = i;
+  for (let k = i + 1; k < lines.length; k++) {
+    const t = TASK_RE.exec(lines[k].raw);
+    if (t) { if (t[1].length > d) { end = k; continue; } break; }
+    if (isMemoLine(lines[k].raw, d)) { end = k; continue; }
+    break;
+  }
+  return end;
+}
+// タスク行 i の直後に連続するメモ行の範囲と本文
+function memoBlock(lines, i) {
+  const m = TASK_RE.exec(lines[i].raw);
+  if (!m) return { from: i + 1, to: i, texts: [] };
+  const d = m[1].length;
+  let to = i;
+  const texts = [];
+  for (let k = i + 1; k < lines.length; k++) {
+    if (!isMemoLine(lines[k].raw, d)) break;
+    texts.push(lines[k].raw.replace(MEMO_PREFIX_RE, ''));
+    to = k;
+  }
+  return { from: i + 1, to, texts };
+}
+
+// メモの設定（text が空なら削除）。**位置ごとに比較して一致する行は据え置く**ので
+// 変更していないメモ行のバイトと orig は変わらない
+function opSetMemo(lines, op) {
+  const i = op.line - 1;
+  const L = lines[i];
+  const m = L && TASK_RE.exec(L.raw);
+  if (!m) throw new Error(op.line + '行目はタスク行ではありません');
+  if (L.raw.includes('\r')) throw new Error(op.line + '行目は CR 改行のため編集できません');
+  const indent = '\t'.repeat(m[1].length + 1);
+  const texts = String(op.text === undefined || op.text === null ? '' : op.text)
+    .split('\n').map(s => nfc(s).replace(/\s+$/, '')).filter(s => s !== '');
+  for (const t of texts) {
+    // メモ行がタスク行になってしまう本文は書かない（タスクを暗黙に作らない）
+    if (TASK_RE.test(indent + '- ' + t)) {
+      throw new Error('メモに「- [ ] 」で始まる行は書けません（タスク行になってしまいます）');
+    }
+  }
+  const block = memoBlock(lines, i);
+  const oldCount = block.to - block.from + 1;
+  const n = Math.min(oldCount, texts.length);
+  for (let k = 0; k < n; k++) {
+    const raw = indent + '- ' + texts[k];
+    if (lines[block.from + k].raw !== raw) lines[block.from + k].raw = raw; // orig は保つ
+  }
+  if (texts.length > oldCount) {
+    const add = texts.slice(oldCount).map(t => ({ raw: indent + '- ' + t, orig: null }));
+    lines.splice(block.from + oldCount, 0, ...add);
+  } else if (texts.length < oldCount) {
+    lines.splice(block.from + texts.length, oldCount - texts.length);
+  }
+}
+
 // （同じ「セクションへ入れる」操作で挿入位置の規則を分けない）
 function insertIntoSection(lines, section, block) {
   let hIdx = -1;
@@ -301,7 +418,8 @@ function insertIntoSection(lines, section, block) {
   }
   let last = -1;
   for (let i = hIdx + 1; i < end; i++) if (TASK_RE.test(lines[i].raw)) last = i;
-  if (last >= 0) lines.splice(last + 1, 0, ...block);
+  // 最終タスクのメモ行より後に入れる（メモを挿入行で分断しない）
+  if (last >= 0) lines.splice(subtreeEnd(lines, last) + 1, 0, ...block);
   else lines.splice(hIdx + 1, 0, { raw: '', orig: null }, ...block);
 }
 
@@ -337,13 +455,8 @@ function opMoveSection(lines, op) {
   }
   if (sectionOfLine(lines, i) === op.section) return; // 同じセクションなら何もしない
 
-  // 部分木（自分＋より深いタスク行が続く限り）を切り出す
-  let end = i;
-  for (let k = i + 1; k < lines.length; k++) {
-    const mm = TASK_RE.exec(lines[k].raw);
-    if (mm && mm[1].length > m[1].length) end = k; else break;
-  }
-  const block = lines.splice(i, end - i + 1);
+  // 部分木（自分＋より深いタスク行＋メモ行）を切り出す
+  const block = lines.splice(i, subtreeEnd(lines, i) - i + 1);
   insertIntoSection(lines, op.section, block);
 }
 function opAddChild(lines, op) {
@@ -352,11 +465,7 @@ function opAddChild(lines, op) {
   if (!pm) throw new Error(op.parentLine + '行目はタスク行ではありません');
   if (lines[p].raw.includes('\r')) throw new Error(op.parentLine + '行目は CR 改行のため編集できません');
   const d = pm[1].length;
-  let q = p; // 親の最終子孫
-  for (let i = p + 1; i < lines.length; i++) {
-    const m = TASK_RE.exec(lines[i].raw);
-    if (m && m[1].length > d) q = i; else break;
-  }
+  const q = subtreeEnd(lines, p); // 親の最終子孫（メモ行も含む）
   lines.splice(q + 1, 0, { raw: '\t'.repeat(d + 1) + '- [ ] ' + nfc(op.content).trim(), orig: null });
 }
 
@@ -372,6 +481,15 @@ function opUndoAdd(lines, op) {
   if (!TASK_RE.test(L.raw)) throw new Error(op.line + '行目はタスク行ではありません');
   if (hasAddedDescendant(lines, i)) throw new Error(op.line + '行目には子タスクがあるため取り消せません');
 
+  // このセッションで追加されたメモ行は一緒に取り下げる（孤児メモを残さない）
+  const block = memoBlock(lines, i);
+  let memoCount = 0;
+  for (let k = block.from; k <= block.to; k++) {
+    if (lines[k].orig !== null) break;
+    memoCount++;
+  }
+  if (memoCount) lines.splice(block.from, memoCount);
+
   const prev = lines[i - 1];
   const beforePrev = lines[i - 2];
   const withBlank = prev && prev.orig === null && prev.raw === ''
@@ -379,12 +497,17 @@ function opUndoAdd(lines, op) {
   lines.splice(withBlank ? i - 1 : i, withBlank ? 2 : 1);
 }
 
-// 取り消し対象の直下に、より深いタスク行が続いているか（子孫の有無）
+// 取り消し対象に、より深いタスク行（子孫）が続いているか。
+// メモ行は子孫ではないので飛ばして見る（メモは一緒に取り消される）
 function hasAddedDescendant(lines, i) {
   const m = TASK_RE.exec(lines[i].raw);
   const d = m[1].length;
-  const next = lines[i + 1] && TASK_RE.exec(lines[i + 1].raw);
-  return !!(next && next[1].length > d);
+  for (let k = i + 1; k < lines.length; k++) {
+    const t = TASK_RE.exec(lines[k].raw);
+    if (t) return t[1].length > d;
+    if (!isMemoLine(lines[k].raw, d)) return false;
+  }
+  return false;
 }
 
 function runOp(lines, op, today) {
@@ -399,6 +522,8 @@ function runOp(lines, op, today) {
     case 'addChild':    opAddChild(lines, op); break;
     case 'undoAdd':     opUndoAdd(lines, op); break;
     case 'moveSection': opMoveSection(lines, op); break;
+    case 'setMemo':     opSetMemo(lines, op); break;
+    case 'setTags':     opSetTags(lines, op); break;
     default: throw new Error('不明な操作: ' + op.type);
   }
 }
@@ -421,6 +546,19 @@ function diffCounts(lines) {
 
 /* ---------- 解析（表示用） ---------- */
 
+// タグ: 行頭/空白/括弧の直後の # に続く文字列。数字のみは Obsidian 同様タグ扱いしない。
+// parseDoc（表示）と opSetTags（編集）で同じ実装を使う（判定を2箇所に持たない）
+const TAG_RE = /(^|[\s(（])#([^\s#,、。()（）[\]:：;；!！?？"'`]+)/g;
+function tagsOf(text) {
+  const tags = [];
+  const re = new RegExp(TAG_RE.source, 'g');
+  let m;
+  while ((m = re.exec(String(text)))) {
+    if (!/^\d+$/.test(m[2]) && !tags.includes(m[2])) tags.push(m[2]);
+  }
+  return tags;
+}
+
 function parseDoc(lines) {
   const tasks = [], sections = [];
   let section = null;
@@ -439,14 +577,7 @@ function parseDoc(lines) {
       .replace(new RegExp(START_CUT.source, 'g'), '')
       .replace(new RegExp(PRI_CUT.source, 'g'), '')
       .trim();
-    const tags = [];
-    // タグ: 行頭/空白/括弧の直後の # に続く文字列。数字のみは Obsidian 同様タグ扱いしない
-    const tagRe = /(^|[\s(（])#([^\s#,、。()（）[\]:：;；!！?？"'`]+)/g;
-    let tm;
-    while ((tm = tagRe.exec(body))) {
-      const tag = tm[2];
-      if (!/^\d+$/.test(tag) && !tags.includes(tag)) tags.push(tag);
-    }
+    const tags = tagsOf(body);
     const links = [];
     const lre = /\[\[([^\]]+)\]\]/g;
     let lm;
@@ -466,6 +597,7 @@ function parseDoc(lines) {
       parentLine: parent ? parent.line : null,
       section, children: [],
       hasCR: raw.includes('\r'),
+      memo: memoBlock(lines, i).texts,   // 直後に連続するメモ行（配列。空ならメモなし）
     };
     if (parent) parent.children.push(t);
     tasks.push(t);
@@ -631,7 +763,13 @@ const state = {
   hasCRFile: false,  // CR 改行ファイル（表示のみ・追加/アーカイブ無効）
   archiveAdapter: null, archiveHandle: null,
   timeline: null,    // 直近の timelineModel（Excel 用コピーが参照する。リスト時は null）
-  ui: { view: 'list', sort: 'file', section: '', tag: '', showDone: false },
+  // メモの展開状態。**永続化しない**（行番号は編集で動くため、保存すると別行が開く）
+  memoOpen: new Set(),
+  ui: {
+    view: 'list', sort: 'file', section: '', tag: '', showDone: false,
+    // 追加フォームの前回値（クリアも '' として記憶する。固定デフォルトは実態に合わない）
+    add: { section: '', start: '', due: '', priority: '' },
+  },
 };
 
 // restoreUi で受け入れる値の列挙（未知値が入ると <select> の値が空になり並び順が壊れる。TB-Q17）
@@ -693,8 +831,16 @@ function loadText(text, adapter) {
     showBanner('warn', 'CR 改行（Windows形式）のファイルです。表示のみ可能で、該当行の編集・タスク追加・アーカイブはできません（Obsidian 標準は LF）');
   }
   render();
+  applyAddDefaults();   // セクション select は render が作るので、その後に入れる
   updateFileBar();
   return true;
+}
+
+// 追加フォームの既定値（前回値）を入れる。呼ぶのは読込時とフォームを開いたときだけ
+function applyAddDefaults() {
+  el('add-start').value = state.ui.add.start;
+  el('add-due').value = state.ui.add.due;
+  el('add-pri').value = state.ui.add.priority;
 }
 
 function isDirty() {
@@ -731,6 +877,7 @@ async function doSave() {
   }
   const text = joinLines(state.lines);
   const counts = diffCounts(state.lines);
+  const prevLineCount = state.snapshot.split('\n').length; // 削除を言葉で区別するため
   if (state.adapter.canCheck) {
     let disk;
     try {
@@ -752,13 +899,15 @@ async function doSave() {
     showBanner('error', '保存に失敗しました: ' + (e && e.name));
     return { ok: false, reason: 'writefail' };
   }
+  // 行の移動・行の削除は行内容を変えないので変更0行・追加0行になる。
+  // そのまま出すと誤解を招くため、行数の増減で区別して言葉を変える
+  const removed = prevLineCount - text.split('\n').length;
   state.snapshot = text;
   for (const l of state.lines) l.orig = l.raw;
   render();
-  // 行の移動だけのときは変更0行・追加0行になるため、そのまま出すと誤解を招く
   const msg = (counts.changed + counts.added > 0)
     ? '（変更' + counts.changed + '行・追加' + counts.added + '行）'
-    : '（行の移動）';
+    : (removed > 0 ? '（' + removed + '行を削除）' : '（行の移動）');
   showBanner('success', state.adapter.mode === 'fallback'
     ? 'ダウンロードしました' + msg + '。vault の tasks.md と差し替えてください'
     : '保存しました' + msg);
@@ -998,7 +1147,11 @@ function render() {
   state.ui.tag = el('f-tag').value;
   el('f-done').checked = state.ui.showDone;
   el('f-sort').value = state.ui.sort;
-  fillSelect(el('add-section'), doc.sections, el('add-section').value || doc.sections[0] || '');
+  // セクションは select なので毎回作り直す（前回値を優先し、無ければ先頭へフォールバック）。
+  // 日付・優先度の既定値は applyAddDefaults() で「読込時とフォームを開いたとき」だけ入れる
+  // — render ごとに入れると、利用者がクリアした欄を次の再描画で復活させてしまう
+  fillSelect(el('add-section'), doc.sections,
+    el('add-section').value || state.ui.add.section || doc.sections[0] || '');
 
   // 表示判定は親子グループ単位（spec 決定事項）
   const roots = doc.tasks.filter(t => t.parentLine === null);
@@ -1026,6 +1179,13 @@ function render() {
   } else if (state.ui.sort === 'priority') {
     groups = groups.slice().sort((a, b) => rank(a) - rank(b) || a.line - b.line);
   }
+  // 完了グループは常に最下部（ソート指定より優先）。判定は subtreeAllDone なので
+  // 未完了の子孫を持つ完了親は上に残る（進行中の作業が下に埋もれない）。
+  // **リストビューのときだけ適用する** — visibleRows はタイムラインの行順にも使われる
+  if (state.ui.view === 'list') {
+    const doneKey = t => (subtreeAllDone(t) ? 1 : 0);
+    groups = groups.slice().sort((a, b) => doneKey(a) - doneKey(b)); // 安定ソート（既存順を保つ）
+  }
 
   const rows = [];
   const collect = (t) => { if (t._vis) rows.push(t); for (const c of t.children) collect(c); };
@@ -1035,7 +1195,10 @@ function render() {
   const tbody = el('task-body');
   tbody.textContent = '';
   const today = todayStr();
-  for (const t of rows) tbody.appendChild(renderRow(t, today));
+  for (const t of rows) {
+    tbody.appendChild(renderRow(t, today));
+    if (t.memo.length && state.memoOpen.has(t.line)) tbody.appendChild(renderMemoRow(t));
+  }
 
   for (const b of el('view-tabs').querySelectorAll('button')) {
     b.classList.toggle('active', b.dataset.view === state.ui.view);
@@ -1207,20 +1370,31 @@ function collectArchivable() {
   return state.doc.tasks.filter(t =>
     t.parentLine === null && subtreeAllDone(t) && inView.has(t.line));
 }
+// アーカイブ対象の行番号。**メモ行も含める**（含めないと tasks.md にメモが孤児として残る）
 function subtreeLines(t, out) {
   out.push(t.line);
+  for (let k = 0; k < t.memo.length; k++) out.push(t.line + 1 + k);
   for (const c of t.children) subtreeLines(c, out);
   return out;
+}
+
+// 件数は「タスク数」で数える（メモ行を数えると利用者の感覚と合わない。移動する行数は
+// 成功バナーの「N行を移動」で示す）
+function subtreeTaskCount(t) {
+  return 1 + t.children.reduce((n, c) => n + subtreeTaskCount(c), 0);
+}
+function archivableTaskCount() {
+  return collectArchivable().reduce((n, t) => n + subtreeTaskCount(t), 0);
 }
 
 function updateArchiveButton() {
   const btn = el('btn-archive');
   const usable = state.loaded && !state.demo && !state.hasCRFile &&
     state.adapter && state.adapter.mode !== 'fallback';
-  const lineNos = usable ? collectArchivable().flatMap(t => subtreeLines(t, [])) : [];
-  btn.disabled = lineNos.length === 0;
-  btn.textContent = lineNos.length > 0 ? '完了をアーカイブ（' + lineNos.length + '）' : '完了をアーカイブ';
-  btn.title = lineNos.length > 0
+  const n = usable ? archivableTaskCount() : 0;
+  btn.disabled = n === 0;
+  btn.textContent = n > 0 ? '完了をアーカイブ（' + n + '）' : '完了をアーカイブ';
+  btn.title = n > 0
     ? '表示中の完了グループを archive.md へ移動して tasks.md から除去'
     : '対象なし — 完了行は「完了を含む」を ON にすると表示されます（子がすべて完了したグループが対象）';
 }
@@ -1306,7 +1480,7 @@ async function doArchive() {
   if (!arch) return { ok: false, reason: 'archcancel' };
   // ファイルをまたぐ不可逆な移動なので件数によらず必ず確認する。保存場所は表示できないため
   // 少なくとも「どのファイルへ」を示す（AR-1 / AR-3）
-  if (!confirm(lineNos.length + '件を ' + archiveTargetName() + ' へ移動します。よろしいですか？')) {
+  if (!confirm(archivableTaskCount() + '件を ' + archiveTargetName() + ' へ移動します。よろしいですか？')) {
     showBanner('info', 'アーカイブを中止しました');
     return { ok: false, reason: 'cancel' };
   }
@@ -1373,6 +1547,20 @@ function renderRow(t, today) {
   span.className = 'body-text';
   span.textContent = (t.indent > 0 ? '└ ' : '') + (t.displayBody || t.body || '(内容なし)');
   tdBody.appendChild(span);
+  // メモを持つ行の印。クリックで直下に展開／折り畳み（展開状態は永続化しない）
+  if (t.memo.length) {
+    const mk = document.createElement('button');
+    mk.className = 'memo-mark';
+    mk.textContent = '📝' + t.memo.length;
+    mk.title = 'クリックでメモを展開／折り畳み';
+    mk.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (state.memoOpen.has(t.line)) state.memoOpen.delete(t.line);
+      else state.memoOpen.add(t.line);
+      render();
+    });
+    tdBody.appendChild(mk);
+  }
   if (!t.hasCR) {
     tdBody.title = 'ダブルクリックで本文を編集';
     tdBody.addEventListener('dblclick', () => startBodyEdit(tdBody, t));
@@ -1414,11 +1602,22 @@ function renderRow(t, today) {
   tr.appendChild(tdPri);
 
   const tdTags = document.createElement('td');
+  tdTags.className = 'cell-tags';
   for (const tag of t.tags) {
     const s = document.createElement('span');
     s.className = 'chip';
     s.textContent = '#' + tag;
     tdTags.appendChild(s);
+  }
+  if (!t.tags.length) {
+    const s = document.createElement('span');
+    s.className = 'muted';
+    s.textContent = '—';
+    tdTags.appendChild(s);
+  }
+  if (!t.hasCR) {
+    tdTags.title = 'クリックでタグを付与・削除';
+    tdTags.addEventListener('click', (e) => openTagPopover(e.currentTarget, t));
   }
   tr.appendChild(tdTags);
 
@@ -1452,6 +1651,12 @@ function renderRow(t, today) {
     btn.title = '子タスクを追加';
     btn.addEventListener('click', (e) => openChildPopover(e.currentTarget, t));
     tdAct.appendChild(btn);
+    const memoBtn = document.createElement('button');
+    memoBtn.className = 'btn-child';
+    memoBtn.textContent = t.memo.length ? 'メモ' : '＋メモ';
+    memoBtn.title = 'メモを編集（タスクの下にインデントした箇条書きとして保存されます）';
+    memoBtn.addEventListener('click', (e) => openMemoPopover(e.currentTarget, t));
+    tdAct.appendChild(memoBtn);
   }
   // 未保存の追加行だけ取り消せる（既存行の削除は提供しない）
   if (isAdded && !t.hasCR) {
@@ -1472,6 +1677,26 @@ function renderRow(t, today) {
     tdAct.appendChild(undo);
   }
   tr.appendChild(tdAct);
+  return tr;
+}
+
+// 展開したメモ（表の行として出す。ダブルクリックで編集）
+function renderMemoRow(t) {
+  const tr = document.createElement('tr');
+  tr.className = 'memo-row';
+  tr.dataset.memoFor = t.line;
+  const td = document.createElement('td');
+  td.colSpan = 9;
+  const pre = document.createElement('div');
+  pre.className = 'memo-text';
+  pre.style.paddingLeft = (28 + t.indent * 22) + 'px';
+  pre.textContent = t.memo.join('\n');
+  td.appendChild(pre);
+  if (!t.hasCR) {
+    td.title = 'ダブルクリックでメモを編集';
+    td.addEventListener('dblclick', () => openMemoPopover(td, t));
+  }
+  tr.appendChild(td);
   return tr;
 }
 
@@ -1632,6 +1857,108 @@ function openSectionPopover(anchor, t) {
   });
 }
 
+// メモの編集（複数行）。Enter は改行なので確定は Cmd/Ctrl+Enter
+function openMemoPopover(anchor, t) {
+  openPopover(anchor, (pop) => {
+    const label = document.createElement('span');
+    label.textContent = 'メモ（複数行可・Cmd/Ctrl+Enter で確定）';
+    pop.appendChild(label);
+    const ta = document.createElement('textarea');
+    ta.id = 'memo-input';
+    ta.value = t.memo.join('\n');
+    ta.spellcheck = false;
+    ta.style.width = '360px';
+    ta.style.minHeight = '90px';
+    pop.appendChild(ta);
+    const commit = () => {
+      if (applyUiOp({ type: 'setMemo', line: t.line, text: ta.value })) {
+        const has = ta.value.trim() !== '';
+        if (has) state.memoOpen.add(t.line); else state.memoOpen.delete(t.line);
+        render();
+        showBanner('info', has ? 'メモを保存しました（ファイルへは保存時に反映）'
+                              : 'メモを削除しました（ファイルへは保存時に反映）');
+      }
+      closePopover();
+    };
+    ta.addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); commit(); }
+    });
+    const btns = document.createElement('div');
+    btns.className = 'row-btns';
+    const ok = document.createElement('button');
+    ok.className = 'primary';
+    ok.textContent = '保存';
+    ok.addEventListener('click', commit);
+    btns.appendChild(ok);
+    if (t.memo.length) {
+      const del = document.createElement('button');
+      del.textContent = 'メモを削除';
+      del.addEventListener('click', () => { ta.value = ''; commit(); });
+      btns.appendChild(del);
+    }
+    pop.appendChild(btns);
+    setTimeout(() => ta.focus(), 0);
+  });
+}
+
+// タグの付与・削除。既存タグをトグルし、新規はテキスト入力（Enter で追加）
+function openTagPopover(anchor, t) {
+  openPopover(anchor, (pop) => {
+    const label = document.createElement('span');
+    label.textContent = 'タグ（クリックで付与・解除）';
+    pop.appendChild(label);
+    const all = [];
+    for (const x of state.doc.tasks) for (const tag of x.tags) if (!all.includes(tag)) all.push(tag);
+    const apply = (tags) => {
+      if (applyUiOp({ type: 'setTags', line: t.line, tags })) {
+        showBanner('info', 'タグを変更しました（ファイルへは保存時に反映）');
+      }
+    };
+    if (all.length) {
+      const btns = document.createElement('div');
+      btns.className = 'row-btns';
+      for (const tag of all) {
+        const b = document.createElement('button');
+        b.textContent = '#' + tag;
+        if (t.tags.includes(tag)) b.classList.add('active');
+        b.addEventListener('click', () => {
+          const next = t.tags.includes(tag) ? t.tags.filter(x => x !== tag) : t.tags.concat([tag]);
+          apply(next);
+          closePopover();
+        });
+        btns.appendChild(b);
+      }
+      pop.appendChild(btns);
+    }
+    const row = document.createElement('div');
+    row.className = 'row-btns';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.id = 'tag-input';
+    input.placeholder = '新しいタグ';
+    input.style.width = '160px';
+    const add = () => {
+      const v = input.value.replace(/^#/, '').trim();
+      if (!v) return;
+      apply(t.tags.concat([v]));
+      closePopover();
+    };
+    // 修飾キーなしの Enter を使うので IME ガードが必要（Phase I と同じ理由。5箇所目）
+    input.addEventListener('keydown', (e) => {
+      if (isComposingKey(e)) return;
+      if (e.key === 'Enter') add();
+    });
+    row.appendChild(input);
+    const b = document.createElement('button');
+    b.className = 'primary';
+    b.textContent = '追加';
+    b.addEventListener('click', add);
+    row.appendChild(b);
+    pop.appendChild(row);
+    setTimeout(() => input.focus(), 0);
+  });
+}
+
 function openChildPopover(anchor, t) {
   openPopover(anchor, (pop) => {
     const label = document.createElement('span');
@@ -1726,7 +2053,7 @@ async function copyText(text, btn) {
 function persistUi() {
   ToolStorage.save(TOOL, {
     view: state.ui.view, sort: state.ui.sort, section: state.ui.section,
-    tag: state.ui.tag, showDone: state.ui.showDone,
+    tag: state.ui.tag, showDone: state.ui.showDone, add: state.ui.add,
   });
 }
 function restoreUi() {
@@ -1738,6 +2065,11 @@ function restoreUi() {
   if (typeof s.section === 'string') state.ui.section = s.section;
   if (typeof s.tag === 'string') state.ui.tag = s.tag;
   if (typeof s.showDone === 'boolean') state.ui.showDone = s.showDone;
+  if (s.add && typeof s.add === 'object') {
+    for (const k of ['section', 'start', 'due', 'priority']) {
+      if (typeof s.add[k] === 'string') state.ui.add[k] = s.add[k];
+    }
+  }
 }
 
 /* ---------- イベント ---------- */
@@ -1754,15 +2086,29 @@ el('view-tabs').addEventListener('click', (e) => {
   render();
 });
 
-el('btn-add-form').addEventListener('click', () => { el('add-form').hidden = !el('add-form').hidden; });
+el('btn-add-form').addEventListener('click', () => {
+  const open = el('add-form').hidden;
+  el('add-form').hidden = !open;
+  if (open) { applyAddDefaults(); el('add-content').focus(); }
+});
 el('btn-add').addEventListener('click', () => {
   const content = el('add-content').value.trim();
   if (!content) { showBanner('warn', 'タスクの内容を入力してください'); return; }
-  const op = { type: 'addTask', section: el('add-section').value, content };
-  if (el('add-start').value) op.start = el('add-start').value;
-  if (el('add-due').value) op.due = el('add-due').value;
-  if (el('add-pri').value) op.priority = el('add-pri').value;
-  applyUiOp(op);
+  // 先に読む: applyUiOp → render の中で select が作り直されるため、後から読むと値が変わる
+  const chosen = {
+    section: el('add-section').value, start: el('add-start').value,
+    due: el('add-due').value, priority: el('add-pri').value,
+  };
+  const op = { type: 'addTask', section: chosen.section, content };
+  if (chosen.start) op.start = chosen.start;
+  if (chosen.due) op.due = chosen.due;
+  if (chosen.priority) op.priority = chosen.priority;
+  if (applyUiOp(op)) {
+    // 追加が成功したときだけ前回値として覚える（入力途中の値は覚えない）。
+    // クリアした欄は '' として覚える（次も空で出す）
+    state.ui.add = chosen;
+    persistUi();
+  }
   el('add-content').value = '';
   el('add-content').focus(); // 連続追加を自然にする（ボタンにフォーカスを残さない。TB-Q7）
 });
@@ -1813,7 +2159,7 @@ window.taskboard = {
           line: t.line, indent: t.indent, done: t.done, body: t.body,
           displayBody: t.displayBody, start: t.start, due: t.due, doneDate: t.doneDate,
           priority: t.priority, tags: t.tags, links: t.links,
-          parentLine: t.parentLine, section: t.section,
+          parentLine: t.parentLine, section: t.section, memo: t.memo,
         })),
       };
     },
