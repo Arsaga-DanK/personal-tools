@@ -1,0 +1,774 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Schema (ddl2spec)</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E📋%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../lib/ui.css">
+<style>
+  /* ddl2spec 固有: 警告リストのみ（ui.css クラスは再定義しない） */
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+  .sample-btn { font-size: 11px; padding: 1px 8px; margin-left: 6px; }
+  #warnings { margin: 8px 0; font-size: 13px; }
+  #warnings ul { margin: 4px 0 0; padding-left: 1.4em; }
+  #warnings li { margin: 2px 0; }
+</style>
+</head>
+<body>
+<main class="app-wide">
+  <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">入力は自動保存されます</span></p>
+  <h1>Schema</h1>
+  <p class="subtitle">PostgreSQL の DDL（CREATE TABLE ＋ COMMENT ON）⇔ テーブル定義書（Markdown表）を双方向変換 — 正本は DDL 側、定義書は生成物として運用します</p>
+
+  <div class="banner" id="banner" hidden></div>
+
+  <div class="panes">
+    <div class="pane"><p class="pane-title">入力<button type="button" class="sample-btn" id="sample">サンプルを入れる</button></p>
+      <textarea id="input" spellcheck="false"></textarea></div>
+    <div class="pane"><p class="pane-title">出力</p>
+      <textarea id="output" readonly spellcheck="false"></textarea></div>
+  </div>
+
+  <div class="row">
+    <button class="primary" id="to-spec">DDL → 定義書</button>
+    <button id="to-ddl">定義書 → DDL</button>
+    <button id="copy">出力をコピー</button>
+    <button id="copy-tsv">Excel用コピー（TSV）</button>
+    <span class="muted" style="font-size:12px">CREATE TABLE と COMMENT ON のみ解釈します。解釈できない構文は警告に出します（Cmd/Ctrl+Enter で出力をコピー）</span>
+  </div>
+
+  <div id="warnings" hidden></div>
+</main>
+
+<textarea id="copy-helper" class="offscreen" aria-hidden="true" tabindex="-1" style="position:fixed;left:-9999px;top:0;width:10px;height:10px"></textarea>
+
+<script src="../lib/sql.js"></script>
+<script src="../lib/storage.js"></script>
+<script>
+'use strict';
+
+const TOOL = 'ddl2spec';
+const MAX_CHARS = 200000;   // 性能ガード（文字単位トークナイズのため devpad の SQL タブと同じ）
+
+/* ========== 定義書の列（ヘッダー名は後から足せるように配列で持つ） ========== */
+
+// 実物の定義書に合わせるときは、この配列に文字列を1つ足すだけでよい（他は触らない）
+const HEADER_ALIASES = {
+  logical: ['論理名', '項目名', '和名', '名称', 'comment'],
+  name:    ['物理名', 'カラム名', '列名', 'フィールド名', 'name', 'column', 'columnname'],
+  type:    ['型', 'データ型', 'type', 'datatype'],
+  size:    ['桁', '桁数', '長さ', '精度', 'サイズ', 'length', 'size'],
+  notNull: ['notnull', '必須'],
+  default: ['既定値', 'デフォルト', '初期値', 'default'],
+  pk:      ['pk', '主キー', 'primarykey'],
+  unique:  ['unique', 'ユニーク', '一意'],
+  fk:      ['fk', '外部キー', 'foreignkey', '参照'],
+  check:   ['check', 'チェック', '制約'],
+};
+// 意味が反転するヘッダー。推測で読むと NOT NULL が黙って逆になるので解釈しない
+const HEADER_REJECT = ['null許可', 'null可', 'nullable', 'null'];
+// 出力する列の順序
+const SPEC_COLUMNS = [
+  ['logical', '論理名'], ['name', '物理名'], ['type', '型'], ['size', '桁'],
+  ['notNull', 'NOT NULL'], ['default', '既定値'], ['pk', 'PK'], ['unique', 'UNIQUE'],
+  ['fk', 'FK'], ['check', 'CHECK'],
+];
+
+// 比較用の正規化: 前後空白除去・小文字化・空白（全角含む）と _ の除去
+function normHeader(s) {
+  return String(s).trim().toLowerCase().replace(/[\s　_]/g, '');
+}
+const TRUE_CELLS = new Set(['○', '●', '◯', '✓', '✔', 'y', 'yes', 'true', '1']);
+const FALSE_CELLS = new Set(['', '-', '‐', '×', 'x', 'n', 'no', 'false', '0', '—', '―']);
+
+/* ========== トークン列の描画（字句解析は lib/sql.js と共有） ========== */
+
+const NO_SPACE_BEFORE = new Set([',', ')', ';', '.', '::']);
+const NO_SPACE_AFTER = new Set(['(', '.', '::']);
+// この語の後の ( だけ空ける（IN (…) は空け、length(…) は詰める）
+const SPACE_BEFORE_PAREN = new Set(['IN', 'VALUES', 'UNIQUE', 'EXISTS', 'CHECK', 'USING',
+  'KEY', 'ANY', 'ALL', 'AND', 'OR', 'NOT', 'ON', 'REFERENCES', 'LIKE', 'BETWEEN']);
+
+function renderTokens(toks) {
+  let out = '', prev = null;
+  for (const t of toks) {
+    if (prev) {
+      let sp = true;
+      if (t.t === 'punct' && NO_SPACE_BEFORE.has(t.v)) sp = false;
+      else if (prev.t === 'punct' && NO_SPACE_AFTER.has(prev.v)) sp = false;
+      else if (t.t === 'punct' && t.v === '(' && (prev.t === 'word' || prev.t === 'dq')) {
+        sp = SPACE_BEFORE_PAREN.has(prev.v.toUpperCase());
+      }
+      if (sp) out += ' ';
+    }
+    out += t.v;
+    prev = t;
+  }
+  return out;
+}
+
+// 有意トークンだけ（空白・コメントを除く）
+function significant(tokens) {
+  return tokens.filter(t => t.t !== 'ws' && t.t !== 'lineComment' && t.t !== 'blockComment');
+}
+// 最上位の ; で文に分ける
+function splitStatements(toks) {
+  const out = [];
+  let cur = [], depth = 0;
+  for (const t of toks) {
+    if (t.t === 'punct' && t.v === '(') depth++;
+    else if (t.t === 'punct' && t.v === ')') depth--;
+    if (t.t === 'punct' && t.v === ';' && depth === 0) {
+      if (cur.length) out.push(cur);
+      cur = [];
+      continue;
+    }
+    cur.push(t);
+  }
+  if (cur.length) out.push(cur);
+  return out;
+}
+const upperAt = (st, i) => (st[i] && st[i].t === 'word' ? st[i].v.toUpperCase() : null);
+const snippet = st => {
+  const s = renderTokens(st);
+  return s.length > 40 ? s.slice(0, 40) + '…' : s;
+};
+// 文字列リテラルの中身（'' は ' に戻す）
+function unquoteLiteral(tok) {
+  if (!tok) return '';
+  let v = tok.v;
+  if (/^[Ee]/.test(v)) v = v.slice(1);
+  if (v.startsWith("'") && v.endsWith("'")) v = v.slice(1, -1);
+  return v.replace(/''/g, "'");
+}
+function quoteLiteral(s) { return "'" + String(s).replace(/'/g, "''") + "'"; }
+
+/* ========== DDL → 中間表現 ========== */
+
+// 列制約の開始語（型名の終わりを見分ける）
+const COL_CONSTRAINT_START = new Set(['NOT', 'NULL', 'DEFAULT', 'PRIMARY', 'UNIQUE',
+  'REFERENCES', 'CHECK', 'GENERATED', 'COLLATE', 'CONSTRAINT']);
+const TABLE_CONSTRAINT_START = new Set(['CONSTRAINT', 'PRIMARY', 'UNIQUE', 'FOREIGN', 'CHECK', 'EXCLUDE']);
+
+// 括弧グループの範囲（開き位置 → 閉じ位置）
+function matchParen(st, open) {
+  let depth = 0;
+  for (let i = open; i < st.length; i++) {
+    if (st[i].t === 'punct' && st[i].v === '(') depth++;
+    else if (st[i].t === 'punct' && st[i].v === ')') { depth--; if (depth === 0) return i; }
+  }
+  return -1;
+}
+// 最上位の , で分ける
+function splitTopComma(st) {
+  const out = [];
+  let cur = [], depth = 0;
+  for (const t of st) {
+    if (t.t === 'punct' && t.v === '(') depth++;
+    else if (t.t === 'punct' && t.v === ')') depth--;
+    if (t.t === 'punct' && t.v === ',' && depth === 0) { out.push(cur); cur = []; continue; }
+    cur.push(t);
+  }
+  if (cur.length) out.push(cur);
+  return out;
+}
+// 識別子を1つ読む（word / "quoted" / schema.table.column のようなドット連結）
+function readName(st, i) {
+  if (!st[i] || !(st[i].t === 'word' || st[i].t === 'dq')) return { name: '', next: i };
+  let s = st[i].v;
+  i++;
+  while (st[i] && st[i].t === 'punct' && st[i].v === '.' && st[i + 1] &&
+         (st[i + 1].t === 'word' || st[i + 1].t === 'dq' || st[i + 1].t === 'num')) {
+    s += '.' + st[i + 1].v;
+    i += 2;
+  }
+  return { name: s, next: i };
+}
+
+// 成功: {ok:true, value:{tables, warnings}} / 失敗: {ok:false, error, line}
+function parseDdl(src) {
+  const tk = SqlLex.tokenize(src);
+  if (!tk.ok) return { ok: false, error: tk.error, line: tk.line };
+  const warnings = [];
+  const tables = [];
+  const byName = new Map();
+  for (const st of splitStatements(significant(tk.tokens))) {
+    const u0 = upperAt(st, 0);
+    if (u0 === 'CREATE') {
+      const r = parseCreateTable(st, warnings);
+      if (!r) { warnings.push('解釈しませんでした: ' + snippet(st)); continue; }
+      tables.push(r);
+      byName.set(r.name.toLowerCase(), r);
+    } else if (u0 === 'COMMENT' && upperAt(st, 1) === 'ON') {
+      applyComment(st, byName, warnings);
+    } else if (st.length) {
+      warnings.push('解釈しませんでした: ' + snippet(st));
+    }
+  }
+  return { ok: true, value: { tables, warnings }, warnings };
+}
+
+function parseCreateTable(st, warnings) {
+  let i = 1;
+  while (i < st.length && ['TEMP', 'TEMPORARY', 'UNLOGGED', 'GLOBAL', 'LOCAL'].includes(upperAt(st, i))) i++;
+  if (upperAt(st, i) !== 'TABLE') return null;
+  i++;
+  if (upperAt(st, i) === 'IF' && upperAt(st, i + 1) === 'NOT' && upperAt(st, i + 2) === 'EXISTS') i += 3;
+  const nm = readName(st, i);
+  if (!nm.name) return null;
+  i = nm.next;
+  if (!(st[i] && st[i].t === 'punct' && st[i].v === '(')) return null;
+  const close = matchParen(st, i);
+  if (close < 0) {
+    warnings.push('括弧が閉じていません: ' + snippet(st));
+    return null;
+  }
+  const table = { name: nm.name, logical: '', columns: [], constraints: [] };
+  for (const item of splitTopComma(st.slice(i + 1, close))) {
+    if (!item.length) continue;
+    const head = item[0].t === 'word' ? item[0].v.toUpperCase() : null;
+    if (head && TABLE_CONSTRAINT_START.has(head)) parseTableConstraint(item, table, warnings);
+    else parseColumn(item, table, warnings);
+  }
+  const tail = st.slice(close + 1);
+  if (tail.length) warnings.push('解釈しませんでした: ' + snippet(tail));
+  return table;
+}
+
+function parseColumn(item, table, warnings) {
+  const nm = readName(item, 0);
+  if (!nm.name) { warnings.push('列定義として解釈できません: ' + snippet(item)); return; }
+  const col = {
+    name: nm.name, type: '', size: '', notNull: false, default: '',
+    pk: false, unique: '', fk: '', check: [], logical: '',
+  };
+  let i = nm.next;
+  // 型名（複数語可: double precision / timestamp with time zone）
+  const typeWords = [];
+  while (i < item.length) {
+    const t = item[i];
+    if (t.t === 'word' && !COL_CONSTRAINT_START.has(t.v.toUpperCase())) { typeWords.push(t.v); i++; continue; }
+    break;
+  }
+  col.type = typeWords.join(' ');
+  if (item[i] && item[i].t === 'punct' && item[i].v === '(') {
+    const close = matchParen(item, i);
+    if (close > 0) {
+      // numeric(10,2) は入力どおり詰めて持つ（往復で元の書式に戻る）
+      col.size = renderTokens(item.slice(i + 1, close)).replace(/,\s+/g, ',');
+      i = close + 1;
+    }
+  }
+  // 配列型 int[] を型名側に含める
+  while (item[i] && item[i].t === 'punct' && item[i].v === '[') {
+    const end = item.findIndex((t, k) => k > i && t.t === 'punct' && t.v === ']');
+    if (end < 0) break;
+    col.type += '[]';
+    i = end + 1;
+  }
+  if (!col.type) { warnings.push('型が読み取れません: ' + snippet(item)); }
+  // 列制約
+  while (i < item.length) {
+    const u = upperAt(item, i);
+    if (u === 'NOT' && upperAt(item, i + 1) === 'NULL') { col.notNull = true; i += 2; continue; }
+    if (u === 'NULL') { col.notNull = false; i += 1; continue; }
+    if (u === 'PRIMARY' && upperAt(item, i + 1) === 'KEY') { col.pk = true; col.notNull = true; i += 2; continue; }
+    if (u === 'UNIQUE') { col.unique = '○'; i += 1; continue; }
+    if (u === 'DEFAULT') {
+      const from = i + 1;
+      let j = from, depth = 0;
+      while (j < item.length) {
+        const t = item[j];
+        if (t.t === 'punct' && t.v === '(') depth++;
+        else if (t.t === 'punct' && t.v === ')') depth--;
+        else if (depth === 0 && t.t === 'word' && COL_CONSTRAINT_START.has(t.v.toUpperCase())) break;
+        j++;
+      }
+      col.default = renderTokens(item.slice(from, j));
+      i = j;
+      continue;
+    }
+    if (u === 'GENERATED') {
+      let j = i;
+      while (j < item.length && upperAt(item, j) !== 'IDENTITY') j++;
+      col.default = renderTokens(item.slice(i, Math.min(j + 1, item.length)));
+      i = j + 1;
+      continue;
+    }
+    if (u === 'REFERENCES') {
+      const rn = readName(item, i + 1);
+      let ref = rn.name, j = rn.next;
+      if (item[j] && item[j].t === 'punct' && item[j].v === '(') {
+        const close = matchParen(item, j);
+        if (close > 0) { ref += '.' + renderTokens(item.slice(j + 1, close)); j = close + 1; }
+      }
+      col.fk = ref;
+      i = j;
+      continue;
+    }
+    if (u === 'CHECK' && item[i + 1] && item[i + 1].v === '(') {
+      const close = matchParen(item, i + 1);
+      if (close > 0) { col.check.push(renderTokens(item.slice(i + 2, close))); i = close + 1; continue; }
+    }
+    if (u === 'COLLATE') { i += 2; continue; }
+    warnings.push('列 ' + col.name + ' の制約を解釈しませんでした: ' + snippet(item.slice(i)));
+    break;
+  }
+  table.columns.push(col);
+}
+
+function parseTableConstraint(item, table, warnings) {
+  let i = 0, name = '';
+  if (upperAt(item, 0) === 'CONSTRAINT') {
+    const rn = readName(item, 1);
+    name = rn.name;
+    i = rn.next;
+  }
+  const u = upperAt(item, i);
+  const cols = (open) => {
+    const close = matchParen(item, open);
+    return close < 0 ? [] : splitTopComma(item.slice(open + 1, close)).map(g => renderTokens(g));
+  };
+  if (u === 'PRIMARY' && upperAt(item, i + 1) === 'KEY') {
+    const open = i + 2;
+    const list = cols(open);
+    table.constraints.push({ kind: 'PRIMARY KEY', name, body: '(' + list.join(', ') + ')', cols: list });
+    for (const c of list) markColumn(table, c, col => { col.pk = true; });
+    return;
+  }
+  if (u === 'UNIQUE') {
+    const list = cols(i + 1);
+    table.constraints.push({ kind: 'UNIQUE', name, body: '(' + list.join(', ') + ')', cols: list });
+    // 名前があればセルに書いて往復で保つ（無名の複合は表制約だけで表す）
+    if (name) for (const c of list) markColumn(table, c, col => { col.unique = name; });
+    else if (list.length === 1) markColumn(table, list[0], col => { col.unique = '○'; });
+    return;
+  }
+  if (u === 'FOREIGN' && upperAt(item, i + 1) === 'KEY') {
+    table.constraints.push({ kind: 'FOREIGN KEY', name, body: renderTokens(item.slice(i + 2)), cols: [] });
+    return;
+  }
+  if (u === 'CHECK') {
+    const close = matchParen(item, i + 1);
+    if (close > 0) {
+      table.constraints.push({
+        kind: 'CHECK', name, body: '(' + renderTokens(item.slice(i + 2, close)) + ')', cols: [],
+      });
+      return;
+    }
+  }
+  warnings.push('表制約を解釈しませんでした: ' + snippet(item));
+}
+
+function markColumn(table, colName, fn) {
+  const c = table.columns.find(x => x.name.toLowerCase() === String(colName).toLowerCase());
+  if (c) fn(c);
+}
+
+function applyComment(st, byName, warnings) {
+  const kind = upperAt(st, 2);
+  if (kind !== 'TABLE' && kind !== 'COLUMN') {
+    warnings.push('解釈しませんでした: ' + snippet(st));
+    return;
+  }
+  const rn = readName(st, 3);
+  let i = rn.next;
+  if (upperAt(st, i) !== 'IS') { warnings.push('解釈しませんでした: ' + snippet(st)); return; }
+  const text = unquoteLiteral(st[i + 1]);
+  if (kind === 'TABLE') {
+    const t = byName.get(rn.name.toLowerCase());
+    if (t) t.logical = text;
+    else warnings.push('COMMENT の対象テーブルが見つかりません: ' + rn.name);
+    return;
+  }
+  // COLUMN: <表>.<列> の最後の要素が列名
+  const parts = rn.name.split('.');
+  const colName = parts.pop();
+  const tableName = parts.join('.');
+  const t = byName.get(tableName.toLowerCase());
+  if (!t) { warnings.push('COMMENT の対象テーブルが見つかりません: ' + tableName); return; }
+  const c = t.columns.find(x => x.name.toLowerCase() === colName.toLowerCase());
+  if (c) c.logical = text;
+  else warnings.push('COMMENT の対象列が見つかりません: ' + rn.name);
+}
+
+/* ========== 中間表現 → 定義書（Markdown） ========== */
+
+// GFM の表を壊さないためセル内の | を \| にする
+const escCell = s => String(s === undefined || s === null ? '' : s).replace(/\|/g, '\\|');
+
+function cellOf(col, key) {
+  if (key === 'notNull' || key === 'pk') return col[key] ? '○' : '';
+  if (key === 'check') return col.check.join('; ');
+  return col[key] || '';
+}
+
+function buildSpec(model) {
+  const out = [];
+  for (const t of model.tables) {
+    out.push('## ' + t.name + (t.logical ? '（' + t.logical + '）' : ''));
+    out.push('');
+    out.push('| ' + SPEC_COLUMNS.map(c => c[1]).join(' | ') + ' |');
+    out.push('|' + SPEC_COLUMNS.map(() => '---').join('|') + '|');
+    for (const col of t.columns) {
+      out.push('| ' + SPEC_COLUMNS.map(c => escCell(cellOf(col, c[0]))).join(' | ') + ' |');
+    }
+    // 表制約セクションに出すもの:
+    //   ・名前つき（名前を往復で保つため）
+    //   ・表レベルの CHECK / FOREIGN KEY（列セルでは表せない）
+    //   ・無名の複合 UNIQUE（○ マークでは「どの列どうしが一意か」を表せない）
+    // 無名の PK と無名の単独 UNIQUE は列マーク（○）が正本なので出さない（往復が安定する）
+    const keep = t.constraints.filter(c =>
+      c.name || c.kind === 'CHECK' || c.kind === 'FOREIGN KEY' ||
+      (c.kind === 'UNIQUE' && (c.cols || []).length > 1));
+    if (keep.length) {
+      out.push('');
+      out.push('### 表制約');
+      for (const c of keep) {
+        out.push('- ' + (c.name ? 'CONSTRAINT ' + c.name + ' ' : '') + c.kind + ' ' + c.body);
+      }
+    }
+    out.push('');
+  }
+  while (out.length && out[out.length - 1] === '') out.pop();
+  return out.join('\n');
+}
+
+/* ========== 定義書 → 中間表現 ========== */
+
+// セル分割（\| はエスケープされた | として復元する）
+function splitRow(line) {
+  let s = line.trim();
+  if (s.startsWith('|')) s = s.slice(1);
+  if (/(^|[^\\])\|$/.test(s)) s = s.replace(/\|$/, '');   // 末尾の | は区切り（\| はセルの中身）
+  const cells = [];
+  let cur = '';
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === '\\' && s[i + 1] === '|') { cur += '|'; i++; continue; }
+    if (s[i] === '|') { cells.push(cur.trim()); cur = ''; continue; }
+    cur += s[i];
+  }
+  cells.push(cur.trim());
+  return cells;
+}
+const isSeparatorRow = cells => cells.length > 0 && cells.every(c => /^:?-{1,}:?$/.test(c.replace(/\s/g, '')));
+
+function mapHeaders(cells, warnings) {
+  const map = {};
+  cells.forEach((cell, idx) => {
+    const n = normHeader(cell);
+    if (n === '') return;
+    if (HEADER_REJECT.includes(n)) {
+      warnings.push('ヘッダー「' + cell + '」は意味が反転するため解釈しません。NOT NULL 列に書き換えてください');
+      return;
+    }
+    const hit = Object.keys(HEADER_ALIASES).find(k => HEADER_ALIASES[k].some(a => normHeader(a) === n));
+    if (hit) { if (map[hit] === undefined) map[hit] = idx; }
+    else warnings.push('認識できない列: ' + cell);
+  });
+  return map;
+}
+
+function parseBoolCell(cell, colName, header, warnings) {
+  const raw = String(cell).trim();
+  const v = raw.toLowerCase();
+  if (TRUE_CELLS.has(v)) return true;
+  if (FALSE_CELLS.has(v)) return false;
+  warnings.push('真偽値として解釈できません: ' + raw + '（' + colName + ' の ' + header + '）');
+  return false;
+}
+
+// 成功: {ok:true, value:{tables, warnings}}
+function parseSpec(src) {
+  const warnings = [];
+  const tables = [];
+  let cur = null, headers = null;
+  const lines = String(src).split('\n');
+  let inConstraints = false;
+  for (const line of lines) {
+    const heading = /^##\s+(.+?)\s*$/.exec(line);
+    if (heading && !/^###/.test(line)) {
+      const m = /^(.+?)（(.*)）$/.exec(heading[1]);
+      cur = { name: (m ? m[1] : heading[1]).trim(), logical: m ? m[2] : '', columns: [], constraints: [] };
+      tables.push(cur);
+      headers = null;
+      inConstraints = false;
+      continue;
+    }
+    if (/^###\s/.test(line)) { inConstraints = /表制約|constraint/i.test(line); continue; }
+    if (inConstraints && /^\s*-\s+/.test(line) && cur) {
+      const body = line.replace(/^\s*-\s+/, '').trim();
+      const cm = /^CONSTRAINT\s+(\S+)\s+(.*)$/i.exec(body);
+      const rest = cm ? cm[2] : body;
+      const km = /^(PRIMARY\s+KEY|UNIQUE|FOREIGN\s+KEY|CHECK)\s*([\s\S]*)$/i.exec(rest);
+      if (!km) { warnings.push('表制約を解釈しませんでした: ' + body); continue; }
+      cur.constraints.push({
+        kind: km[1].toUpperCase().replace(/\s+/g, ' '), name: cm ? cm[1] : '',
+        body: km[2].trim(), cols: [],
+      });
+      continue;
+    }
+    if (!line.trim().startsWith('|')) continue;
+    const cells = splitRow(line);
+    if (isSeparatorRow(cells)) continue;
+    if (!cur) { cur = { name: '', logical: '', columns: [], constraints: [] }; tables.push(cur); }
+    if (!headers) { headers = mapHeaders(cells, warnings); continue; }
+    if (headers.name === undefined || headers.type === undefined) continue;
+    const get = k => (headers[k] === undefined ? '' : (cells[headers[k]] || ''));
+    const name = get('name').trim();
+    if (name === '') continue;
+    cur.columns.push({
+      name,
+      type: get('type').trim(),
+      size: get('size').trim(),
+      notNull: headers.notNull === undefined ? false : parseBoolCell(get('notNull'), name, 'NOT NULL', warnings),
+      default: get('default').trim(),
+      pk: headers.pk === undefined ? false : parseBoolCell(get('pk'), name, 'PK', warnings),
+      unique: get('unique').trim(),
+      fk: get('fk').trim(),
+      check: get('check').trim() === '' ? [] : get('check').split(';').map(s => s.trim()).filter(Boolean),
+      logical: get('logical').trim(),
+    });
+  }
+  for (const t of tables) {
+    if (!t.columns.length) warnings.push('列が読み取れませんでした: ' + (t.name || '（テーブル名なし）') +
+      '（「物理名」と「型」の列が必要です）');
+  }
+  return { ok: true, value: { tables, warnings }, warnings };
+}
+
+/* ========== 中間表現 → DDL ========== */
+
+// PostgreSQL は引用しない識別子を小文字に畳む。往復では文字列が保たれるため気づけない
+function checkIdent(name, warnings) {
+  if (/[A-Z]/.test(String(name)) && !String(name).includes('"')) {
+    warnings.push('大文字を含む識別子: ' + name + '（PostgreSQL では小文字に畳まれます。保つには引用符が必要です）');
+  }
+}
+
+function buildDdl(model, warnings) {
+  const out = [];
+  for (const t of model.tables) {
+    checkIdent(t.name, warnings);
+    const parts = [];
+    for (const c of t.columns) {
+      checkIdent(c.name, warnings);
+      let s = '  ' + c.name + ' ' + c.type + (c.size ? '(' + c.size + ')' : '');
+      if (c.notNull) s += ' NOT NULL';
+      if (c.default) s += ' DEFAULT ' + c.default;
+      if (c.unique === '○') s += ' UNIQUE';
+      if (c.fk) {
+        const dot = c.fk.lastIndexOf('.');
+        s += dot > 0
+          ? ' REFERENCES ' + c.fk.slice(0, dot) + ' (' + c.fk.slice(dot + 1) + ')'
+          : ' REFERENCES ' + c.fk;
+      }
+      for (const chk of c.check) s += ' CHECK (' + chk + ')';
+      parts.push(s);
+    }
+    // 表制約セクションが優先。無ければ列のマークから組む
+    const named = new Set(t.constraints.filter(c => c.name).map(c => c.name));
+    const hasTablePk = t.constraints.some(c => c.kind === 'PRIMARY KEY');
+    for (const c of t.constraints) {
+      parts.push('  ' + (c.name ? 'CONSTRAINT ' + c.name + ' ' : '') + c.kind + ' ' +
+        (c.body.startsWith('(') ? c.body : '(' + c.body + ')'));
+    }
+    if (!hasTablePk) {
+      const pkCols = t.columns.filter(c => c.pk).map(c => c.name);
+      if (pkCols.length) parts.push('  PRIMARY KEY (' + pkCols.join(', ') + ')');
+    }
+    // UNIQUE セルの名前でグループ化（表制約に同名があるならそちらが正）
+    const groups = new Map();
+    for (const c of t.columns) {
+      if (!c.unique || c.unique === '○' || named.has(c.unique)) continue;
+      if (!groups.has(c.unique)) groups.set(c.unique, []);
+      groups.get(c.unique).push(c.name);
+    }
+    for (const [name, cols] of groups) {
+      parts.push('  CONSTRAINT ' + name + ' UNIQUE (' + cols.join(', ') + ')');
+    }
+    out.push('CREATE TABLE ' + t.name + ' (\n' + parts.join(',\n') + '\n);');
+    if (t.logical) out.push('COMMENT ON TABLE ' + t.name + ' IS ' + quoteLiteral(t.logical) + ';');
+    for (const c of t.columns) {
+      if (c.logical) {
+        out.push('COMMENT ON COLUMN ' + t.name + '.' + c.name + ' IS ' + quoteLiteral(c.logical) + ';');
+      }
+    }
+    out.push('');
+  }
+  while (out.length && out[out.length - 1] === '') out.pop();
+  return out.join('\n');
+}
+
+/* ========== 公開する変換 ========== */
+
+function ddlToSpec(src) {
+  const r = parseDdl(src);
+  if (!r.ok) return r;
+  return { ok: true, value: buildSpec(r.value), warnings: r.warnings };
+}
+function specToDdl(src) {
+  const r = parseSpec(src);
+  if (!r.ok) return r;
+  const warnings = r.warnings.slice();
+  const value = buildDdl(r.value, warnings);
+  return { ok: true, value, warnings };
+}
+
+// Excel 用 TSV（定義書の表を Excel の定義書シートへ貼る）
+function buildTsv(model) {
+  const clean = v => String(v == null ? '' : v).replace(/[\t\n\r]/g, ' ');
+  const rows = [SPEC_COLUMNS.map(c => c[1]).join('\t')];
+  for (const t of model.tables) {
+    for (const col of t.columns) {
+      rows.push(SPEC_COLUMNS.map(c => clean(cellOf(col, c[0]))).join('\t'));
+    }
+  }
+  return rows.join('\n');
+}
+
+/* ========== UI ========== */
+
+const el = id => document.getElementById(id);
+
+function showBanner(kind, text) {
+  const b = el('banner');
+  b.className = 'banner banner-' + kind;
+  b.setAttribute('role', kind === 'error' || kind === 'warn' ? 'alert' : 'status'); // ui.css の ARIA 規約
+  b.textContent = text;
+  b.hidden = !text;
+}
+function showWarnings(list) {
+  const host = el('warnings');
+  host.textContent = '';
+  if (!list || !list.length) { host.hidden = true; return; }
+  const p = document.createElement('p');
+  p.className = 'muted';
+  p.textContent = '警告 ' + list.length + ' 件（解釈できなかった箇所です。出力からは抜けています）';
+  const ul = document.createElement('ul');
+  for (const w of list) {
+    const li = document.createElement('li');
+    li.textContent = w;
+    ul.appendChild(li);
+  }
+  host.appendChild(p);
+  host.appendChild(ul);
+  host.hidden = false;
+}
+
+let lastModel = { tables: [] };   // Excel 用コピーが参照する（直近の変換結果）
+
+function run(kind) {
+  const src = el('input').value;
+  if (src.length > MAX_CHARS) {
+    showBanner('error', '入力が上限（20万文字）を超えたため処理を中止しました');
+    showWarnings([]);
+    return;
+  }
+  const parsed = kind === 'spec' ? parseDdl(src) : parseSpec(src);
+  if (!parsed.ok) {
+    showBanner('error', (kind === 'spec' ? 'DDL' : '定義書') + 'を解釈できません: ' +
+      (parsed.line ? parsed.line + '行目: ' : '') + parsed.error);
+    showWarnings([]);
+    el('output').value = '';
+    return;
+  }
+  lastModel = parsed.value;
+  const warnings = parsed.warnings.slice();
+  el('output').value = kind === 'spec' ? buildSpec(parsed.value) : buildDdl(parsed.value, warnings);
+  showWarnings(warnings);
+  const n = parsed.value.tables.length;
+  showBanner('info', n === 0 ? '変換できるテーブルがありませんでした' :
+    'テーブル ' + n + ' 件を変換しました' + (warnings.length ? '（警告 ' + warnings.length + ' 件）' : ''));
+  save();
+}
+
+async function copyText(text, btn, emptyMsg) {
+  if (text === '') { showBanner('info', emptyMsg); return; }
+  const done = () => showBanner('success', 'コピーしました');
+  try {
+    await navigator.clipboard.writeText(text);
+    done();
+  } catch (_) {
+    const ta = el('copy-helper');
+    ta.value = text;
+    ta.focus();
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (_) {}
+    ok ? done() : showBanner('info', '選択済みです。Cmd+C でコピーしてください');
+  }
+}
+
+const SAMPLE = [
+  'create table if not exists public.customer (',
+  '  id bigserial not null,',
+  '  code varchar(20) not null,',
+  '  kind numeric(10,2) default 0.00,',
+  "  status text not null check (status in ('active','closed')),",
+  '  dept_id bigint references public.dept (id),',
+  '  created_at timestamptz not null default now(),',
+  '  constraint customer_pkey primary key (id, code),',
+  '  constraint uq_code unique (code, kind)',
+  ');',
+  "comment on table public.customer is '顧客マスタ';",
+  "comment on column public.customer.id is '顧客ID';",
+  "comment on column public.customer.code is '顧客コード';",
+].join('\n');
+
+function updateSampleBtn() { el('sample').hidden = el('input').value !== ''; }
+
+/* ---------- 保存（入力のみ。出力は再計算できる） ---------- */
+
+const FIELD_LIMIT = 100000;
+let saveTimer = null;
+function save() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    const v = el('input').value;
+    ToolStorage.save(TOOL, { input: v.length > FIELD_LIMIT ? { omitted: true } : v });
+  }, 500);
+}
+function restore() {
+  const s = ToolStorage.load(TOOL);
+  if (!s || typeof s !== 'object') return;
+  if (typeof s.input === 'string') el('input').value = s.input;
+  else if (s.input && s.input.omitted) {
+    showBanner('info', '前回の入力は大きすぎたため復元されませんでした（保存上限 100KB）');
+  }
+}
+
+el('to-spec').addEventListener('click', () => run('spec'));
+el('to-ddl').addEventListener('click', () => run('ddl'));
+el('copy').addEventListener('click', () => copyText(el('output').value, el('copy'), 'コピーする内容がありません'));
+el('copy-tsv').addEventListener('click', () => {
+  const tsv = buildTsv(lastModel);
+  copyText(lastModel.tables.length ? tsv : '', el('copy-tsv'), '先に変換を実行してください');
+});
+el('sample').addEventListener('click', () => {
+  el('input').value = SAMPLE;
+  updateSampleBtn();
+  run('spec');
+});
+el('input').addEventListener('input', () => { updateSampleBtn(); save(); });
+document.addEventListener('keydown', e => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+    e.preventDefault();
+    el('copy').click();
+  }
+});
+
+/* ---------- テスト用フック ---------- */
+
+window.ddl2spec = {
+  ddlToSpec, specToDdl, parseDdl, parseSpec, buildSpec, buildDdl, buildTsv,
+  run, getModel: () => lastModel,
+};
+
+restore();
+updateSampleBtn();
+ToolStorage.mountWarning();
+</script>
+</body>
+</html>

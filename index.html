@@ -50,6 +50,7 @@ const TOOLS = [
   { name: 'Convert', alias: 'devpad', path: 'web/devpad.html', desc: '開発ユーティリティ集 — JSON整形・エスケープ・URL・Base64・Unix時刻・UUID・文字数カウント', category: '変換・比較', when: 'API レスポンスの整形・エンコード・時刻変換をその場で済ませたいとき' },
   { name: 'Text', alias: 'norm', path: 'web/norm.html', desc: '日本語表記の正規化（全角半角・ハイフン・波ダッシュ・空白・NFKC）変更箇所ハイライト付き', category: '変換・比較', when: '顧客提供テキストや仕様書の表記ゆれを揃えるとき' },
   { name: 'Diff', alias: 'diff', path: 'web/diff.html', desc: 'テキスト比較 — 行単位差分＋文字単位ハイライト、空白無視・全半角同一視オプション', category: '変換・比較', when: '文言修正の前後比較や設計記述の突き合わせ' },
+  { name: 'Schema', alias: 'ddl2spec', path: 'web/ddl2spec.html', desc: 'PostgreSQL の DDL（CREATE TABLE ＋ COMMENT ON）⇔ テーブル定義書（Markdown表）双方向変換 — 論理名・複合キー・FK・CHECK・Excel用コピー', category: '設計', when: '既存 DDL から定義書を起こすとき／定義書から DDL を作るとき（正本は DDL 側）' },
 ];
 
 // カテゴリの表示順。最も使う「タスク」を先頭に置く。
