@@ -2012,24 +2012,26 @@ const F5 = [
   });
   await page.waitForTimeout(300);
 
-  /* ========== TB-S20〜S35: ステータスの3値化（Phase T2） ========== */
+  /* ========== TB-S20〜S36: ステータス（Phase T2 の3値 ＋ Phase T3 の保留・中止） ========== */
+  // F7 の9行目は Phase T3 から「中止（CANCELLED）」。真の不明・保留は F9 で見る
   const F7 = [
     '# tasks', '', '## PEW', '',
     '- [ ] 未着手のタスク',                 //  5
     '- [/] 着手中のタスク 📅 2026-08-05 ⏫', //  6
     '- [x] 完了のタスク ✅ 2026-08-01',      //  7
     '- [X] 大文字の完了',                    //  8
-    '- [-] 未知の文字',                      //  9
+    '- [-] 中止のタスク',                    //  9
     '', '## UL', '',
     '- [ ] UL のタスク 🔽',                  // 13
     '', '',
   ].join('\n');
 
   const s20 = await page.evaluate(f7 => window.taskboard.test.parse(f7).tasks
-    .map(t => [t.line, t.status, t.done, t.statusChar]), F7);
-  r.check('TB-S20（3値＋未知を認識・done は status から派生・5行すべてタスク）',
-    eq(s20, [[5, 'todo', false, ' '], [6, 'doing', false, '/'], [7, 'done', true, 'x'],
-      [8, 'done', true, 'X'], [9, 'other', false, '-'], [13, 'todo', false, ' ']]),
+    .map(t => [t.line, t.status, t.done, t.finished, t.statusChar]), F7);
+  r.check('TB-S20（5状態を認識・done と finished を status から派生・5行すべてタスク）',
+    eq(s20, [[5, 'todo', false, false, ' '], [6, 'doing', false, false, '/'],
+      [7, 'done', true, true, 'x'], [8, 'done', true, true, 'X'],
+      [9, 'cancelled', false, true, '-'], [13, 'todo', false, false, ' ']]),
     JSON.stringify(s20));
 
   const s21 = await ops(F7, [{ type: 'setStatus', line: 5, status: 'doing' }]);
@@ -2065,19 +2067,19 @@ const F5 = [
     { type: 'setDue', line: 6, date: '2026-08-09' },
     { type: 'setTags', line: 13, tags: ['x'] },
   ]);
-  r.check('TB-S26（未知の文字の行は他の op で1バイトも変わらない）',
-    lineOf(s26, 9) === '- [-] 未知の文字' && onlyChanged(s26, F7, [5, 6, 13]),
+  r.check('TB-S26（中止の行は他の op で1バイトも変わらない）',
+    lineOf(s26, 9) === '- [-] 中止のタスク' && onlyChanged(s26, F7, [5, 6, 13]),
     JSON.stringify(lineOf(s26, 9)));
 
   const s27 = await ops(F7, [{ type: 'setStatus', line: 9, status: 'done' }]);
-  r.check('TB-S27（未知の文字を明示的に完了にすると標準の x に置き換わる）',
-    lineOf(s27, 9) === '- [x] 未知の文字 ✅ 2026-08-04' && onlyChanged(s27, F7, [9]),
+  r.check('TB-S27（中止から明示的に完了にすると x に置き換わり ✅ が付く）',
+    lineOf(s27, 9) === '- [x] 中止のタスク ✅ 2026-08-04' && onlyChanged(s27, F7, [9]),
     JSON.stringify(lineOf(s27, 9)));
 
   // TASK_RE を広げた副作用: メモが `[/] …` でもタスク行になる。ガードは TASK_RE を
   // 使っているので自動的に広がる（文言も合わせた）
   const s27b = await opsError(F7, [{ type: 'setMemo', line: 5, text: '[/] 着手中に見える行' }]);
-  const s27c = await opsError(F7, [{ type: 'setMemo', line: 5, text: '[-] 未知に見える行' }]);
+  const s27c = await opsError(F7, [{ type: 'setMemo', line: 5, text: '[-] 中止に見える行' }]);
   r.check('TB-S36（メモの本文が `[/]`・`[-]` でもタスク行になるので拒否する）',
     !!s27b && s27b.includes('タスク行になってしまいます')
     && !!s27c && s27c.includes('タスク行になってしまいます'),
@@ -2109,16 +2111,18 @@ const F5 = [
       .find(tr => tr.children[1] && tr.children[1].textContent.includes(body));
     const badge = rowOf('未着手のタスク').querySelector('.st-badge');
     const badgeText = rowOf('着手中のタスク').querySelector('.st-badge').textContent;
-    const otherBadge = rowOf('未知の文字').querySelector('.st-badge').textContent;
+    const cancelBadge = rowOf('中止のタスク').querySelector('.st-badge').textContent;
     badge.click();
     const btns = Array.from(document.querySelectorAll('#popover button'))
       .map(b => ({ t: b.textContent, dis: b.disabled }));
     Array.from(document.querySelectorAll('#popover button')).find(b => b.textContent.includes('着手中')).click();
-    return { badgeText, otherBadge, btns, line5: s.getText().split('\n')[4] };
+    return { badgeText, cancelBadge, btns, line5: s.getText().split('\n')[4] };
   }, [F7, TODAY]);
-  r.check('TB-S29（状態バッジ: 着手中は ▶・未知はその文字・3択で現在値が disabled）',
-    s29.badgeText === '▶' && s29.otherBadge === '-'
-    && s29.btns.length === 3 && s29.btns[0].dis === true   // 未着手の行なので未着手が disabled
+  r.check('TB-S29（状態バッジ: 着手中は ▶・中止は ✕・5択で現在値が disabled）',
+    s29.badgeText === '▶' && s29.cancelBadge === '✕'
+    // 列が無い状態（保留・中止）もここから選べる（ボードの列は該当があるときだけ出るため）
+    && s29.btns.length === 5 && s29.btns[0].dis === true   // 未着手の行なので未着手が disabled
+    && s29.btns.map(b => b.t).join('/') === '☐ 未着手/▶ 着手中/⏸ 保留/☑ 完了/✕ 中止'
     && s29.line5 === '- [/] 未着手のタスク',
     JSON.stringify(s29));
 
@@ -2130,13 +2134,16 @@ const F5 = [
     const s = window.taskboard.test.newSession(f7);
     return s.archive().then(res => ({ res, archive: s.getArchiveText(), tasks: s.getText() }));
   }, [F7, TODAY]));
-  r.check('TB-S30（着手中はアーカイブ対象にならない・完了だけが移る）',
-    s30.result.res.ok === true && s30.result.res.moved === 2
+  r.check('TB-S30（着手中はアーカイブされない・完了と中止が移る・確認に中止の内訳が出る）',
+    s30.result.res.ok === true && s30.result.res.moved === 3
     && s30.result.archive.includes('- [x] 完了のタスク')
     && s30.result.archive.includes('- [X] 大文字の完了')
-    && !s30.result.archive.includes('着手中') && !s30.result.archive.includes('未知の文字')
-    && s30.result.tasks.includes('- [/] 着手中のタスク'),
-    JSON.stringify([s30.result.res, s30.result.archive]));
+    && s30.result.archive.includes('- [-] 中止のタスク')   // 記号は原文のまま（完了と区別できる）
+    && !s30.result.archive.includes('着手中')
+    && s30.result.tasks.includes('- [/] 着手中のタスク')
+    && s30.messages.length === 1
+    && s30.messages[0] === '3件（うち中止 1件）を archive.md へ移動します。よろしいですか？',
+    JSON.stringify([s30.result.res, s30.messages, s30.result.archive]));
 
   const s31 = await page.evaluate(([f7, today]) => {
     window.taskboard.test.setToday(today);
@@ -2148,8 +2155,8 @@ const F5 = [
     return Array.from(document.querySelectorAll('#task-table tbody tr:not(.memo-row)'))
       .map(tr => Number(tr.dataset.line));
   }, [F7, TODAY]);
-  r.check('TB-S31（完了下部ソート: 着手中と未知は下に行かない・完了だけ最下部）',
-    eq(s31, [5, 6, 9, 13, 7, 8]), JSON.stringify(s31));
+  r.check('TB-S31（終了下部ソート: 着手中は下がらない・完了と中止が最下部）',
+    eq(s31, [5, 6, 13, 7, 8, 9]), JSON.stringify(s31));
 
   const s32 = await page.evaluate(([f7, today]) => {
     window.taskboard.test.setToday(today);
@@ -2161,8 +2168,8 @@ const F5 = [
     return Array.from(document.querySelectorAll('#task-table tbody tr:not(.memo-row)'))
       .map(tr => Number(tr.dataset.line));
   }, [F7, TODAY]);
-  r.check('TB-S32（「完了を含む」OFF: 着手中と未知は表示され完了は消える）',
-    eq(s32, [5, 6, 9, 13]), JSON.stringify(s32));
+  r.check('TB-S32（「完了・中止を含む」OFF: 着手中は残り、完了と中止が消える）',
+    eq(s32, [5, 6, 13]), JSON.stringify(s32));
 
   // TB-S33: 一括完了の確認に着手中→完了も数える（5件で確認が出る）
   const F8 = ['# tasks', '', '## PEW', '',
@@ -2180,13 +2187,15 @@ const F5 = [
   const s34 = await page.evaluate(([today]) => {
     const rows = window.taskboard.test.parse(
       '# tasks\n\n## PEW\n\n- [/] 着手 🛫 2026-07-28 📅 2026-08-01\n' +
-      '- [/] 予定 🛫 2026-08-20 📅 2026-08-31\n- [x] 済 🛫 2026-07-20 📅 2026-07-24 ✅ 2026-07-24\n'
+      '- [/] 予定 🛫 2026-08-20 📅 2026-08-31\n- [x] 済 🛫 2026-07-20 📅 2026-07-24 ✅ 2026-07-24\n' +
+      '- [-] 中止 🛫 2026-07-28 📅 2026-08-01\n- [h] 保留 🛫 2026-07-28 📅 2026-08-01\n'
     ).tasks;
     const m = window.taskboard.test.timelineModel(rows.map(t => Object.assign({}, t, { memo: [] })), today);
     return m.items.map(i => [i.line, i.state, i.status]);
   }, [TODAY]);
-  r.check('TB-S34（タイムラインの state は4値のまま・着手中は期間で分類される）',
-    eq(s34, [[5, 'late', 'doing'], [6, 'planned', 'doing'], [7, 'done', 'done']]),
+  r.check('TB-S34（着手中・保留は期間で分類・中止は専用の state・完了は done）',
+    eq(s34, [[5, 'late', 'doing'], [6, 'planned', 'doing'], [7, 'done', 'done'],
+      [8, 'cancelled', 'cancelled'], [9, 'late', 'hold']]),   // 保留は期限切れなら遅延
     JSON.stringify(s34));
 
   const s35 = await page.evaluate(([f7, today]) => {
@@ -2200,9 +2209,69 @@ const F5 = [
     s.setView('timeline');
     return { list, plan: s.getPlanTsv() };
   }, [F7, TODAY]);
-  r.check('TB-S35（Excel 用コピーの状態列に「着手」が出る）',
-    s35.list[0] === '状態' && s35.list.includes('着手') && s35.list.includes('済') && s35.list.includes('未'),
+  r.check('TB-S35（Excel 用コピーの状態列に「着手」「中止」が出る）',
+    s35.list[0] === '状態' && s35.list.includes('着手') && s35.list.includes('済')
+    && s35.list.includes('中止') && s35.list.includes('未'),
     JSON.stringify(s35.list));
+
+  /* ---------- TB-S37〜S40: 保留（[h]）と、本当に未知の記号（Phase T3） ---------- */
+  const F9 = [
+    '# tasks', '', '## PEW', '',
+    '- [h] 保留のタスク 📅 2026-08-01',   //  5（期限切れ＝保留でも色は付く）
+    '- [!] 本当に未知の記号',              //  6
+    '- [ ] 未着手のタスク',                //  7
+    '', '',
+  ].join('\n');
+
+  const s37 = await page.evaluate(f9 => window.taskboard.test.parse(f9).tasks
+    .map(t => [t.line, t.status, t.done, t.finished]), F9);
+  r.check('TB-S37（[h]=保留・[!]=不明。どちらも未完了で終了扱いにもしない）',
+    eq(s37, [[5, 'hold', false, false], [6, 'other', false, false], [7, 'todo', false, false]]),
+    JSON.stringify(s37));
+
+  const s38 = await ops(F9, [{ type: 'setStatus', line: 7, status: 'hold' }]);
+  const s38b = await ops(s38, [{ type: 'setStatus', line: 7, status: 'todo' }]);
+  r.check('TB-S38（保留への変更は1文字だけ・往復でバイト同一）',
+    lineOf(s38, 7) === '- [h] 未着手のタスク' && onlyChanged(s38, F9, [7]) && s38b === F9,
+    JSON.stringify([lineOf(s38, 7), s38b === F9]));
+
+  const s39 = await page.evaluate(([f9, today]) => {
+    window.taskboard.test.setToday(today);
+    const cb = document.getElementById('f-done');
+    cb.checked = false;
+    cb.dispatchEvent(new Event('change', { bubbles: true }));
+    const s = window.taskboard.test.newSession(f9);
+    s.setView('list');
+    const rowOf = body => Array.from(document.querySelectorAll('#task-table tbody tr'))
+      .find(tr => tr.children[1] && tr.children[1].textContent.includes(body));
+    const hold = rowOf('保留のタスク');
+    return {
+      lines: Array.from(document.querySelectorAll('#task-table tbody tr:not(.memo-row)'))
+        .map(tr => Number(tr.dataset.line)),
+      badge: hold.querySelector('.st-badge').textContent,
+      otherBadge: rowOf('本当に未知の記号').querySelector('.st-badge').textContent,
+      dueClass: hold.children[3].querySelector('span').className,  // 期限（保留でも遅延の色が付く）
+      summary: document.getElementById('summary').textContent,
+      tsv: s.getListTsv().split('\n').map(l => l.split('\t')[0]),
+    };
+  }, [F9, TODAY]);
+  r.check('TB-S39（保留は未完了として残り期限の色も付く・バッジは ⏸・TSV は「保留」）',
+    eq(s39.lines, [5, 6, 7]) && s39.badge === '⏸' && s39.otherBadge === '!'
+    && s39.dueClass === 'due-over' && s39.summary.indexOf('未完了 3 / 全 3 件') === 0
+    && s39.tsv.includes('保留'),
+    JSON.stringify(s39));
+
+  const s40 = await withDialogs('accept', () => page.evaluate(([f9, today]) => {
+    window.taskboard.test.setToday(today);
+    const cb = document.getElementById('f-done');
+    cb.checked = true;
+    cb.dispatchEvent(new Event('change', { bubbles: true }));
+    const s = window.taskboard.test.newSession(f9);
+    return s.archive().then(res => ({ res, tasks: s.getText() }));
+  }, [F9, TODAY]));
+  r.check('TB-S40（保留も不明もアーカイブ対象にならない）',
+    s40.result.res.ok === false && s40.result.res.reason === 'empty' && s40.result.tasks === F9,
+    JSON.stringify(s40.result.res));
 
   /* ========== TB-G1〜G7: ボードの列切替（Phase T2） ========== */
   const boardCols = (groupBy) => page.evaluate(([f7, today, g]) => {
@@ -2223,10 +2292,10 @@ const F5 = [
   }, [F7, TODAY, groupBy]);
 
   const g1 = await boardCols('status');
-  r.check('TB-G1（ステータス列: 未着手/着手中/完了・未知は未着手列・空列も見出しが出る）',
-    eq(g1.map(c => c.key), ['todo', 'doing', 'done'])
-    && eq(g1[0].lines, [5, 9, 13]) && eq(g1[1].lines, [6]) && eq(g1[2].lines, [7, 8])
-    && g1[0].title === '未着手 (3)', JSON.stringify(g1));
+  r.check('TB-G1（ステータス列: 常設3列＋該当のある中止列。保留は0件なので列が出ない）',
+    eq(g1.map(c => c.key), ['todo', 'doing', 'done', 'cancelled'])
+    && eq(g1[0].lines, [5, 13]) && eq(g1[1].lines, [6]) && eq(g1[2].lines, [7, 8])
+    && eq(g1[3].lines, [9]) && g1[0].title === '未着手 (2)', JSON.stringify(g1));
 
   await page.dragAndDrop('.board-col[data-section="todo"] .board-card',
     '.board-col[data-section="doing"]');
@@ -2239,9 +2308,10 @@ const F5 = [
     JSON.stringify(g2.result.text.split('\n')[4]));
 
   const g3 = await boardCols('priority');
-  r.check('TB-G3（優先度列: 高/中/低/なし・🔺⏬ は高/低に寄る）',
+  r.check('TB-G3（優先度列: 高/中/低/なし・🔺⏬ は高/低に寄る・列内は終了分が最下部）',
     eq(g3.map(c => c.key), ['high', 'medium', 'low', ''])
-    && eq(g3[0].lines, [6]) && eq(g3[2].lines, [13]) && eq(g3[3].lines, [5, 9, 7, 8]),
+    // なし列は 5（未着手）→ 7,8（完了）→ 9（中止）。中止も「終了」なので下がる
+    && eq(g3[0].lines, [6]) && eq(g3[2].lines, [13]) && eq(g3[3].lines, [5, 7, 8, 9]),
     JSON.stringify(g3));
 
   await page.dragAndDrop('.board-col[data-section=""] .board-card',
@@ -2259,12 +2329,12 @@ const F5 = [
       { key: k, metaKey: true, bubbles: true, cancelable: true }));
     key(document.querySelector('.board-col[data-section="todo"] .board-card'), 'ArrowRight');
     const after = window.__sG.getText().split('\n')[4];
-    // 完了列の右端では何もしない
-    key(document.querySelector('.board-col[data-section="done"] .board-card'), 'ArrowRight');
-    return { after, edge: window.__sG.getText().split('\n')[6] };
+    // 最右列（中止）では何もしない。**描画された列の集合で端を判定する**
+    key(document.querySelector('.board-col[data-section="cancelled"] .board-card'), 'ArrowRight');
+    return { after, edge: window.__sG.getText().split('\n')[8] };
   }));
   r.check('TB-G5（キーボード移動が列の基準に追随・端では何もしない）',
-    g5.after === '- [/] 未着手のタスク' && g5.edge === '- [x] 完了のタスク ✅ 2026-08-01',
+    g5.after === '- [/] 未着手のタスク' && g5.edge === '- [-] 中止のタスク',
     JSON.stringify(g5));
 
   const g6page = r.watch(await context.newPage());

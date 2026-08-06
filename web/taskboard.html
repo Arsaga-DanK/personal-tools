@@ -74,6 +74,9 @@
      背景に溶けるため使わない（2026-08-05 にダークのスクリーンショットで実測） */
   .tl-bar-done { background: color-mix(in srgb, var(--muted) 30%, transparent);
     border: 1px solid var(--muted); color: var(--text); text-decoration: line-through; }
+  /* 中止バーは「終わっているが完了ではない」ので塗らず破線の枠だけにする（完了と混ざらない） */
+  .tl-bar-cancelled { background: transparent; border: 1px dashed var(--muted);
+    color: var(--muted); text-decoration: line-through; }
   .tl-today { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--error);
     opacity: .5; z-index: 1; }
   .popover { position: absolute; z-index: 100; background: var(--panel);
@@ -87,6 +90,8 @@
     border-radius: 8px; font-size: 13px; }
   /* ボードビュー（列＝セクション。ドロップは opMoveSection なのでバイト保全が効く） */
   .board { display: flex; gap: 12px; overflow-x: auto; align-items: flex-start; padding-bottom: 8px; }
+  /* 5列（ステータスで保留・中止が出るとき）でも 1280px に収まる幅にする */
+  .board.cols-many .board-col { flex: 0 0 220px; }
   .board-col { flex: 0 0 300px; background: var(--th-bg); border: 1px solid var(--border);
     border-radius: 8px; padding: 8px; min-height: 110px; }
   .board-col.drop-target { border-color: var(--accent);
@@ -113,6 +118,10 @@
   .viewbar { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
   .viewbar .tabs { flex: 1 1 auto; }
   .viewbar-find { display: flex; align-items: center; gap: 8px; padding-bottom: 6px; }
+  /* 列の基準（ボード表示中だけ出す）。タブと検索の間に入るので幅を食わせない */
+  .viewbar-groupby[hidden] { display: none; }   /* 著者スタイルは [hidden] に勝つので明示する */
+  .viewbar-groupby { display: flex; align-items: center; gap: 4px; padding-bottom: 6px;
+    font-size: 13px; white-space: nowrap; }
   #f-q { width: 180px; }
   #q-count { font-size: 12px; }
   /* 追加・編集モーダル。中央固定なので画面端で切れない（TB-Q26） */
@@ -163,6 +172,13 @@
       <button data-view="board">ボード</button>
       <button data-view="timeline">タイムライン</button>
     </div>
+    <!-- 列の基準はタブのすぐ隣に置く（ボードの下に置くとボードへ入るまで存在に気づけない）。
+         タブ自体の幅は変えない（幅が動くと押し間違いが起きる） -->
+    <label class="viewbar-groupby" id="groupby-wrap" hidden>列: <select id="f-groupby">
+      <option value="section">セクション</option>
+      <option value="status">ステータス</option>
+      <option value="priority">優先度</option>
+    </select></label>
     <span class="viewbar-find">
       <input type="search" id="f-q" spellcheck="false" aria-label="検索（本文・メモ・タグ・関連ノート）"
         placeholder="🔍 検索" title="本文・メモ・タグ・関連ノートを検索（Escape でクリア）">
@@ -175,7 +191,7 @@
     <span class="opts">
       <label>セクション <select id="f-section"></select></label>
       <label>タグ <select id="f-tag"></select></label>
-      <label class="toggle"><input type="checkbox" id="f-done"> 完了を含む</label>
+      <label class="toggle" title="終了した行（完了 [x]・中止 [-]）を表示に含める。ラベルを短く保つのはツールバーが折り返して保存ボタンの位置が動くため"><input type="checkbox" id="f-done"> 終了を含む</label>
       <label>並び順 <select id="f-sort">
         <option value="file">ファイル順</option>
         <option value="start">開始日順</option>
@@ -203,14 +219,7 @@
   </div>
 
   <div id="board-view" hidden>
-    <p class="row" style="margin-top:0">
-      <label>列 <select id="f-groupby">
-        <option value="section">セクション</option>
-        <option value="status">ステータス</option>
-        <option value="priority">優先度</option>
-      </select></label>
-      <span class="muted" style="font-size:12px">カードを別の列へドラッグすると変更されます（カードを選んで Cmd/Ctrl+←→ でも移動できます）</span>
-    </p>
+    <p class="row muted" id="board-hint" style="margin-top:0; font-size:12px">カードを別の列へドラッグすると変更されます（カードを選んで Cmd/Ctrl+←→ でも移動できます）</p>
     <div class="banner" id="board-note" hidden></div>
     <div id="board" class="board"></div>
   </div>
@@ -319,23 +328,38 @@ const START_SET  = /(🛫\uFE0F? )\d{4}-\d{2}-\d{2}/;   // 日付部分のみ置
 // （Obsidian 側で付いた ⏳ の前に 🛫 を入れないと Tasks 標準順が壊れる）
 const SCHED_CUT  = / ?⏳\uFE0F? \d{4}-\d{2}-\d{2}/;
 
-/* ---------- ステータス（Phase T2・2026-08-06） ----------
-   記法は Obsidian Tasks の標準に従う（公式ドキュメントで確認）:
-     [ ] = TODO（コア） / [/] = IN_PROGRESS（カスタム。**未設定でも Unknown = 型 TODO**
-     として "not done" に一致するので、設定していない環境でも意味は壊れない） / [x] = DONE（コア）
-   Tasks の "not done" は TODO / IN_PROGRESS / ON_HOLD に一致するため、**着手中は未完了**とする。
-   **保留（ON_HOLD）等を増やすときは statusOf と STATUS_CHAR と ST_COLUMNS に1行足すだけでよい。** */
-const ST_TODO = 'todo', ST_DOING = 'doing', ST_DONE = 'done', ST_OTHER = 'other';
-const STATUS_CHAR = { todo: ' ', doing: '/', done: 'x' };
-const STATUS_LABEL = { todo: '未着手', doing: '着手中', done: '完了', other: '不明' };
-// ステータスは**この関数1箇所**で決め、done はそこから派生させる。
+/* ---------- ステータス（Phase T2・2026-08-06 / Phase T3 で保留・中止を追加） ----------
+   記法は Obsidian Tasks の Status Types（公式）に従う。独自記法は作らない:
+     [ ]=TODO / [/]=IN_PROGRESS / [h]=ON_HOLD / [x]=DONE / [-]=CANCELLED / [~]=NON_TASK
+   Tasks の判定は2軸あり、**混ぜると事故になる**:
+     "not done" = TODO / IN_PROGRESS / ON_HOLD
+     "done"     = DONE / CANCELLED / NON_TASK   ← **中止も「done」側**
+   そこで本ツールも2つに分ける:
+     done     = ✅ が付く完了だけ（チェックボックスの ON/OFF はこれ）
+     finished = 終わっている（done か cancelled）。表示・件数・並び・アーカイブはこちらを見る
+   **状態を増やすときは STATUS_CHAR / STATUS_LABEL / statusOf / ST_COLUMNS に1行ずつ**
+   （NON_TASK `[~]` を足す場合は FINISHED にも1行）。 */
+const ST_TODO = 'todo', ST_DOING = 'doing', ST_HOLD = 'hold';
+const ST_DONE = 'done', ST_CANCELLED = 'cancelled', ST_OTHER = 'other';
+const STATUS_CHAR = { todo: ' ', doing: '/', hold: 'h', done: 'x', cancelled: '-' };
+const STATUS_LABEL = {
+  todo: '未着手', doing: '着手中', hold: '保留', done: '完了', cancelled: '中止', other: '不明',
+};
+// 常時表示する印（未着手・完了はチェックボックスで分かるので印を持たない）
+const STATUS_MARK = { doing: '▶', hold: '⏸', cancelled: '✕' };
+// 「終わっている」状態。ここに足した状態はアーカイブ対象にもなる
+const FINISHED = { done: true, cancelled: true };
+// ステータスは**この関数1箇所**で決め、done / finished はそこから派生させる。
 // done を独立に判定すると「スペース以外は全部完了」のような取り違えが混入する
 function statusOf(ch) {
   if (ch === 'x' || ch === 'X') return ST_DONE;
   if (ch === '/') return ST_DOING;
+  if (ch === 'h') return ST_HOLD;
+  if (ch === '-') return ST_CANCELLED;
   if (ch === ' ') return ST_TODO;
-  return ST_OTHER;   // 未知の文字 = Tasks の Unknown（型 TODO）。未完了として扱う
+  return ST_OTHER;   // 設定に無い文字 = Tasks の Unknown（型 TODO）。未完了として扱う
 }
+function isFinished(status) { return FINISHED[status] === true; }
 const TASK_CH_RE = /^\t*- \[(.)\] /;
 function statusOfLine(raw) {
   const m = TASK_CH_RE.exec(String(raw));
@@ -361,7 +385,9 @@ function setRest(t, rest, ch) {
 }
 
 // ステータス変更（Phase T2）。括弧内の**1文字だけをインプレース置換**し他のバイトは動かさない。
-// ✅ は「完了にしたときだけ付与・完了から離れるとき除去」
+// ✅ は「完了にしたときだけ付与・完了から離れるとき除去」。
+// **中止（[-]）に ❌（キャンセル日）は付けない** — 本ツールは ❌ を解析しないので、
+// 書けるが消せないトークンを作らない（Tasks 側の設定で付いた ❌ は本文として保全される）
 function opSetStatus(lines, lineNo, status, today) {
   const t = taskAt(lines, lineNo);
   const cur = statusOf(t.ch);
@@ -749,7 +775,10 @@ function parseDoc(lines) {
       idx: i, line: i + 1, indent,
       statusChar: m[2],
       status: statusOf(m[2]),
-      done: statusOf(m[2]) === ST_DONE,   // **status から派生させる**（独立に判定しない）
+      // **どちらも status から派生させる**（独立に判定しない）。
+      // done = ✅ が付く完了だけ / finished = 終わっている（完了・中止）
+      done: statusOf(m[2]) === ST_DONE,
+      finished: isFinished(statusOf(m[2])),
       body,
       displayBody: body.replace(/ ?\[\[[^\]]+\]\]/g, '').replace(/\s+/g, ' ').trim(),
       start: (START_FIND.exec(rest) || [])[1] || null,
@@ -798,13 +827,16 @@ function timelineModel(rows, today) {
     const hasDue = !!t.due && !inverted;
     const end = hasDue ? t.due : t.start;          // 📅 なし・逆転は1日分のバー
     let kind;
-    if (t.done) kind = 'done';
+    // 中止は「終わっているが完了ではない」ので専用の状態にする（完了と同じ灰色に見せない）
+    if (t.status === ST_CANCELLED) kind = 'cancelled';
+    else if (t.done) kind = 'done';
     else if (t.due && t.due < today) kind = 'late';
     else if (t.start <= today && today <= end) kind = 'active';
     else kind = 'planned';
     items.push({
       line: t.line, indent: t.indent, body: t.displayBody || t.body || '(内容なし)',
-      done: t.done, status: t.status, section: t.section || '', start: t.start, due: t.due,
+      done: t.done, finished: t.finished, status: t.status,
+      section: t.section || '', start: t.start, due: t.due,
       end, hasDue, inverted, state: kind,
       days: hasDue ? diffDays(t.start, t.due) + 1 : null, // 両端含む。📅 なしは null
     });
@@ -926,6 +958,7 @@ const state = {
   hasCRFile: false,  // CR 改行ファイル（表示のみ・追加/アーカイブ無効）
   archiveAdapter: null, archiveHandle: null,
   timeline: null,    // 直近の timelineModel（Excel 用コピーが参照する。リスト時は null）
+  boardCols: null,   // 直近に描画したボードの列（キーボード移動が同じ集合を見るため）
   // メモ・ボードの子タスクの展開状態。**永続化しない**
   // （行番号は編集で動くため、保存すると別の行が開く）
   memoOpen: new Set(),
@@ -1012,28 +1045,31 @@ function isDirty() {
   return joinLines(state.lines) !== state.snapshot;
 }
 
-// 未保存の「未完了 → 完了」の件数。カウンタを持たず行配列から導出するので同期ずれが起きない。
-// 保存時に1回だけ呼ぶ（通常操作を重くしない）。完了解除は数えない（AR-3）
-// **着手中（[/]）→ 完了 も数える**（数えないと5件以上の一括完了で確認が出ず、
-// 8/3 のアーカイブ事故の再発経路になる）。判定は statusOfLine に集約
-function countNewlyCompleted(lines) {
-  let n = 0;
+// 未保存の「未完了 → 終了（完了・中止）」の件数。カウンタを持たず行配列から導出するので
+// 同期ずれが起きない。保存時に1回だけ呼ぶ（通常操作を重くしない）。解除は数えない（AR-3）。
+// **着手中（[/]）→ 完了 も、→ 中止 も数える**（数えないと5件以上の一括操作で確認が出ず、
+// 8/3 のアーカイブ事故の再発経路になる。中止もアーカイブ対象なので同じ重さ）
+function countNewlyFinished(lines) {
+  let done = 0, cancelled = 0;
   for (const l of lines) {
     if (l.orig === null) continue;
     const before = statusOfLine(l.orig), after = statusOfLine(l.raw);
-    if (before && after && before !== ST_DONE && after === ST_DONE) n++;
+    if (!before || !after || isFinished(before) || !isFinished(after)) continue;
+    if (after === ST_CANCELLED) cancelled++; else done++;
   }
-  return n;
+  return { total: done + cancelled, done, cancelled };
 }
 const BULK_COMPLETE_THRESHOLD = 5; // これ以上の一括完了は保存時に確認する（AR-3）
 
 async function doSave() {
   if (!state.loaded || !state.adapter) return { ok: false, reason: 'notloaded' };
   if (state.demo) { showBanner('info', 'デモ中は保存できません'); return { ok: false, reason: 'demo' }; }
-  // 一括完了チェックの事故防止: 5件以上の完了を含む保存は確認する
-  const completing = countNewlyCompleted(state.lines);
+  // 一括完了チェックの事故防止: 5件以上の完了・中止を含む保存は確認する。
+  // 全部が完了なら文言は従来どおり（中止が混ざったときだけ「完了/中止」にする）
+  const fin = countNewlyFinished(state.lines);
+  const completing = fin.total;
   if (completing >= BULK_COMPLETE_THRESHOLD &&
-      !confirm(completing + '件を完了にします。よろしいですか？')) {
+      !confirm(completing + '件を' + (fin.cancelled ? '完了/中止' : '完了') + 'にします。よろしいですか？')) {
     showBanner('info', '保存を中止しました');
     return { ok: false, reason: 'cancel' };
   }
@@ -1368,7 +1404,7 @@ function render() {
     let childVis = false;
     for (const c of t.children) childVis = markVisible(c) || childVis;
     // 未完了の子孫を持つ完了行は文脈表示。検索中は一致の圏内だけ
-    t._vis = ((state.ui.showDone || !t.done) || childVis) && t._inQ;
+    t._vis = ((state.ui.showDone || !t.finished) || childVis) && t._inQ;
     return t._vis;
   };
   const groupHasTag = (t, tag) => t.tags.includes(tag) || t.children.some(c => groupHasTag(c, tag));
@@ -1389,11 +1425,11 @@ function render() {
   } else if (state.ui.sort === 'priority') {
     groups = groups.slice().sort((a, b) => rank(a) - rank(b) || a.line - b.line);
   }
-  // 完了グループは常に最下部（ソート指定より優先）。判定は subtreeAllDone なので
-  // 未完了の子孫を持つ完了親は上に残る（進行中の作業が下に埋もれない）。
+  // 終了したグループ（完了・中止）は常に最下部（ソート指定より優先）。判定は subtreeFinished
+  // なので未完了の子孫を持つ完了親は上に残る（進行中の作業が下に埋もれない）。
   // **リストとボードだけに適用する** — visibleRows はタイムラインの行順にも使われる
   if (state.ui.view === 'list' || state.ui.view === 'board') {
-    const doneKey = t => (subtreeAllDone(t) ? 1 : 0);
+    const doneKey = t => (subtreeFinished(t) ? 1 : 0);
     groups = groups.slice().sort((a, b) => doneKey(a) - doneKey(b)); // 安定ソート（既存順を保つ）
   }
 
@@ -1412,7 +1448,12 @@ function render() {
 
   for (const b of el('view-tabs').querySelectorAll('button')) {
     b.classList.toggle('active', b.dataset.view === state.ui.view);
+    // 現在の列の基準は、ボードへ入る前でも title で読める（タブの幅は変えない）
+    if (b.dataset.view === 'board') {
+      b.title = 'カードを列に並べる（列: ' + (GROUPBY_LABEL[state.ui.board.groupBy] || '') + '）';
+    }
   }
+  el('groupby-wrap').hidden = state.ui.view !== 'board';   // 基準はボード表示中だけ出す
   el('table-wrap').hidden = state.ui.view !== 'list';
   el('board-view').hidden = state.ui.view !== 'board';
   el('timeline-view').hidden = state.ui.view !== 'timeline';
@@ -1434,7 +1475,7 @@ function render() {
   // 検索で行が消えたことを無言にしない
   el('q-count').textContent = q === '' ? '' : hitCount + ' 件ヒット';
 
-  const open = doc.tasks.filter(t => !t.done).length;
+  const open = doc.tasks.filter(t => !t.finished).length;
   el('summary').textContent = '未完了 ' + open + ' / 全 ' + doc.tasks.length + ' 件 · 表示 ' + rows.length + ' 行';
   el('btn-add-form').disabled = state.hasCRFile;
   updateSaveButton();
@@ -1468,9 +1509,19 @@ const MAX_BOARD_CARDS = 300;   // 深さ0のカード数の上限（超過時は
 /* 列の基準（TB-Q43）。ドロップ時の op は基準ごとに分岐する:
    セクション → moveSection / ステータス → setStatus / 優先度 → setPriority */
 const BOARD_GROUPS = ['section', 'status', 'priority'];
+const GROUPBY_LABEL = { section: 'セクション', status: 'ステータス', priority: '優先度' };
+// ステータス列。always=true の3列は0件でも出す（列が消えると壊れて見える）。
+// **保留・中止は該当が1件以上あるときだけ列に出す** — 5列常設は横に長すぎるため。
+// 列が無い状態への変更は状態バッジのポップオーバーから行える（ST_CHOICES）
 const ST_COLUMNS = [
-  { key: ST_TODO, label: '未着手' }, { key: ST_DOING, label: '着手中' }, { key: ST_DONE, label: '完了' },
+  { key: ST_TODO, label: '未着手', always: true },
+  { key: ST_DOING, label: '着手中', always: true },
+  { key: ST_HOLD, label: '⏸ 保留' },
+  { key: ST_DONE, label: '完了', always: true },
+  { key: ST_CANCELLED, label: '✕ 中止' },
 ];
+// バッジのポップオーバーで選べる状態（列の有無と無関係に全部選べる）
+const ST_CHOICES = ST_COLUMNS.map(c => c.key);
 const PRI_COLUMNS = [
   { key: 'high', label: '⏫ 高' }, { key: 'medium', label: '🔼 中' },
   { key: 'low', label: '🔽 低' }, { key: '', label: 'なし' },
@@ -1478,16 +1529,21 @@ const PRI_COLUMNS = [
 // 🔺/⏬ は 高/低 の列に寄せる（PRI_RANK と同じ考え方）
 const PRI_COL = { highest: 'high', high: 'high', medium: 'medium', low: 'low', lowest: 'low' };
 
-function boardColumns() {
+// 描画する列。cards を渡すと「該当があるときだけ出す」列を判定できる
+// （渡さないときは always の列だけ = キーボード移動が描画と同じ集合を見るための既定）
+function boardColumns(cards) {
   const g = state.ui.board.groupBy;
-  if (g === 'status') return ST_COLUMNS.slice();
+  if (g === 'status') {
+    const keys = new Set((cards || []).map(cardKeyOf));
+    return ST_COLUMNS.filter(c => c.always || keys.has(c.key)).map(c => ({ key: c.key, label: c.label }));
+  }
   if (g === 'priority') return PRI_COLUMNS.slice();
   return state.doc.sections.map(s => ({ key: s, label: s }));
 }
 // カードがどの列に入るか
 function cardKeyOf(t) {
   const g = state.ui.board.groupBy;
-  if (g === 'status') return t.status === ST_OTHER ? ST_TODO : t.status;  // 未知は未着手列
+  if (g === 'status') return t.status === ST_OTHER ? ST_TODO : t.status;  // 不明は未着手列
   if (g === 'priority') return PRI_COL[t.priority] || '';
   return t.section;
 }
@@ -1534,7 +1590,11 @@ function renderBoard(groups, today, q) {
   note.textContent = msgs.join(' / ');
   note.hidden = msgs.length === 0;
 
-  const columns = boardColumns();
+  // 描画した列をキーボード移動と共有する（両者が違う集合を見ると端の判定がずれる）
+  const columns = boardColumns(cards);
+  state.boardCols = columns;
+  // 5列（保留・中止が出るとき）は列幅を詰める。横スクロールに逃がすと完了列が画面外に出る
+  host.classList.toggle('cols-many', columns.length > 4);
   const byKey = new Map(columns.map(c => [c.key, []]));
   for (const c of cards) {
     const k = cardKeyOf(c);
@@ -1555,7 +1615,7 @@ function renderBoard(groups, today, q) {
     title.appendChild(cnt);
     col.appendChild(title);
     const list = byKey.get(c.key).slice();
-    if (sortDoneLast) list.sort((a, b) => (subtreeAllDone(a) ? 1 : 0) - (subtreeAllDone(b) ? 1 : 0));
+    if (sortDoneLast) list.sort((a, b) => (subtreeFinished(a) ? 1 : 0) - (subtreeFinished(b) ? 1 : 0));
     for (const t of list) col.appendChild(renderCard(t, today, q));
     // dragover で preventDefault しないと drop が発火しない（HTML DnD 仕様）
     col.addEventListener('dragover', (e) => { e.preventDefault(); col.classList.add('drop-target'); });
@@ -1582,13 +1642,14 @@ function moveCardToSection(line, section) {
 
 function renderCard(t, today, q) {
   const card = document.createElement('div');
-  card.className = 'board-card' + (t.done ? ' card-done' : '');
+  card.className = 'board-card' + (t.finished ? ' card-done' : '');
   card.dataset.line = t.line;
   card.tabIndex = 0;   // ドラッグを唯一の手段にしない（キーボードで移動・編集できる）
   if (!t.hasCR) card.draggable = true;   // 深さ0のカードだけ（子は親と一緒に動く）
   const body = document.createElement('div');
   body.className = 'card-body';
-  if (t.status === ST_DOING) body.appendChild(document.createTextNode('▶ '));
+  // 状態の印（列＝ステータスのときは列で分かるが、他の基準では印が唯一の手がかりになる）
+  if (STATUS_MARK[t.status]) body.appendChild(document.createTextNode(STATUS_MARK[t.status] + ' '));
   else if (t.status === ST_OTHER) body.appendChild(document.createTextNode('[' + t.statusChar + '] '));
   appendHighlighted(body, t.displayBody || t.body || '(内容なし)', q);
   if (t.memo.length) {
@@ -1604,8 +1665,8 @@ function renderCard(t, today, q) {
   if (t.due) {
     const d = document.createElement('span');
     d.textContent = '📅 ' + t.due;
-    if (!t.done && t.due < today) d.className = 'due-over';
-    else if (!t.done && t.due === today) d.className = 'due-today';
+    if (!t.finished && t.due < today) d.className = 'due-over';
+    else if (!t.finished && t.due === today) d.className = 'due-today';
     meta.appendChild(d);
   }
   if (t.priEmoji) {
@@ -1655,7 +1716,7 @@ function renderCard(t, today, q) {
     for (const c of kids) {
       const row = document.createElement('div');
       row.className = 'card-kid';
-      row.textContent = c.done ? '☑ ' : (c.status === ST_DOING ? '▶ ' : '☐ ');
+      row.textContent = c.done ? '☑ ' : ((STATUS_MARK[c.status] || '☐') + ' ');
       appendHighlighted(row, c.displayBody || c.body || '(内容なし)', q);
       row.title = 'クリックでこの子タスクを編集';
       row.addEventListener('click', (e) => { e.stopPropagation(); openTaskModal('edit', c); });
@@ -1680,7 +1741,7 @@ function renderCard(t, today, q) {
     if (!(e.metaKey || e.ctrlKey) || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
     e.preventDefault();
     // キーボード移動も列の基準に追随する
-    const cols = boardColumns();
+    const cols = state.boardCols || boardColumns();
     const i = cols.findIndex(c => c.key === cardKeyOf(t)) + (e.key === 'ArrowRight' ? 1 : -1);
     if (i < 0 || i >= cols.length) return;   // 端では何もしない
     moveCardTo(t.line, cols[i].key);
@@ -1831,12 +1892,12 @@ function updateSaveButton() {
 
 // 対象は親子グループ単位: 深さ0の部分木がすべて完了し、かつ現在の表示に出ているもの
 // （ソート・絞り込みと同じグループ単位の考え方。未完了の子を持つ親は文脈ごと残す）
-function subtreeAllDone(t) { return t.done && t.children.every(subtreeAllDone); }
+function subtreeFinished(t) { return t.finished && t.children.every(subtreeFinished); }
 function collectArchivable() {
   if (!state.loaded || !state.doc) return [];
   const inView = new Set(state.visibleRows.map(t => t.line));
   return state.doc.tasks.filter(t =>
-    t.parentLine === null && subtreeAllDone(t) && inView.has(t.line));
+    t.parentLine === null && subtreeFinished(t) && inView.has(t.line));
 }
 // アーカイブ対象の行番号。**メモ行も含める**（含めないと tasks.md にメモが孤児として残る）
 function subtreeLines(t, out) {
@@ -1854,6 +1915,15 @@ function subtreeTaskCount(t) {
 function archivableTaskCount() {
   return collectArchivable().reduce((n, t) => n + subtreeTaskCount(t), 0);
 }
+// 中止（[-]）もアーカイブ対象なので、**確認に内訳を出す**。
+// 「完了したものを片付けたつもりが中止も一緒に動いた」を防ぐ（AR-1/AR-3 と同じ考え方）
+function subtreeCancelledCount(t) {
+  return (t.status === ST_CANCELLED ? 1 : 0) +
+    t.children.reduce((n, c) => n + subtreeCancelledCount(c), 0);
+}
+function archivableCancelledCount() {
+  return collectArchivable().reduce((n, t) => n + subtreeCancelledCount(t), 0);
+}
 
 function updateArchiveButton() {
   const btn = el('btn-archive');
@@ -1864,7 +1934,7 @@ function updateArchiveButton() {
   btn.textContent = n > 0 ? '完了をアーカイブ（' + n + '）' : '完了をアーカイブ';
   btn.title = n > 0
     ? '表示中の完了グループを archive.md へ移動して tasks.md から除去'
-    : '対象なし — 完了行は「完了を含む」を ON にすると表示されます（子がすべて完了したグループが対象）';
+    : '対象なし — 完了・中止の行は「終了を含む」を ON にすると表示されます（子がすべて終わったグループが対象）';
 }
 
 // archive.md のアダプタを用意（メモリセッションはメモリ、FSA はハンドル永続化＋初回ピッカー）
@@ -1921,7 +1991,7 @@ async function doArchive() {
   }
   const roots = collectArchivable();
   if (roots.length === 0) {
-    showBanner('info', 'アーカイブ対象の完了行が表示されていません（「完了を含む」を ON にして確認してください）');
+    showBanner('info', 'アーカイブ対象の行が表示されていません（「終了を含む」を ON にして確認してください）');
     return { ok: false, reason: 'empty' };
   }
   const lineNos = roots.flatMap(t => subtreeLines(t, [])).sort((a, b) => a - b);
@@ -1951,7 +2021,9 @@ async function doArchive() {
   // 対象は「画面に出ているもの」なので、検索で絞り込み中はそれを隠さない
   // （8/3 のアーカイブ事故と同じ型を防ぐ）
   const filterNote = String(state.ui.q || '').trim() !== '' ? '（検索で絞り込み中）' : '';
-  if (!confirm(archivableTaskCount() + '件を ' + archiveTargetName() + ' へ移動します。' +
+  const cancelled = archivableCancelledCount();
+  const breakdown = cancelled ? '（うち中止 ' + cancelled + '件）' : '';
+  if (!confirm(archivableTaskCount() + '件' + breakdown + 'を ' + archiveTargetName() + ' へ移動します。' +
       filterNote + 'よろしいですか？')) {
     showBanner('info', 'アーカイブを中止しました');
     return { ok: false, reason: 'cancel' };
@@ -1990,7 +2062,7 @@ const PRI_LABEL = { highest: '高', high: '高', medium: '中', low: '低', lowe
 
 function renderRow(t, today) {
   const tr = document.createElement('tr');
-  if (t.done) tr.className = 'row-done';
+  if (t.finished) tr.className = 'row-done';
   tr.dataset.line = t.line;
   // 未保存の追加行を見分けられるようにする（保存すると orig が実値になり自然に消える）
   const isAdded = state.lines[t.line - 1] && state.lines[t.line - 1].orig === null;
@@ -2005,22 +2077,22 @@ function renderRow(t, today) {
   cb.addEventListener('change', () => {
     const completing = cb.checked;
     applyUiOp({ type: completing ? 'complete' : 'uncomplete', line: t.line });
-    // 「完了を含む」OFF では行が即座に消えるため、削除と誤解されない案内を出す
+    // 「終了を含む」OFF では行が即座に消えるため、削除と誤解されない案内を出す
     if (completing && !state.ui.showDone) {
-      showBanner('info', '完了にしました。完了行は「完了を含む」を ON にすると表示されます（ファイルへは保存時に反映）');
+      showBanner('info', '完了にしました。完了行は「終了を含む」を ON にすると表示されます（ファイルへは保存時に反映）');
     }
   });
   tdSt.appendChild(cb);
-  // 状態バッジ（未着手は空・着手中は ▶・未知はその文字）。クリックで3択ポップオーバー
+  // 状態バッジ（着手中 ▶ / 保留 ⏸ / 中止 ✕ / 不明はその文字）。クリックで状態を選ぶ
   const badge = document.createElement('button');
   badge.className = 'st-badge';
-  // 情報を持つ印（着手中の ▶・未知の文字）は常時表示、
+  // 情報を持つ印（▶ ⏸ ✕・不明の文字）は常時表示、
   // 未着手・完了はチェックボックスで分かるのでホバー時だけ操作口を見せる（＋子 と同じ作法）
-  if (t.status === ST_DOING) badge.textContent = '▶';
+  if (STATUS_MARK[t.status]) badge.textContent = STATUS_MARK[t.status];
   else if (t.status === ST_OTHER) badge.textContent = t.statusChar;
   else { badge.textContent = '▾'; badge.classList.add('st-quiet'); }
   badge.title = '状態: ' + (STATUS_LABEL[t.status] || t.statusChar) +
-    '（クリックで 未着手 / 着手中 / 完了 を選ぶ）';
+    '（クリックで ' + ST_CHOICES.map(s => STATUS_LABEL[s]).join(' / ') + ' を選ぶ）';
   badge.disabled = t.hasCR;
   badge.addEventListener('click', (e) => openStatusPopover(e.currentTarget, t));
   tdSt.appendChild(badge);
@@ -2072,7 +2144,7 @@ function renderRow(t, today) {
   tdDue.className = 'cell-due';
   const dueSpan = document.createElement('span');
   dueSpan.textContent = t.due || '—';
-  if (!t.done && t.due) {
+  if (!t.finished && t.due) {
     if (t.due < today) dueSpan.className = 'due-over';
     else if (t.due === today) dueSpan.className = 'due-today';
     dueSpan.style.padding = '1px 6px';
@@ -2316,7 +2388,7 @@ function openPlanPopover(anchor, t) {
   });
 }
 
-// 状態の3択（期限・優先度と同じ作法）
+// 状態の選択（期限・優先度と同じ作法）。**ボードに列が無い状態への変更もここから行える**
 function openStatusPopover(anchor, t) {
   openPopover(anchor, (pop) => {
     const label = document.createElement('span');
@@ -2324,9 +2396,9 @@ function openStatusPopover(anchor, t) {
     pop.appendChild(label);
     const btns = document.createElement('div');
     btns.className = 'row-btns';
-    for (const st of [ST_TODO, ST_DOING, ST_DONE]) {
+    for (const st of ST_CHOICES) {
       const b = document.createElement('button');
-      b.textContent = (st === ST_DOING ? '▶ ' : (st === ST_DONE ? '☑ ' : '☐ ')) + STATUS_LABEL[st];
+      b.textContent = (STATUS_MARK[st] || (st === ST_DONE ? '☑' : '☐')) + ' ' + STATUS_LABEL[st];
       if (st === t.status) { b.disabled = true; b.title = '現在の状態'; }
       else {
         b.addEventListener('click', () => {
@@ -2703,12 +2775,16 @@ function openChildPopover(anchor, t) {
 
 const tsvClean = (v) => String(v == null ? '' : v).replace(/[\t\n\r]/g, ' ');
 
+// TSV の状態列。画面の印と1対1に対応させる（不明は「未」に寄せる＝未完了だから）
+const TSV_STATE = { done: '済', cancelled: '中止', hold: '保留', doing: '着手' };
+const tsvState = (status) => TSV_STATE[status] || '未';
+
 // リストビュー用。表に開始日列があるので TSV にも入れる（画面と出力を食い違わせない。TB-Q14）
 function buildTsv(rows) {
   const out = ['状態\t内容\t開始日\t期限\t優先度\tタグ\tセクション']; // ヘッダー行（TB-Q4 決定）
   for (const t of rows) {
     out.push([
-      t.done ? '済' : (t.status === ST_DOING ? '着手' : '未'),
+      tsvState(t.status),
       '　'.repeat(t.indent) + (t.displayBody || t.body),
       t.start || '',
       t.due || '',
@@ -2729,7 +2805,7 @@ function buildPlanTsv(items) {
       it.start,
       it.due || '',
       it.days === null ? '' : it.days,   // 📅 が無ければ空欄（推測値を書かない）
-      it.done ? '済' : (it.state === 'late' ? '遅延' : (it.status === ST_DOING ? '着手' : '未')),
+      it.state === 'late' ? '遅延' : tsvState(it.status),   // 遅延は「着手」より重い情報なので優先する
       it.section,
     ].map(tsvClean).join('\t'));
   }
@@ -2869,7 +2945,7 @@ window.taskboard = {
       return {
         sections: doc.sections,
         tasks: doc.tasks.map(t => ({
-          line: t.line, indent: t.indent, done: t.done,
+          line: t.line, indent: t.indent, done: t.done, finished: t.finished,
           status: t.status, statusChar: t.statusChar, body: t.body,
           displayBody: t.displayBody, start: t.start, due: t.due, doneDate: t.doneDate,
           priority: t.priority, tags: t.tags, links: t.links,
