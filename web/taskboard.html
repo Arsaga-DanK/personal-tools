@@ -80,6 +80,36 @@
   .addform { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 0 0 12px;
     padding: 10px 14px; background: var(--panel); border: 1px solid var(--border);
     border-radius: 8px; font-size: 13px; }
+  /* ボードビュー（列＝セクション。ドロップは opMoveSection なのでバイト保全が効く） */
+  .board { display: flex; gap: 12px; overflow-x: auto; align-items: flex-start; padding-bottom: 8px; }
+  .board-col { flex: 0 0 300px; background: var(--th-bg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px; min-height: 110px; }
+  .board-col.drop-target { border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 10%, var(--th-bg)); }
+  .board-col-title { margin: 0 0 8px; font-size: 13px; font-weight: 600; }
+  .board-col-title .muted { font-weight: 400; }
+  .board-card { background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+    padding: 7px 9px; margin-bottom: 8px; font-size: 13px; cursor: pointer; }
+  .board-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .board-card.dragging { opacity: .4; }
+  .board-card.card-done { color: var(--muted); }
+  .board-card.card-done .card-body { text-decoration: line-through; }
+  .card-body { word-break: break-word; }
+  .card-meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+    margin-top: 5px; font-size: 12px; }
+  .card-kids { margin-top: 5px; font-size: 12px; }
+  .card-kid { padding: 2px 0 2px 14px; color: var(--muted); word-break: break-word; }
+  .card-kid:hover { color: var(--accent); }
+  .card-btn { font-size: 11px; padding: 0 6px; }
+  /* 検索の一致箇所（本文は書き換えず表示だけ） */
+  .hit { background: var(--warn-bg); border-radius: 2px; }
+  /* 検索はビュー切替の行に置く（ツールバーは検索欄を足す前から容量いっぱいで、
+     入れると折り返して保存ボタンの位置が動く。実測して移した） */
+  .viewbar { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+  .viewbar .tabs { flex: 1 1 auto; }
+  .viewbar-find { display: flex; align-items: center; gap: 8px; padding-bottom: 6px; }
+  #f-q { width: 180px; }
+  #q-count { font-size: 12px; }
   /* 追加・編集モーダル。中央固定なので画面端で切れない（TB-Q26） */
   .modal-overlay { position: fixed; inset: 0; z-index: 200; display: flex;
     align-items: center; justify-content: center; padding: 16px;
@@ -122,9 +152,17 @@
   <div class="banner banner-info" id="fallback-note" role="status" hidden></div>
   <div class="banner" id="banner" hidden></div>
 
-  <div class="tabs" id="view-tabs" hidden>
-    <button data-view="list">リスト</button>
-    <button data-view="timeline">タイムライン</button>
+  <div class="viewbar" id="viewbar" hidden>
+    <div class="tabs" id="view-tabs">
+      <button data-view="list">リスト</button>
+      <button data-view="board">ボード</button>
+      <button data-view="timeline">タイムライン</button>
+    </div>
+    <span class="viewbar-find">
+      <input type="search" id="f-q" spellcheck="false" aria-label="検索（本文・メモ・タグ・関連ノート）"
+        placeholder="🔍 検索" title="本文・メモ・タグ・関連ノートを検索（Escape でクリア）">
+      <span class="muted" id="q-count"></span>
+    </span>
   </div>
 
   <div class="toolbar" id="main-toolbar" hidden>
@@ -157,6 +195,11 @@
       </tr></thead>
       <tbody id="task-body"></tbody>
     </table>
+  </div>
+
+  <div id="board-view" hidden>
+    <div class="banner" id="board-note" hidden></div>
+    <div id="board" class="board"></div>
   </div>
 
   <div id="timeline-view" hidden>
@@ -832,10 +875,13 @@ const state = {
   hasCRFile: false,  // CR 改行ファイル（表示のみ・追加/アーカイブ無効）
   archiveAdapter: null, archiveHandle: null,
   timeline: null,    // 直近の timelineModel（Excel 用コピーが参照する。リスト時は null）
-  // メモの展開状態。**永続化しない**（行番号は編集で動くため、保存すると別行が開く）
+  // メモ・ボードの子タスクの展開状態。**永続化しない**
+  // （行番号は編集で動くため、保存すると別の行が開く）
   memoOpen: new Set(),
+  boardKidsOpen: new Set(),
   ui: {
     view: 'list', sort: 'file', section: '', tag: '', showDone: false,
+    q: '',   // 検索語。**永続化しない**（persistUi に入れない）
     // 追加モーダルの前回値（クリアも '' として記憶する。固定デフォルトは実態に合わない）。
     // 書き込みは rememberFromOp（全編集経路）、投入は openTaskModal の1箇所だけ
     add: { section: '', start: '', due: '', priority: '', tags: [] },
@@ -843,7 +889,7 @@ const state = {
 };
 
 // restoreUi で受け入れる値の列挙（未知値が入ると <select> の値が空になり並び順が壊れる。TB-Q17）
-const UI_VIEWS = ['list', 'timeline'];
+const UI_VIEWS = ['list', 'board', 'timeline'];
 const UI_SORTS = ['file', 'start', 'due', 'priority'];
 
 function fsaAvailable() { return !state.fsaOff && 'showOpenFilePicker' in window; }
@@ -1216,14 +1262,17 @@ function render() {
   if (!state.loaded) {
     el('main-toolbar').hidden = true;
     el('view-tabs').hidden = true;
+    el('viewbar').hidden = true;
     el('table-wrap').hidden = true;
     el('timeline-view').hidden = true;
+    el('board-view').hidden = true;
     el('empty-msg').hidden = false;
     el('empty-msg').textContent = 'ファイルを開くとタスクが表示されます — ブラウザから直接 tasks.md を読み書きします（初回のみ Chrome の許可ダイアログが出ます）';
     return;
   }
   el('main-toolbar').hidden = false;
   el('view-tabs').hidden = false;   // ビュー切替は常時表示（timeline のまま復帰しても戻れる）
+  el('viewbar').hidden = false;
   const doc = parseDoc(state.lines);
   state.doc = doc;
 
@@ -1238,12 +1287,33 @@ function render() {
   // 既定値の投入は openTaskModal（モーダルを開く瞬間）の1箇所だけ。
   // render では触らない（再描画で利用者がクリアした欄を復活させてしまうため）
 
+  // テキスト検索（Phase S）。一致したタスク＋その祖先＋その子孫を残す。
+  // タグ絞り込みがグループ全体を出すのと**意図的に違う**（→ 表示仕様に理由を記載）
+  const q = nfc(state.ui.q || '').trim().toLowerCase();
+  const haystack = (t) => nfc([t.body, t.memo.join(' '), t.tags.join(' '), t.links.join(' ')]
+    .join(' ')).toLowerCase();
+  let hitCount = 0;
+  const markHit = (t) => {                       // 自分または子孫が一致したか
+    let desc = false;
+    for (const c of t.children) desc = markHit(c) || desc;
+    t._hit = q !== '' && haystack(t).includes(q);
+    if (t._hit) hitCount++;
+    t._sub = t._hit || desc;
+    return t._sub;
+  };
+  const spreadHit = (t, ancestorHit) => {        // 祖先が一致していれば子孫も残す
+    t._inQ = q === '' || t._sub || ancestorHit;
+    for (const c of t.children) spreadHit(c, ancestorHit || t._hit);
+  };
+
   // 表示判定は親子グループ単位（spec 決定事項）
   const roots = doc.tasks.filter(t => t.parentLine === null);
+  for (const r of roots) { markHit(r); spreadHit(r, false); }
   const markVisible = (t) => {
     let childVis = false;
     for (const c of t.children) childVis = markVisible(c) || childVis;
-    t._vis = (state.ui.showDone || !t.done) || childVis; // 未完了の子孫を持つ完了行は文脈表示
+    // 未完了の子孫を持つ完了行は文脈表示。検索中は一致の圏内だけ
+    t._vis = ((state.ui.showDone || !t.done) || childVis) && t._inQ;
     return t._vis;
   };
   const groupHasTag = (t, tag) => t.tags.includes(tag) || t.children.some(c => groupHasTag(c, tag));
@@ -1266,8 +1336,8 @@ function render() {
   }
   // 完了グループは常に最下部（ソート指定より優先）。判定は subtreeAllDone なので
   // 未完了の子孫を持つ完了親は上に残る（進行中の作業が下に埋もれない）。
-  // **リストビューのときだけ適用する** — visibleRows はタイムラインの行順にも使われる
-  if (state.ui.view === 'list') {
+  // **リストとボードだけに適用する** — visibleRows はタイムラインの行順にも使われる
+  if (state.ui.view === 'list' || state.ui.view === 'board') {
     const doneKey = t => (subtreeAllDone(t) ? 1 : 0);
     groups = groups.slice().sort((a, b) => doneKey(a) - doneKey(b)); // 安定ソート（既存順を保つ）
   }
@@ -1288,25 +1358,226 @@ function render() {
   for (const b of el('view-tabs').querySelectorAll('button')) {
     b.classList.toggle('active', b.dataset.view === state.ui.view);
   }
+  el('table-wrap').hidden = state.ui.view !== 'list';
+  el('board-view').hidden = state.ui.view !== 'board';
+  el('timeline-view').hidden = state.ui.view !== 'timeline';
   if (state.ui.view === 'timeline') {
-    el('table-wrap').hidden = true;
     el('empty-msg').hidden = true;
-    el('timeline-view').hidden = false;
     renderTimeline();
-  } else {
-    el('timeline-view').hidden = true;
+  } else if (state.ui.view === 'board') {
     state.timeline = null;
-    el('table-wrap').hidden = false;
+    el('empty-msg').hidden = true;
+    renderBoard(groups, today, q);
+  } else {
+    state.timeline = null;
     el('empty-msg').hidden = rows.length > 0;
-    el('empty-msg').textContent = '表示できるタスクがありません';
+    el('empty-msg').textContent = q === ''
+      ? '表示できるタスクがありません'
+      : '一致するタスクがありません（検索: ' + state.ui.q.trim() + '）';
   }
   updateCopyButton();
+  // 検索で行が消えたことを無言にしない
+  el('q-count').textContent = q === '' ? '' : hitCount + ' 件ヒット';
 
   const open = doc.tasks.filter(t => !t.done).length;
   el('summary').textContent = '未完了 ' + open + ' / 全 ' + doc.tasks.length + ' 件 · 表示 ' + rows.length + ' 行';
   el('btn-add-form').disabled = state.hasCRFile;
   updateSaveButton();
   updateArchiveButton();
+}
+
+/* ---------- 検索の一致箇所のハイライト（Phase S） ----------
+   判定は NFC 正規化後に行うが、装飾は**表示文字列に対する素の大文字小文字無視検索**。
+   NFC で長さが変わる文字（NFD の「ポ」など）では位置が対応しないため、
+   表示文字列に見つからなければ装飾なしで全文を出す（行の表示自体は正しい）。 */
+function appendHighlighted(host, text, q) {
+  const s = String(text);
+  if (!q) { host.appendChild(document.createTextNode(s)); return; }
+  const lower = s.toLowerCase();
+  let i = 0, at;
+  while ((at = lower.indexOf(q, i)) >= 0) {
+    if (at > i) host.appendChild(document.createTextNode(s.slice(i, at)));
+    const mark = document.createElement('span');
+    mark.className = 'hit';
+    mark.textContent = s.slice(at, at + q.length);
+    host.appendChild(mark);
+    i = at + q.length;
+  }
+  if (i < s.length) host.appendChild(document.createTextNode(s.slice(i)));
+}
+
+/* ---------- ボードビュー（列＝セクション） ---------- */
+
+const MAX_BOARD_CARDS = 300;   // 深さ0のカード数の上限（超過時は描画しない）
+
+function renderBoard(groups, today, q) {
+  const host = el('board');
+  const note = el('board-note');
+  host.textContent = '';
+  const cards = groups.filter(g => g._vis);
+  if (cards.length > MAX_BOARD_CARDS) {
+    note.className = 'banner banner-warn';
+    note.setAttribute('role', 'alert');
+    note.textContent = 'カードが' + cards.length + '件（上限' + MAX_BOARD_CARDS +
+      '件）のためボードを表示しません。セクション・タグ・検索で絞り込んでください';
+    note.hidden = false;
+    return;
+  }
+  const msgs = [];
+  if (cards.length === 0) {
+    msgs.push(q === '' ? '表示できるタスクがありません'
+      : '一致するタスクがありません（検索: ' + state.ui.q.trim() + '）');
+  }
+  note.className = 'banner banner-info';
+  note.setAttribute('role', 'status');
+  note.textContent = msgs.join(' / ');
+  note.hidden = msgs.length === 0;
+
+  const sections = state.doc.sections;
+  const byName = new Map(sections.map(s => [s, []]));
+  for (const c of cards) if (byName.has(c.section)) byName.get(c.section).push(c);
+  for (const name of sections) {
+    const col = document.createElement('div');
+    col.className = 'board-col';
+    col.dataset.section = name;
+    const title = document.createElement('p');
+    title.className = 'board-col-title';
+    title.textContent = name + ' ';
+    const cnt = document.createElement('span');
+    cnt.className = 'muted';
+    cnt.textContent = '(' + byName.get(name).length + ')';
+    title.appendChild(cnt);
+    col.appendChild(title);
+    // 列内でも完了は最下部（リストと同じ規則）
+    const list = byName.get(name).slice()
+      .sort((a, b) => (subtreeAllDone(a) ? 1 : 0) - (subtreeAllDone(b) ? 1 : 0));
+    for (const t of list) col.appendChild(renderCard(t, today, q));
+    // dragover で preventDefault しないと drop が発火しない（HTML DnD 仕様）
+    col.addEventListener('dragover', (e) => { e.preventDefault(); col.classList.add('drop-target'); });
+    col.addEventListener('dragleave', () => col.classList.remove('drop-target'));
+    col.addEventListener('drop', (e) => {
+      e.preventDefault();
+      col.classList.remove('drop-target');
+      const line = Number(e.dataTransfer.getData('text/plain'));
+      if (!line) return;
+      moveCardToSection(line, name);
+    });
+    host.appendChild(col);
+  }
+}
+
+// ボードのカード移動は既存の opMoveSection を通す（バイト保全・部分木ごと移動）
+function moveCardToSection(line, section) {
+  const t = state.doc.tasks.find(x => x.line === line);
+  if (!t || t.section === section) return;   // 同じ列なら何もしない
+  if (applyUiOp({ type: 'moveSection', line, section })) {
+    showBanner('info', '「' + section + '」の末尾へ移動しました（ファイルへは保存時に反映）');
+  }
+}
+
+function renderCard(t, today, q) {
+  const card = document.createElement('div');
+  card.className = 'board-card' + (t.done ? ' card-done' : '');
+  card.dataset.line = t.line;
+  card.tabIndex = 0;   // ドラッグを唯一の手段にしない（キーボードで移動・編集できる）
+  if (!t.hasCR) card.draggable = true;   // 深さ0のカードだけ（子は親と一緒に動く）
+  const body = document.createElement('div');
+  body.className = 'card-body';
+  appendHighlighted(body, t.displayBody || t.body || '(内容なし)', q);
+  if (t.memo.length) {
+    const m = document.createElement('span');
+    m.className = 'muted';
+    m.textContent = '  📝' + t.memo.length;
+    body.appendChild(m);
+  }
+  card.appendChild(body);
+
+  const meta = document.createElement('div');
+  meta.className = 'card-meta';
+  if (t.due) {
+    const d = document.createElement('span');
+    d.textContent = '📅 ' + t.due;
+    if (!t.done && t.due < today) d.className = 'due-over';
+    else if (!t.done && t.due === today) d.className = 'due-today';
+    meta.appendChild(d);
+  }
+  if (t.priEmoji) {
+    const p = document.createElement('span');
+    p.textContent = t.priEmoji + ' ' + (PRI_LABEL[t.priority] || '');
+    meta.appendChild(p);
+  }
+  for (const tag of t.tags) {
+    const s = document.createElement('span');
+    s.className = 'chip';
+    appendHighlighted(s, '#' + tag, q);
+    meta.appendChild(s);
+  }
+  if (meta.childNodes.length) card.appendChild(meta);
+
+  const kids = t.children.filter(c => c._vis);
+  const foot = document.createElement('div');
+  foot.className = 'card-meta';
+  if (kids.length) {
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'card-btn';
+    const open = state.boardKidsOpen.has(t.line);
+    toggle.textContent = (open ? '▾' : '▸') + ' 子 ' + kids.length;
+    toggle.title = 'クリックで子タスクを展開／折り畳み';
+    toggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (open) state.boardKidsOpen.delete(t.line); else state.boardKidsOpen.add(t.line);
+      render();
+    });
+    foot.appendChild(toggle);
+  }
+  if (!t.hasCR && state.doc.sections.length > 1) {
+    const mv = document.createElement('button');
+    mv.type = 'button';
+    mv.className = 'card-btn';
+    mv.textContent = '移動';
+    mv.title = 'セクションを変更（ドラッグ以外の経路）';
+    mv.addEventListener('click', (e) => { e.stopPropagation(); openSectionPopover(mv, t); });
+    foot.appendChild(mv);
+  }
+  if (foot.childNodes.length) card.appendChild(foot);
+
+  if (kids.length && state.boardKidsOpen.has(t.line)) {
+    const box = document.createElement('div');
+    box.className = 'card-kids';
+    for (const c of kids) {
+      const row = document.createElement('div');
+      row.className = 'card-kid';
+      row.textContent = (c.done ? '☑ ' : '☐ ') + '';
+      appendHighlighted(row, c.displayBody || c.body || '(内容なし)', q);
+      row.title = 'クリックでこの子タスクを編集';
+      row.addEventListener('click', (e) => { e.stopPropagation(); openTaskModal('edit', c); });
+      box.appendChild(row);
+    }
+    card.appendChild(box);
+  }
+
+  card.addEventListener('click', () => openTaskModal('edit', t));
+  card.addEventListener('dragstart', (e) => {
+    e.dataTransfer.setData('text/plain', String(t.line));
+    e.dataTransfer.effectAllowed = 'move';
+    card.classList.add('dragging');
+  });
+  card.addEventListener('dragend', () => {
+    card.classList.remove('dragging');
+    for (const c of document.querySelectorAll('.board-col.drop-target')) c.classList.remove('drop-target');
+  });
+  card.addEventListener('keydown', (e) => {
+    if (isComposingKey(e)) return;
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openTaskModal('edit', t); return; }
+    if (!(e.metaKey || e.ctrlKey) || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+    e.preventDefault();
+    const secs = state.doc.sections;
+    const i = secs.indexOf(t.section) + (e.key === 'ArrowRight' ? 1 : -1);
+    if (i < 0 || i >= secs.length) return;   // 端では何もしない
+    moveCardToSection(t.line, secs[i]);
+  });
+  return card;
 }
 
 /* ---------- 計画ビュー（タイムライン）の描画 ---------- */
@@ -1333,7 +1604,9 @@ function renderTimeline() {
         '日）のためタイムラインを表示しません。期限が極端に離れたタスクを絞り込んでください');
   } else if (!model.items.length) {
     if (!state.visibleRows.length) {
-      msgs.push('表示できるタスクがありません（絞り込みを確認してください）');
+      msgs.push(String(state.ui.q || '').trim() !== ''
+        ? '一致するタスクがありません（検索: ' + state.ui.q.trim() + '）'
+        : '表示できるタスクがありません（絞り込みを確認してください）');
     } else {
       msgs.push('開始日（🛫）を設定したタスクがここに並びます — リストビューの開始日セルを' +
         'クリックして設定できます' +
@@ -1422,6 +1695,8 @@ function renderTimeline() {
 // 列の内訳は title で示す。copyFeedback が復元に使う dataset.label も同時に更新する
 const COPY_LABELS = {
   list: { text: 'Excel用コピー', title: '表示中の行を TSV でコピー（状態・内容・開始日・期限・優先度・タグ・セクション）' },
+  // ボードはリストと同じ行集合の別表示なので列も同じ
+  board: { text: 'Excel用コピー', title: '表示中の行を TSV でコピー（状態・内容・開始日・期限・優先度・タグ・セクション）' },
   timeline: { text: '計画をコピー', title: '図の行を TSV でコピー（内容・開始日・期限・日数・状態・セクション）' },
 };
 function updateCopyButton() {
@@ -1565,7 +1840,11 @@ async function doArchive() {
   if (!arch) return { ok: false, reason: 'archcancel' };
   // ファイルをまたぐ不可逆な移動なので件数によらず必ず確認する。保存場所は表示できないため
   // 少なくとも「どのファイルへ」を示す（AR-1 / AR-3）
-  if (!confirm(archivableTaskCount() + '件を ' + archiveTargetName() + ' へ移動します。よろしいですか？')) {
+  // 対象は「画面に出ているもの」なので、検索で絞り込み中はそれを隠さない
+  // （8/3 のアーカイブ事故と同じ型を防ぐ）
+  const filterNote = String(state.ui.q || '').trim() !== '' ? '（検索で絞り込み中）' : '';
+  if (!confirm(archivableTaskCount() + '件を ' + archiveTargetName() + ' へ移動します。' +
+      filterNote + 'よろしいですか？')) {
     showBanner('info', 'アーカイブを中止しました');
     return { ok: false, reason: 'cancel' };
   }
@@ -1630,7 +1909,9 @@ function renderRow(t, today) {
   tdBody.style.paddingLeft = (10 + t.indent * 22) + 'px';
   const span = document.createElement('span');
   span.className = 'body-text';
-  span.textContent = (t.indent > 0 ? '└ ' : '') + (t.displayBody || t.body || '(内容なし)');
+  if (t.indent > 0) span.appendChild(document.createTextNode('└ '));
+  appendHighlighted(span, t.displayBody || t.body || '(内容なし)',
+    nfc(state.ui.q || '').trim().toLowerCase());
   tdBody.appendChild(span);
   // メモを持つ行の印。クリックで直下に展開／折り畳み（展開状態は永続化しない）
   if (t.memo.length) {
@@ -1776,7 +2057,8 @@ function renderMemoRow(t) {
   const pre = document.createElement('div');
   pre.className = 'memo-text';
   pre.style.paddingLeft = (28 + t.indent * 22) + 'px';
-  pre.textContent = t.memo.join('\n');
+  // メモは検索対象なので、ヒット箇所はここでもハイライトする
+  appendHighlighted(pre, t.memo.join('\n'), nfc(state.ui.q || '').trim().toLowerCase());
   td.appendChild(pre);
   if (!t.hasCR) {
     td.title = 'ダブルクリックでメモを編集';
@@ -2364,6 +2646,23 @@ el('f-section').addEventListener('change', () => { state.ui.section = el('f-sect
 el('f-tag').addEventListener('change', () => { state.ui.tag = el('f-tag').value; persistUi(); render(); });
 el('f-done').addEventListener('change', () => { state.ui.showDone = el('f-done').checked; persistUi(); render(); });
 el('f-sort').addEventListener('change', () => { state.ui.sort = el('f-sort').value; persistUi(); render(); });
+// 検索は 250ms デバウンス。**IME 変換中は走らせない**（未確定文字で絞ると結果が飛ぶ）。
+// InputEvent.isComposing が使えることを 2026-08-06 に実測して確認済み
+let qTimer = null;
+const runSearch = () => {
+  clearTimeout(qTimer);
+  qTimer = setTimeout(() => { state.ui.q = el('f-q').value; render(); }, 250);
+};
+el('f-q').addEventListener('input', (e) => { if (e.isComposing) return; runSearch(); });
+el('f-q').addEventListener('compositionend', runSearch);
+el('f-q').addEventListener('keydown', (e) => {
+  if (isComposingKey(e)) return;               // 変換取り消しの Escape を奪わない
+  if (e.key === 'Escape' && el('f-q').value !== '') {
+    e.preventDefault();
+    el('f-q').value = '';
+    runSearch();
+  }
+});
 el('view-tabs').addEventListener('click', (e) => {
   const v = e.target.dataset && e.target.dataset.view;
   if (!v || v === state.ui.view) return;
