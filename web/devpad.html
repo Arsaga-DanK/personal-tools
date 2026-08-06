@@ -16,6 +16,23 @@
   #time-now-result p, #count-result p { margin: 4px 0; font-size: 13px; }
   .result-label { display: inline-block; min-width: 11em; color: var(--muted); }
   textarea.short { min-height: 120px; }
+  /* 正規表現タブ: ハイライトとマッチ一覧 */
+  .re-out { min-height: 120px; max-height: 320px; overflow: auto; white-space: pre-wrap;
+    word-break: break-all; padding: 8px 10px; font-size: 13px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 6px; }
+  .re-hit { background: var(--warn-bg); border-radius: 3px; outline: 1px solid var(--warn-border); }
+  /* 長さ0マッチは文字が無いので、幅を与えて位置だけ見せる */
+  .re-hit-empty { display: inline-block; width: 3px; background: var(--error); outline: none; }
+  #re-result { font-size: 13px; }
+  #re-result table { border-collapse: collapse; margin: 6px 0; }
+  #re-result th, #re-result td { border: 1px solid var(--border); padding: 2px 8px; text-align: left; }
+  #re-result th { background: var(--th-bg); font-weight: 600; }
+  /* 基数タブ */
+  .base-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 8px 16px; margin: 8px 0; }
+  .base-grid label { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  .base-grid input { flex: 1; min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  #base-bits { margin: 8px 0; font-size: 13px; line-height: 1.9; word-break: break-all; }
 </style>
 </head>
 <body>
@@ -42,6 +59,40 @@
       <span class="muted" style="font-size:12px">エラー位置表示はブラウザ依存の参考情報です（Safari は位置なし）</span>
     </div>
     <div class="banner" id="json-result" hidden></div>
+  </section>
+
+  <section class="tab-panel" id="tab-xml" hidden>
+    <div class="banner banner-error" data-tab-error role="alert" hidden></div>
+    <div class="panes">
+      <div class="pane"><p class="pane-title">入力（XML）</p>
+        <textarea id="xml-in" spellcheck="false"></textarea></div>
+      <div class="pane"><p class="pane-title">出力</p>
+        <textarea id="xml-out" readonly spellcheck="false"></textarea></div>
+    </div>
+    <div class="row">
+      <button class="primary" id="xml-format">整形</button>
+      <button id="xml-minify">圧縮</button>
+      <button id="xml-copy">出力をコピー</button>
+      <span class="muted" style="font-size:12px">宣言・コメント・CDATA は保持します。テキストと要素が混在する要素は中身を整形しません（空白を入れると意味が変わるため）。エラー位置はブラウザ依存の参考情報です</span>
+    </div>
+    <div class="banner" id="xml-result" hidden></div>
+  </section>
+
+  <section class="tab-panel" id="tab-sql" hidden>
+    <div class="banner banner-error" data-tab-error role="alert" hidden></div>
+    <div class="panes">
+      <div class="pane"><p class="pane-title">入力（SQL / DDL・PostgreSQL 前提）</p>
+        <textarea id="sql-in" spellcheck="false"></textarea></div>
+      <div class="pane"><p class="pane-title">出力</p>
+        <textarea id="sql-out" readonly spellcheck="false"></textarea></div>
+    </div>
+    <div class="row">
+      <button class="primary" id="sql-format">整形</button>
+      <button id="sql-minify">圧縮（コメント削除）</button>
+      <button id="sql-copy">出力をコピー</button>
+      <span class="muted" style="font-size:12px">主要キーワードでの改行・インデントに限定した簡易整形です（完全な整形ではありません）。識別子がキーワードと同名の場合は大文字化されます</span>
+    </div>
+    <div class="banner" id="sql-result" hidden></div>
   </section>
 
   <section class="tab-panel" id="tab-escape" hidden>
@@ -93,6 +144,43 @@
       <button id="b64-copy-enc">Base64をコピー</button>
     </div>
     <div class="banner" id="b64-result" hidden></div>
+  </section>
+
+  <section class="tab-panel" id="tab-regex" hidden>
+    <div class="banner banner-error" data-tab-error role="alert" hidden></div>
+    <div class="row">
+      <label>パターン <input type="text" id="re-pattern" spellcheck="false" style="min-width:240px" placeholder="(\d+)-(\d+)"></label>
+      <label>フラグ <input type="text" id="re-flags" value="g" spellcheck="false" style="width:64px"></label>
+      <label>置換 <input type="text" id="re-replacement" spellcheck="false" style="min-width:120px" placeholder="$1/$2"></label>
+      <button class="primary" id="re-run">実行</button>
+    </div>
+    <div class="panes">
+      <div class="pane"><p class="pane-title">テスト文字列</p>
+        <textarea id="re-subject" class="short" spellcheck="false"></textarea></div>
+      <div class="pane"><p class="pane-title">マッチのハイライト</p>
+        <div id="re-highlight" class="re-out mono"></div></div>
+    </div>
+    <div class="banner" id="re-note" hidden></div>
+    <div id="re-result"></div>
+  </section>
+
+  <section class="tab-panel" id="tab-base" hidden>
+    <div class="banner banner-error" data-tab-error role="alert" hidden></div>
+    <div class="base-grid">
+      <label>10進 <input type="text" id="base-10" spellcheck="false" data-radix="10"></label>
+      <label>16進 <input type="text" id="base-16" spellcheck="false" data-radix="16"></label>
+      <label>8進 <input type="text" id="base-8" spellcheck="false" data-radix="8"></label>
+      <label>2進 <input type="text" id="base-2" spellcheck="false" data-radix="2"></label>
+    </div>
+    <div class="row">
+      <span class="muted" style="font-size:13px">ビット幅（2の補数表示）</span>
+      <label class="toggle"><input type="radio" name="base-width" value="32" checked> 32bit</label>
+      <label class="toggle"><input type="radio" name="base-width" value="64"> 64bit</label>
+      <button id="base-clear">クリア</button>
+      <span class="muted" style="font-size:12px">各基数は符号付き表記です。2の補数はビット表示のみで扱います</span>
+    </div>
+    <div id="base-bits" class="mono"></div>
+    <div class="banner" id="base-result" hidden></div>
   </section>
 
   <section class="tab-panel" id="tab-time" hidden>
@@ -287,6 +375,485 @@ function countText(text) {
   };
 }
 
+/* ========== SQL（整形・圧縮。PostgreSQL 前提の best-effort） ==========
+   新規4タブの純関数は例外を投げず {ok:true,value} / {ok:false,error,line?} を返す（DEV-Q5）。 */
+
+// 整形時に大文字化するキーワード（word トークンのみ対象。文字列・コメントの中は触らない）
+const SQL_KEYWORDS = new Set(('select from where group by having order limit offset union except ' +
+  'intersect all distinct as on and or not in exists between like ilike similar is null true false ' +
+  'insert into values update set delete returning with recursive join inner left right full cross ' +
+  'lateral natural using case when then else end asc desc nulls first last over partition window ' +
+  'create alter drop truncate table view index sequence schema function trigger constraint primary ' +
+  'key foreign references unique check default cascade restrict add column type rename to owner ' +
+  'comment grant revoke begin commit rollback if temp temporary unlogged materialized outer language ' +
+  'int integer bigint smallint serial bigserial numeric decimal real double precision boolean bool ' +
+  'text varchar char character date time timestamp timestamptz interval uuid json jsonb bytea array ' +
+  'generated always identity').split(' '));
+// 前で改行する節キーワード
+const SQL_BREAK = new Set(('select from where group having order limit offset union except intersect ' +
+  'insert values update set delete returning with join inner left right full cross lateral ' +
+  'create alter drop truncate comment grant revoke').split(' ').map(s => s.toUpperCase()));
+// 前で改行し1段下げるキーワード
+const SQL_INDENT_BREAK = new Set(['ON', 'AND', 'OR']);
+// 直前の語がこれらなら改行しない（DELETE FROM / LEFT JOIN などを1行に保つ）
+const SQL_NO_BREAK_AFTER = {
+  FROM: ['DELETE'],
+  JOIN: ['INNER', 'LEFT', 'RIGHT', 'FULL', 'CROSS', 'OUTER', 'LATERAL'],
+  ON: ['COMMENT'],                       // COMMENT ON TABLE … を分断しない
+};
+const SQL_PUNCT2 = ['->>', '::', '<=', '>=', '<>', '!=', '||', '->'];
+const SQL_NO_SPACE_BEFORE = new Set([',', ')', ';', '.', '::']);
+const SQL_NO_SPACE_AFTER = new Set(['(', '.', '::']);
+// この語の後の ( だけ空白を空ける。それ以外は直前の語にくっつける
+// （count(*) / varchar(20) / now() を壊さず、IN (…) / CHECK (…) は読みやすく保つ）
+const SQL_SPACE_BEFORE_PAREN = new Set(['IN', 'VALUES', 'UNIQUE', 'EXISTS', 'CHECK', 'USING',
+  'KEY', 'ANY', 'ALL', 'AND', 'OR', 'NOT', 'ON', 'REFERENCES', 'PARTITION', 'OVER', 'RETURNS']);
+
+// 成功: {ok:true, tokens} / 失敗: {ok:false, error, line}
+function tokenizeSql(src) {
+  const s = String(src), n = s.length, tokens = [];
+  const lineAt = idx => s.slice(0, idx).split('\n').length;
+  let i = 0;
+  while (i < n) {
+    const c = s[i], start = i;
+    if (/[ \t\r\n]/.test(c)) {
+      while (i < n && /[ \t\r\n]/.test(s[i])) i++;
+      tokens.push({ t: 'ws', v: s.slice(start, i) });
+      continue;
+    }
+    if (c === '-' && s[i + 1] === '-') {
+      const e = s.indexOf('\n', i);
+      i = e < 0 ? n : e;
+      tokens.push({ t: 'lineComment', v: s.slice(start, i) });
+      continue;
+    }
+    if (c === '/' && s[i + 1] === '*') {
+      let depth = 0;
+      while (i < n) {
+        if (s[i] === '/' && s[i + 1] === '*') { depth++; i += 2; }
+        else if (s[i] === '*' && s[i + 1] === '/') { depth--; i += 2; if (depth === 0) break; }
+        else i++;
+      }
+      if (depth !== 0) return { ok: false, error: 'ブロックコメントが閉じていません', line: lineAt(start) };
+      tokens.push({ t: 'blockComment', v: s.slice(start, i) });
+      continue;
+    }
+    // '…'（'' で ' を表す） / E'…'（\' も可）
+    if (c === "'" || ((c === 'E' || c === 'e') && s[i + 1] === "'")) {
+      const esc = c !== "'";
+      i += esc ? 2 : 1;
+      let closed = false;
+      while (i < n) {
+        if (esc && s[i] === '\\') { i += 2; continue; }
+        if (s[i] === "'") {
+          if (s[i + 1] === "'") { i += 2; continue; }
+          i++; closed = true; break;
+        }
+        i++;
+      }
+      if (!closed) return { ok: false, error: '文字列リテラルが閉じていません', line: lineAt(start) };
+      tokens.push({ t: 'str', v: s.slice(start, i) });
+      continue;
+    }
+    if (c === '"') {
+      i++;
+      let closed = false;
+      while (i < n) {
+        if (s[i] === '"') {
+          if (s[i + 1] === '"') { i += 2; continue; }
+          i++; closed = true; break;
+        }
+        i++;
+      }
+      if (!closed) return { ok: false, error: '引用識別子が閉じていません', line: lineAt(start) };
+      tokens.push({ t: 'dq', v: s.slice(start, i) });
+      continue;
+    }
+    // $tag$ … $tag$（タグ完全一致。異なるタグで入れ子可能）
+    if (c === '$') {
+      const m = /^\$([A-Za-z_][A-Za-z0-9_]*)?\$/.exec(s.slice(i));
+      if (m) {
+        const tag = m[0];
+        const e = s.indexOf(tag, i + tag.length);
+        if (e < 0) return { ok: false, error: 'ドル引用符が閉じていません', line: lineAt(start) };
+        i = e + tag.length;
+        tokens.push({ t: 'dollar', v: s.slice(start, i) });
+        continue;
+      }
+    }
+    if (/[0-9]/.test(c) || (c === '.' && /[0-9]/.test(s[i + 1] || ''))) {
+      const m = /^[0-9]*\.?[0-9]+([eE][+-]?[0-9]+)?/.exec(s.slice(i));
+      i += m[0].length;
+      tokens.push({ t: 'num', v: m[0] });
+      continue;
+    }
+    if (/[A-Za-z_]/.test(c)) {
+      const m = /^[A-Za-z_][A-Za-z0-9_$]*/.exec(s.slice(i));
+      i += m[0].length;
+      tokens.push({ t: 'word', v: m[0] });
+      continue;
+    }
+    const two = SQL_PUNCT2.find(p => s.startsWith(p, i));
+    if (two) { i += two.length; tokens.push({ t: 'punct', v: two }); continue; }
+    i++;
+    tokens.push({ t: 'punct', v: c });
+  }
+  return { ok: true, tokens };
+}
+
+// 括弧の対応付け（開き位置 → 閉じ位置、およびその逆）
+function pairSqlParens(toks) {
+  const stack = [], pair = new Map();
+  for (let i = 0; i < toks.length; i++) {
+    if (toks[i].t !== 'punct') continue;
+    if (toks[i].v === '(') stack.push(i);
+    else if (toks[i].v === ')' && stack.length) {
+      const o = stack.pop();
+      pair.set(o, i); pair.set(i, o);
+    }
+  }
+  return pair;
+}
+
+// 括弧を3種に分類する: def（CREATE TABLE の定義）/ sub（サブクエリ）/ inline（それ以外）
+function classifySqlParens(toks, pair) {
+  const kind = new Map();
+  const up = i => (toks[i].t === 'word' ? toks[i].v.toUpperCase() : null);
+  const isComment = t => t.t === 'lineComment' || t.t === 'blockComment';
+  for (const [o, c] of pair) {
+    if (o > c) continue; // 開き位置だけ処理する
+    let isDef = false;
+    for (let j = o - 1, seen = 0; j >= 0 && seen < 7; j--) {
+      if (toks[j].t === 'ws' || isComment(toks[j])) continue;
+      seen++;
+      if (toks[j].t === 'punct' && (toks[j].v === ';' || toks[j].v === ')' || toks[j].v === ',')) break;
+      if (up(j) === 'TABLE') {
+        for (let k = j - 1; k >= 0; k--) {
+          if (toks[k].t === 'ws' || isComment(toks[k])) continue;
+          if (up(k) === 'CREATE') isDef = true;
+          break;
+        }
+        break;
+      }
+    }
+    if (isDef) { kind.set(o, 'def'); continue; }
+    let depth = 0, hasSelect = false;
+    for (let j = o + 1; j < c; j++) {
+      const t = toks[j];
+      if (t.t === 'punct' && t.v === '(') depth++;
+      else if (t.t === 'punct' && t.v === ')') depth--;
+      else if (depth === 0 && t.t === 'word' && t.v.toUpperCase() === 'SELECT') { hasSelect = true; break; }
+    }
+    kind.set(o, hasSelect ? 'sub' : 'inline');
+  }
+  return kind;
+}
+
+function sqlNeedSpace(prev, t) {
+  if (!prev) return false;
+  if (t.t === 'punct' && SQL_NO_SPACE_BEFORE.has(t.v)) return false;
+  if (prev.t === 'punct' && SQL_NO_SPACE_AFTER.has(prev.v)) return false;
+  if (t.t === 'punct' && t.v === '(') {
+    if (prev.t === 'word') return SQL_SPACE_BEFORE_PAREN.has(prev.v.toUpperCase());
+    if (prev.t === 'punct' && prev.v === ')') return false;
+  }
+  return true;
+}
+
+// 成功: {ok:true, value} / 失敗: {ok:false, error, line}
+function formatSql(src) {
+  const tk = tokenizeSql(src);
+  if (!tk.ok) return tk;
+  const toks = tk.tokens.filter(t => t.t !== 'ws');
+  const pair = pairSqlParens(toks);
+  const kind = classifySqlParens(toks, pair);
+  const lines = [];
+  let cur = null, indent = 0, prev = null, pendingBetween = false;
+  const parenKinds = [];
+  const startLine = (ind) => {
+    if (cur && cur.parts.length) lines.push('  '.repeat(cur.ind) + cur.parts.join(''));
+    cur = { ind: ind === undefined ? indent : ind, parts: [] };
+    prev = null;
+  };
+  const lineEmpty = () => !cur || cur.parts.length === 0;
+  const put = (t, text, forceSpace) => {
+    if (!cur) startLine();
+    if (forceSpace ? prev !== null : sqlNeedSpace(prev, t)) cur.parts.push(' ');
+    cur.parts.push(text === undefined ? t.v : text);
+    prev = t;
+  };
+  // カンマ改行は「今いる括弧が定義グループ」のときだけ（numeric(10,2) を壊さない）
+  const inDefDirect = () => parenKinds[parenKinds.length - 1] === 'def';
+  // 節キーワードの改行は「定義グループの内側にいる」なら一律で抑止する
+  // （CHECK (a > 0 AND b > 0) のような列定義の途中で改行しない）
+  const inDef = () => parenKinds.indexOf('def') >= 0;
+  startLine();
+  for (let i = 0; i < toks.length; i++) {
+    const t = toks[i];
+    const U = t.t === 'word' ? t.v.toUpperCase() : null;
+    if (t.t === 'lineComment') {           // 行コメントは必ず独立行（後続を飲み込ませない）
+      if (!lineEmpty()) startLine();
+      put(t);
+      startLine();
+      continue;
+    }
+    if (t.t === 'punct' && t.v === '(') {
+      const k = kind.get(i) || 'inline';
+      put(t, undefined, k !== 'inline'); // 定義・サブクエリの ( は直前と空けて読みやすくする
+      parenKinds.push(k);
+      if (k === 'def' || k === 'sub') { indent++; startLine(); }
+      continue;
+    }
+    if (t.t === 'punct' && t.v === ')') {
+      const k = parenKinds.pop();
+      if (k === 'def' || k === 'sub') { indent = Math.max(0, indent - 1); startLine(); }
+      put(t);
+      continue;
+    }
+    if (t.t === 'punct' && t.v === ',' && inDefDirect()) {
+      put(t);
+      startLine();
+      continue;
+    }
+    if (t.t === 'punct' && t.v === ';') {
+      put(t);
+      startLine();
+      lines.push('');                      // 文の区切りに空行
+      continue;
+    }
+    if (U) {
+      if (U === 'BETWEEN') pendingBetween = true;
+      const suppress = SQL_NO_BREAK_AFTER[U] && prevWordIn(toks, i, SQL_NO_BREAK_AFTER[U]);
+      if (SQL_INDENT_BREAK.has(U)) {
+        if (U === 'AND' && pendingBetween) {
+          pendingBetween = false;            // BETWEEN a AND b は改行しない
+        } else if (!suppress && !lineEmpty() && !inDef()) {
+          startLine(indent + 1);
+        }
+      } else if (SQL_BREAK.has(U) && !suppress && !lineEmpty() && !inDef()) {
+        startLine();
+      }
+      put(t, SQL_KEYWORDS.has(t.v.toLowerCase()) ? U : t.v);
+      continue;
+    }
+    put(t);
+  }
+  startLine();
+  while (lines.length && lines[lines.length - 1] === '') lines.pop();
+  return { ok: true, value: lines.join('\n') };
+}
+
+// 直前の有意な word が list に含まれるか
+function prevWordIn(toks, i, list) {
+  for (let j = i - 1; j >= 0; j--) {
+    const t = toks[j];
+    if (t.t === 'lineComment' || t.t === 'blockComment') continue;
+    return t.t === 'word' && list.includes(t.v.toUpperCase());
+  }
+  return false;
+}
+
+// 成功: {ok:true, value, droppedComments}
+function minifySql(src) {
+  const tk = tokenizeSql(src);
+  if (!tk.ok) return tk;
+  const parts = [];
+  let prev = null, dropped = 0;
+  for (const t of tk.tokens) {
+    if (t.t === 'ws') continue;
+    // コメントは削除する。-- を残して1行化すると以降すべてがコメント化して SQL が壊れる
+    if (t.t === 'lineComment' || t.t === 'blockComment') { dropped++; continue; }
+    if (sqlNeedSpace(prev, t)) parts.push(' ');
+    parts.push(t.v);
+    prev = t;
+  }
+  return { ok: true, value: parts.join(''), droppedComments: dropped };
+}
+
+/* ========== 正規表現（Worker で実行し暴走を terminate できるようにする） ==========
+   この関数は Worker ソースへ toString() で埋め込むため、外側のスコープを参照しないこと。 */
+
+function runRegexCore(d) {
+  try {
+    const limit = d.limit || 1000;
+    const re = new RegExp(d.pattern, d.flags);
+    const pick = (m) => ({
+      index: m.index, text: m[0],
+      groups: Array.prototype.slice.call(m, 1),
+      named: m.groups ? Object.assign({}, m.groups) : null,
+    });
+    const matches = [];
+    if (d.flags.indexOf('g') >= 0) {
+      let m, guard = 0;
+      while ((m = re.exec(d.subject)) !== null) {
+        matches.push(pick(m));
+        if (m.index === re.lastIndex) re.lastIndex++; // 長さ0マッチで無限ループしない
+        if (++guard >= limit) break;
+      }
+    } else {
+      const m = re.exec(d.subject);
+      if (m) matches.push(pick(m));
+    }
+    let replaced = null;
+    if (typeof d.replacement === 'string' && d.replacement !== '') {
+      replaced = d.subject.replace(new RegExp(d.pattern, d.flags), d.replacement);
+    }
+    return { ok: true, matches: matches, replaced: replaced, truncated: matches.length >= limit };
+  } catch (err) {
+    return { ok: false, error: String((err && err.message) || err) };
+  }
+}
+
+// 危険パターンのヒント（保証ではない）。量指定子付きグループの中に量指定子がある形を拾う。
+// グループを持たない a+a+a+b 形は検出できない（そちらはタイムアウトで守る）
+function riskyRegex(pattern) {
+  const p = String(pattern);
+  return /\((?:\?:)?[^()]*[*+}][^()]*\)\s*[*+{]/.test(p);
+}
+
+/* ========== 基数変換（BigInt。Number では 64bit で精度が落ちる） ========== */
+
+const RADIX_PREFIX = { 10: '', 16: '0x', 8: '0o', 2: '0b' };
+const RADIX_CHARS = { 10: /^[0-9]+$/, 16: /^[0-9a-fA-F]+$/, 8: /^[0-7]+$/, 2: /^[01]+$/ };
+
+// 成功: {ok:true, value: BigInt} / 空: {ok:false, empty:true} / 失敗: {ok:false, error}
+function parseRadix(text, radix) {
+  let s = String(text).replace(/[\s_]/g, '');
+  if (s === '') return { ok: false, empty: true, error: '空です' }; // BigInt('') は 0n になるため先に弾く
+  let neg = false;
+  if (s[0] === '+' || s[0] === '-') { neg = s[0] === '-'; s = s.slice(1); }
+  if (s === '') return { ok: false, error: '符号だけでは数値になりません' };
+  const pre = { 16: /^0[xX]/, 8: /^0[oO]/, 2: /^0[bB]/ }[radix];
+  if (pre && pre.test(s)) s = s.slice(2);
+  if (!RADIX_CHARS[radix].test(s)) {
+    const bad = Array.from(s).find(ch => !RADIX_CHARS[radix].test(ch));
+    return { ok: false, error: radix + '進数として不正な文字です: ' + bad };
+  }
+  let v;
+  // BigInt('-0xff') は SyntaxError になるため、符号は分離して後で反転する
+  try { v = BigInt(RADIX_PREFIX[radix] + s); } catch (_) { return { ok: false, error: '数値に変換できません' }; }
+  return { ok: true, value: neg ? -v : v };
+}
+
+function toRadix(v, radix) { return v.toString(radix); } // 符号付き表記（-1f 等）
+
+// 2の補数のビット表示。幅に収まらない値は切り詰めずに失敗を返す。
+// 「収まる」は符号付き範囲**または**符号なし範囲のどちらかに入ること
+// （0xDEADBEEF は符号付き32bitを超えるが 32bit のビット列としては正確に表せる）
+function toBits(v, width) {
+  if (BigInt.asIntN(width, v) !== v && BigInt.asUintN(width, v) !== v) {
+    return { ok: false, error: '選択した幅（' + width + 'bit）では表現できません' };
+  }
+  const u = BigInt.asUintN(width, v);
+  const b = u.toString(2).padStart(width, '0');
+  return { ok: true, bits: b.match(/.{8}/g).join(' '), hex: u.toString(16).padStart(width / 4, '0') };
+}
+
+/* ========== XML（DOMParser / XMLSerializer。外部ライブラリなし） ========== */
+
+const XHTML_NS = 'http://www.w3.org/1999/xhtml';
+const MOZ_PE_NS = 'http://www.mozilla.org/newlayout/xml/parsererror.xml';
+
+// 成功: {ok:true, doc, hadDecl} / 失敗: {ok:false, error, line, col}
+function parseXml(text) {
+  const doc = new DOMParser().parseFromString(String(text), 'application/xml');
+  // 正当な <parsererror> 要素は namespaceURI が null になる（2026-08-06 実測）。
+  // 本物のエラーは Chromium では XHTML 名前空間（Firefox は Mozilla NS）
+  const pe = Array.from(doc.getElementsByTagName('parsererror'))
+    .find(e => e.namespaceURI === XHTML_NS || e.namespaceURI === MOZ_PE_NS);
+  if (pe) {
+    const t = pe.textContent || '';
+    const m = /line (\d+) at column (\d+): ([\s\S]*?)(?:\n|Below is a rendering|$)/.exec(t);
+    if (m) return { ok: false, error: m[3].trim(), line: +m[1], col: +m[2] };
+    return { ok: false, error: t.trim() || 'XML として解釈できませんでした', line: null, col: null };
+  }
+  if (!doc.documentElement) return { ok: false, error: 'ルート要素がありません', line: null, col: null };
+  return { ok: true, doc, hadDecl: /^\s*<\?xml/.test(String(text)) };
+}
+
+function xmlDecl(doc) {
+  let d = '<?xml version="' + (doc.xmlVersion || '1.0') + '"';
+  if (doc.xmlEncoding) d += ' encoding="' + doc.xmlEncoding + '"';
+  if (doc.xmlStandalone) d += ' standalone="yes"';
+  return d + '?>';
+}
+function xmlDoctype(doc) {
+  const dt = doc.doctype;
+  if (!dt) return null;
+  let s = '<!DOCTYPE ' + dt.name;
+  if (dt.publicId) s += ' PUBLIC "' + dt.publicId + '"' + (dt.systemId ? ' "' + dt.systemId + '"' : '');
+  else if (dt.systemId) s += ' SYSTEM "' + dt.systemId + '"';
+  return s + '>';
+}
+
+// 成功: {ok:true, value} / 失敗: parseXml の失敗をそのまま返す
+function formatXml(text) {
+  const p = parseXml(text);
+  if (!p.ok) return p;
+  const ser = new XMLSerializer();
+  const IND = '  ';
+  const out = [];
+  if (p.hadDecl) out.push(xmlDecl(p.doc));
+  const dt = xmlDoctype(p.doc);
+  if (dt) out.push(dt);
+  const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const openTag = el => ser.serializeToString(el.cloneNode(false)).replace(/\/>$/, '>');
+  // 混在内容（テキストと要素が同じ親に混ざる）は中身を整形しない。空白を入れると意味が変わる
+  const isMixed = el => {
+    let hasEl = false, hasText = false;
+    for (const c of el.childNodes) {
+      if (c.nodeType === 1) hasEl = true;
+      else if ((c.nodeType === 3 || c.nodeType === 4) && String(c.nodeValue).trim() !== '') hasText = true;
+    }
+    return hasEl && hasText;
+  };
+  const walk = (n, depth) => {
+    const pad = IND.repeat(depth);
+    if (n.nodeType === 10) return;                                    // DOCTYPE は上で出した
+    if (n.nodeType === 8) { out.push(pad + '<!--' + n.nodeValue + '-->'); return; }
+    if (n.nodeType === 7) { out.push(pad + '<?' + n.target + (n.data ? ' ' + n.data : '') + '?>'); return; }
+    if (n.nodeType === 4) { out.push(pad + '<![CDATA[' + n.nodeValue + ']]>'); return; }
+    if (n.nodeType === 3) {
+      if (String(n.nodeValue).trim() === '') return;
+      out.push(pad + esc(n.nodeValue));
+      return;
+    }
+    if (n.nodeType !== 1) return;
+    const kids = Array.from(n.childNodes)
+      .filter(c => !(c.nodeType === 3 && String(c.nodeValue).trim() === ''));
+    if (kids.length === 0) { out.push(pad + ser.serializeToString(n.cloneNode(false))); return; }
+    if (isMixed(n) || (kids.length === 1 && (kids[0].nodeType === 3 || kids[0].nodeType === 4))) {
+      out.push(pad + ser.serializeToString(n));                       // そのまま（テキストを触らない）
+      return;
+    }
+    out.push(pad + openTag(n));
+    for (const c of kids) walk(c, depth + 1);
+    out.push(pad + '</' + n.nodeName + '>');
+  };
+  for (const c of p.doc.childNodes) walk(c, 0);
+  return { ok: true, value: out.join('\n') };
+}
+
+function minifyXml(text) {
+  const p = parseXml(text);
+  if (!p.ok) return p;
+  const strip = (el) => {
+    const kids = Array.from(el.childNodes);
+    const hasEl = kids.some(c => c.nodeType === 1);
+    const hasText = kids.some(c => (c.nodeType === 3 || c.nodeType === 4) && String(c.nodeValue).trim() !== '');
+    for (const c of kids) {
+      if (c.nodeType === 3 && String(c.nodeValue).trim() === '' && !(hasEl && hasText)) el.removeChild(c);
+      else if (c.nodeType === 1) strip(c);
+    }
+  };
+  strip(p.doc);
+  let s = new XMLSerializer().serializeToString(p.doc);
+  // 宣言の有無は入力に合わせる（シリアライザの挙動に依存させない）
+  if (p.hadDecl && !/^<\?xml/.test(s)) s = xmlDecl(p.doc) + s;
+  if (!p.hadDecl && /^<\?xml/.test(s)) s = s.replace(/^<\?xml[^>]*\?>\s*/, '');
+  return { ok: true, value: s };
+}
+
 /* ========== タブ独立の骨組み ========== */
 
 const $ = id => document.getElementById(id);
@@ -416,6 +983,63 @@ const TABS = [
     setState(s) { if (typeof s.in === 'string') $('json-in').value = s.in; },
   },
   {
+    id: 'xml', label: 'XML',
+    init() {
+      const XML_LIMIT = 1000000;
+      const run = (fn) => {
+        const text = $('xml-in').value;
+        if (text.length > XML_LIMIT) {
+          showResult('xml-result', '入力が上限（100万文字）を超えたため処理を中止しました', 'error');
+          return;
+        }
+        const r = fn(text);
+        if (!r.ok) {
+          const where = r.line !== null && r.line !== undefined ? r.line + '行目 ' + r.col + '文字目: ' : '';
+          showResult('xml-result', 'XML エラー: ' + where + r.error, 'error');
+          return;
+        }
+        $('xml-out').value = r.value;
+        showResult('xml-result', '', 'info');
+      };
+      $('xml-format').addEventListener('click', guard('xml', () => run(formatXml)));
+      $('xml-minify').addEventListener('click', guard('xml', () => run(minifyXml)));
+    },
+    getState() { return { in: $('xml-in').value, out: $('xml-out').value }; },
+    setState(s) {
+      if (typeof s.in === 'string') $('xml-in').value = s.in;
+      if (typeof s.out === 'string') $('xml-out').value = s.out;
+    },
+  },
+  {
+    id: 'sql', label: 'SQL',
+    init() {
+      const SQL_LIMIT = 200000;
+      const run = (fn) => {
+        const text = $('sql-in').value;
+        if (text.length > SQL_LIMIT) {
+          showResult('sql-result', '入力が上限（20万文字）を超えたため処理を中止しました', 'error');
+          return;
+        }
+        const r = fn(text);
+        if (!r.ok) {
+          showResult('sql-result', 'SQL エラー: ' + (r.line ? r.line + '行目: ' : '') + r.error, 'error');
+          return;
+        }
+        $('sql-out').value = r.value;
+        showResult('sql-result',
+          r.droppedComments ? 'コメント ' + r.droppedComments + ' 件を削除しました（1行化のため）' : '',
+          'info');
+      };
+      $('sql-format').addEventListener('click', guard('sql', () => run(formatSql)));
+      $('sql-minify').addEventListener('click', guard('sql', () => run(minifySql)));
+    },
+    getState() { return { in: $('sql-in').value, out: $('sql-out').value }; },
+    setState(s) {
+      if (typeof s.in === 'string') $('sql-in').value = s.in;
+      if (typeof s.out === 'string') $('sql-out').value = s.out;
+    },
+  },
+  {
     id: 'escape', label: 'エスケープ',
     init() {
       $('esc-encode').addEventListener('click', guard('escape', () => {
@@ -486,6 +1110,266 @@ const TABS = [
     setState(s) {
       if (typeof s.raw === 'string') $('b64-raw').value = s.raw;
       if (typeof s.enc === 'string') $('b64-enc').value = s.enc;
+    },
+  },
+  {
+    id: 'regex', label: '正規表現',
+    init() {
+      const PATTERN_LIMIT = 1000;
+      const SUBJECT_LIMIT = 100000;
+      const FALLBACK_SUBJECT_LIMIT = 10000; // Worker が無い環境は中断できないので厳しくする
+      const MATCH_LIMIT = 1000;
+      const TIMEOUT_MS = 1000;              // 推定値。重い正常ケースを誤って切るようなら見直す
+      let worker = null, workerOff = false, timer = null, seq = 0;
+
+      // Worker 由来のエラーは guard() の同期 try/catch を通らないので、
+      // onerror / onmessage / タイムアウトのすべてを明示的にこのタブのバナーへ流す
+      const fail = (msg) => {
+        const el = tabErrorEl('regex');
+        el.className = 'banner banner-error';
+        el.setAttribute('role', 'alert');
+        el.textContent = msg;
+        el.hidden = false;
+      };
+      const makeWorker = () => {
+        try {
+          const src = 'self.onmessage=function(e){var f=' + runRegexCore.toString() +
+            ';self.postMessage({seq:e.data.seq,r:f(e.data)});};';
+          const w = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
+          w.onmessage = (e) => {
+            if (e.data.seq !== seq) return;   // 中断後に届いた古い応答は捨てる
+            clearTimeout(timer);
+            render(e.data.r);
+          };
+          w.onerror = (e) => {
+            clearTimeout(timer);
+            fail('正規表現の実行に失敗しました: ' + (e && e.message ? e.message : 'Worker エラー'));
+          };
+          return w;
+        } catch (_) {
+          return null;
+        }
+      };
+
+      const clearOut = () => {
+        $('re-highlight').textContent = '';
+        $('re-result').textContent = '';
+      };
+
+      const render = (r) => {
+        const subject = $('re-subject').value;
+        if (!r.ok) {
+          clearOut();
+          showResult('re-note', '正規表現エラー: ' + r.error, 'error');
+          return;
+        }
+        // ハイライト（createElement のみ。HTML 文字列は組み立てない）
+        const host = $('re-highlight');
+        host.textContent = '';
+        let pos = 0;
+        for (const m of r.matches) {
+          if (m.index > pos) host.appendChild(document.createTextNode(subject.slice(pos, m.index)));
+          const span = document.createElement('span');
+          span.className = 're-hit';
+          span.textContent = m.text;
+          // 長さ0マッチは文字が無いので CSS で幅を持たせて見せる（不可視文字を混ぜない）
+          if (m.text === '') span.classList.add('re-hit-empty');
+          host.appendChild(span);
+          pos = m.index + m.text.length;
+        }
+        if (pos < subject.length) host.appendChild(document.createTextNode(subject.slice(pos)));
+
+        // マッチ一覧
+        const out = $('re-result');
+        out.textContent = '';
+        const summary = document.createElement('p');
+        summary.textContent = 'マッチ ' + r.matches.length + ' 件' +
+          (r.truncated ? '（上限 ' + MATCH_LIMIT + ' 件で打ち切りました。以降は省略）' : '');
+        out.appendChild(summary);
+        if (r.matches.length) {
+          const table = document.createElement('table');
+          const head = document.createElement('tr');
+          for (const h of ['#', '位置', 'マッチ', 'キャプチャ']) {
+            const th = document.createElement('th');
+            th.textContent = h;
+            head.appendChild(th);
+          }
+          table.appendChild(head);
+          for (let i = 0; i < Math.min(r.matches.length, 50); i++) {
+            const m = r.matches[i];
+            const tr = document.createElement('tr');
+            const caps = m.groups.map((g, k) => '$' + (k + 1) + '=' + (g === undefined ? '（未マッチ）' : g));
+            if (m.named) for (const k of Object.keys(m.named)) caps.push(k + '=' + m.named[k]);
+            for (const v of [String(i + 1), String(m.index), m.text, caps.join('  ')]) {
+              const td = document.createElement('td');
+              td.className = 'mono';
+              td.textContent = v;
+              tr.appendChild(td);
+            }
+            table.appendChild(tr);
+          }
+          out.appendChild(table);
+          if (r.matches.length > 50) {
+            const p = document.createElement('p');
+            p.textContent = '（一覧は先頭50件のみ表示）';
+            out.appendChild(p);
+          }
+        }
+        if (r.replaced !== null) {
+          const p = document.createElement('p');
+          p.className = 'mono';
+          p.textContent = '置換結果: ' + r.replaced;
+          out.appendChild(p);
+        }
+        const hints = [];
+        if (workerOff) hints.push('この環境では実行を中断できません（Worker が使えないため）。長い入力と入れ子の量指定子にご注意ください');
+        if (riskyRegex($('re-pattern').value)) {
+          hints.push('入れ子の量指定子があります。入力が長いと極端に遅くなることがあります（検出は不完全です）');
+        }
+        showResult('re-note', hints.join(' / '), 'info');
+      };
+
+      const run = guard('regex', () => {
+        const pattern = $('re-pattern').value;
+        const subject = $('re-subject').value;
+        const limit = workerOff ? FALLBACK_SUBJECT_LIMIT : SUBJECT_LIMIT;
+        clearTimeout(timer);
+        if (pattern === '' && $('re-flags').value.indexOf('g') < 0) { clearOut(); showResult('re-note', '', 'info'); return; }
+        if (pattern.length > PATTERN_LIMIT) {
+          clearOut();
+          showResult('re-note', 'パターンが上限（' + PATTERN_LIMIT + '文字）を超えたため処理を中止しました', 'error');
+          return;
+        }
+        if (subject.length > limit) {
+          clearOut();
+          showResult('re-note', 'テスト文字列が上限（' + limit + '文字）を超えたため処理を中止しました', 'error');
+          return;
+        }
+        const msg = {
+          seq: ++seq, pattern, flags: $('re-flags').value,
+          subject, replacement: $('re-replacement').value, limit: MATCH_LIMIT,
+        };
+        if (worker) {
+          timer = setTimeout(() => {
+            // 暴走を止める唯一の手段。Worker を捨てて作り直す（次の実行を受け付けるため）
+            worker.terminate();
+            worker = makeWorker();
+            if (!worker) { workerOff = true; }
+            clearOut();
+            showResult('re-note',
+              '実行が' + TIMEOUT_MS + 'ミリ秒を超えたため中断しました（カタストロフィックバックトラッキングの可能性）',
+              'error');
+          }, TIMEOUT_MS);
+          worker.postMessage(msg);
+        } else {
+          render(runRegexCore(msg)); // 中断できない経路
+        }
+      });
+
+      worker = makeWorker();
+      workerOff = !worker;
+      let liveTimer = null;
+      const live = () => {
+        if (workerOff) return; // 中断できない環境ではライブ実行しない（ボタンで明示実行）
+        clearTimeout(liveTimer);
+        liveTimer = setTimeout(run, 250);
+      };
+      for (const id of ['re-pattern', 're-flags', 're-subject', 're-replacement']) {
+        $(id).addEventListener('input', live);
+      }
+      $('re-run').addEventListener('click', run);
+      this._run = run;
+    },
+    getState() {
+      return {
+        pattern: $('re-pattern').value, flags: $('re-flags').value,
+        subject: $('re-subject').value, replacement: $('re-replacement').value,
+      };
+    },
+    setState(s) {
+      if (typeof s.pattern === 'string') $('re-pattern').value = s.pattern;
+      if (typeof s.flags === 'string') $('re-flags').value = s.flags;
+      if (typeof s.subject === 'string') $('re-subject').value = s.subject;
+      if (typeof s.replacement === 'string') $('re-replacement').value = s.replacement;
+    },
+  },
+  {
+    id: 'base', label: '基数',
+    init() {
+      const DIGIT_LIMIT = 256;
+      const FIELDS = [['base-10', 10], ['base-16', 16], ['base-8', 8], ['base-2', 2]];
+      let syncing = false; // 相互更新の無限ループ防止
+      const width = () => Number(document.querySelector('input[name="base-width"]:checked').value);
+
+      const showBits = (v) => {
+        const host = $('base-bits');
+        host.textContent = '';
+        if (v === null) return;
+        const r = toBits(v, width());
+        const p = document.createElement('p');
+        if (!r.ok) {
+          p.textContent = r.error + '（64bit に切り替えると表示できる場合があります）';
+          p.className = 'muted';
+        } else {
+          p.textContent = width() + 'bit: ' + r.bits + '   (0x' + r.hex + ')';
+        }
+        host.appendChild(p);
+      };
+
+      const fill = (v, exceptId) => {
+        syncing = true;
+        for (const [id, radix] of FIELDS) {
+          if (id === exceptId) continue;
+          $(id).value = v === null ? '' : toRadix(v, radix);
+        }
+        syncing = false;
+        showBits(v);
+      };
+
+      const onInput = (id, radix) => guard('base', () => {
+        if (syncing) return;
+        const raw = $(id).value;
+        if (raw.length > DIGIT_LIMIT) {
+          showResult('base-result', '入力が上限（' + DIGIT_LIMIT + '文字）を超えたため処理を中止しました', 'error');
+          return;
+        }
+        const r = parseRadix(raw, radix);
+        if (r.empty) { fill(null, id); showResult('base-result', '', 'info'); return; }
+        if (!r.ok) {
+          // 誤った値を出さないため、他フィールドは変更しない
+          showResult('base-result', r.error, 'error');
+          $('base-bits').textContent = '';
+          return;
+        }
+        fill(r.value, id);
+        showResult('base-result', '', 'info');
+      });
+
+      for (const [id, radix] of FIELDS) $(id).addEventListener('input', onInput(id, radix));
+      for (const el of document.querySelectorAll('input[name="base-width"]')) {
+        el.addEventListener('change', guard('base', () => {
+          const r = parseRadix($('base-10').value, 10);
+          showBits(r.ok ? r.value : null);
+          scheduleSave();
+        }));
+      }
+      $('base-clear').addEventListener('click', guard('base', () => {
+        fill(null, null);
+        showResult('base-result', '', 'info');
+      }));
+      this._refresh = () => {
+        const r = parseRadix($('base-10').value, 10);
+        if (r.ok) fill(r.value, 'base-10'); else showBits(null);
+      };
+    },
+    // 10進と幅だけ保存し、他の基数は復元時に再計算する（不整合な組を残さない。DEV-Q10）
+    getState() { return { dec: $('base-10').value, width: Number(document.querySelector('input[name="base-width"]:checked').value) }; },
+    setState(s) {
+      if (typeof s.dec === 'string') $('base-10').value = s.dec;
+      if (s.width === 32 || s.width === 64) {
+        const el = document.querySelector('input[name="base-width"][value="' + s.width + '"]');
+        if (el) el.checked = true;
+      }
     },
   },
   {
@@ -739,6 +1623,11 @@ function restoreState() {
   restoreState();
   switchTab(activeTab, false);
   TABS.find(t => t.id === 'json').updateSampleBtn(); // 復元で入力が入っていたら隠す
+  // 基数タブは10進だけを復元しているので、残りの基数とビット表示をここで再計算する
+  try {
+    const base = TABS.find(t => t.id === 'base');
+    if (base && base._refresh) base._refresh();
+  } catch (_) { /* 1タブ分の失敗を他へ波及させない */ }
 
   // 各タブの主要ボタンは Cmd/Ctrl+Enter で実行できる
   for (const t of TABS) {
@@ -760,14 +1649,19 @@ function restoreState() {
   wireCopy('b64-copy-raw', 'b64-raw', m => showResult('b64-result', m, 'info'));
   wireCopy('b64-copy-enc', 'b64-enc', m => showResult('b64-result', m, 'info'));
   wireCopy('uuid-copy', 'uuid-out', m => { $('uuid-hint').textContent = m; });
+  wireCopy('sql-copy', 'sql-out', m => showResult('sql-result', m, 'info'));
+  wireCopy('xml-copy', 'xml-out', m => showResult('xml-result', m, 'info'));
 
   document.querySelector('main').addEventListener('input', scheduleSave);
-  // 入力の再開でそのタブの古いエラー・結果バナーを消す（修正済み入力に旧エラーが残る問題の解消）
+  // 入力の再開でそのタブの古いエラー・結果バナーを消す（修正済み入力に旧エラーが残る問題の解消）。
+  // **capture フェーズで実行する**: ライブ変換するタブ（基数）は入力ハンドラ自身が
+  // バナーを出すため、バブリングで消すと出した直後に消えてしまう。
+  // 「先に古い表示を消す → タブが反応する」の順序にする
   document.querySelector('main').addEventListener('input', e => {
     const panel = e.target.closest('.tab-panel');
     if (!panel) return;
     for (const b of panel.querySelectorAll('.banner')) b.hidden = true;
-  });
+  }, true);
   window.addEventListener('pagehide', flushSave);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') flushSave();
@@ -785,6 +1679,10 @@ window.devpad = {
   b64encode, b64decode,
   epochToJst, jstToEpoch,
   uuidv4, countText,
+  tokenizeSql, formatSql, minifySql,
+  runRegexCore, riskyRegex,
+  parseRadix, toRadix, toBits,
+  parseXml, formatXml, minifyXml,
   switchTab,
   getState: collectState,
 };

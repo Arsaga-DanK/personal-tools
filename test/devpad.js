@@ -4,14 +4,14 @@
    出力: 合否一覧と終了コード（全 pass かつコンソールエラー0件で 0）
    例:   node test/devpad.js  /  ./test/run devpad
 
-   照合するID: DEV-01〜17（12/13/16/17 は UI 経路）＋7タブの独立性
+   照合するID: DEV-01〜17（12/13/16/17 は UI 経路）＋ DEV-18〜47（SQL/正規表現/基数/XML）＋11タブの独立性
    仕様の正本は docs/specs/devpad.md。期待値を変えるときは spec を先に直す。
 
    クリップボードは壊さない: navigator.clipboard.writeText をスタブして出力だけ捕捉する。 */
 
 const { launch, fileUrl, createRunner, eq } = require('./helpers');
 
-const TAB_IDS = ['json', 'escape', 'url', 'base64', 'time', 'uuid', 'count'];
+const TAB_IDS = ['json', 'xml', 'sql', 'escape', 'url', 'base64', 'regex', 'base', 'time', 'uuid', 'count'];
 
 (async () => {
   const r = createRunner();
@@ -216,7 +216,7 @@ const TAB_IDS = ['json', 'escape', 'url', 'base64', 'time', 'uuid', 'count'];
     return out;
   }, TAB_IDS);
   r.check('タブ切替（常に1枚だけ表示・タブボタンの active が一致・DOM は破棄しない）',
-    switching.length === 7
+    switching.length === 11
     && switching.every(s => eq(s.visible, [s.id]) && s.activeBtn === s.id && s.panelsInDom),
     JSON.stringify(switching.map(s => [s.id, s.visible, s.activeBtn])));
 
@@ -508,13 +508,335 @@ const TAB_IDS = ['json', 'escape', 'url', 'base64', 'time', 'uuid', 'count'];
   });
   await page.reload();
   await page.waitForTimeout(250);
-  const fb = await page.evaluate(() => ({
+  const fb = await page.evaluate(ids => ({
     active: document.querySelector('#tabbar button.active').dataset.tab,
-    visible: ['json', 'escape', 'url', 'base64', 'time', 'uuid', 'count']
-      .filter(i => !document.getElementById('tab-' + i).hidden),
-  }));
+    visible: ids.filter(i => !document.getElementById('tab-' + i).hidden),
+  }), TAB_IDS);
   r.check('DEV-17（不正な activeTab は json にフォールバック・空画面にならない）',
     fb.active === 'json' && eq(fb.visible, ['json']), JSON.stringify(fb));
+
+  /* ========== DEV-18〜24: SQL（純関数） ========== */
+  await page.goto(fileUrl('web/devpad.html'));
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+
+  const sql = (fn, src) => page.evaluate(([f, s]) => window.devpad[f](s), [fn, src]);
+
+  const s18 = await sql('formatSql', 'select a,b from t where x=1 and y=2');
+  r.check('DEV-18（SELECT/FROM/WHERE/AND が大文字で行頭・AND は1段インデント）',
+    s18.ok && s18.value === 'SELECT a, b\nFROM t\nWHERE x = 1\n  AND y = 2',
+    JSON.stringify(s18));
+
+  const s19 = await sql('formatSql', 'create table t(id int primary key, name text not null)');
+  r.check('DEV-19（定義グループは1カラム1行・) は単独行）',
+    s19.ok && s19.value === 'CREATE TABLE t (\n  id INT PRIMARY KEY,\n  name TEXT NOT NULL\n)',
+    JSON.stringify(s19));
+
+  const s20 = await sql('formatSql', "select 'from where' as s from t");
+  r.check('DEV-20（文字列リテラル内は大文字化も改行もしない）',
+    s20.ok && s20.value === "SELECT 'from where' AS s\nFROM t", JSON.stringify(s20));
+
+  const s21a = await sql('formatSql', 'select 1 -- from t\nfrom u');
+  const s21b = await sql('formatSql', '/* a /* b */ c */ select 1');
+  r.check('DEV-21（行コメント内・入れ子ブロックコメント内は変換しない）',
+    s21a.ok && s21a.value === 'SELECT 1\n-- from t\nFROM u'
+    && s21b.ok && s21b.value === '/* a /* b */ c */\nSELECT 1',
+    JSON.stringify([s21a, s21b]));
+
+  const s22 = await sql('formatSql', "create function f() as $$ select 'x' from t $$ language sql");
+  r.check('DEV-22（ドル引用符の中身が1バイトも変わらない）',
+    s22.ok && s22.value.includes("$$ select 'x' from t $$") && s22.value.includes('LANGUAGE'),
+    JSON.stringify(s22));
+
+  const s23 = await sql('formatSql', "select 'unterminated");
+  const s23b = await sql('formatSql', 'select 1 /* unterminated');
+  const s23c = await sql('formatSql', 'select $$ unterminated');
+  r.check('DEV-23（未終端の文字列・コメント・ドル引用符は整形せずエラー）',
+    s23.ok === false && s23.line === 1 && s23.error.includes('文字列')
+    && s23b.ok === false && s23b.error.includes('ブロックコメント')
+    && s23c.ok === false && s23c.error.includes('ドル引用符'),
+    JSON.stringify([s23, s23b, s23c]));
+
+  const s24 = await sql('minifySql', 'select 1 -- c\nfrom t');
+  r.check('DEV-24（圧縮は1行化しコメントを削除して件数を返す）',
+    s24.ok && s24.value === 'select 1 from t' && s24.droppedComments === 1, JSON.stringify(s24));
+
+  /* ========== DEV-25〜31: 正規表現 ========== */
+  const re = (d) => page.evaluate(x => window.devpad.runRegexCore(x), d);
+
+  const r25 = await re({ pattern: '(\\d+)-(\\d+)', flags: 'g', subject: '1-2 33-44', replacement: '' });
+  r.check('DEV-25（マッチと番号キャプチャ）',
+    r25.ok && r25.matches.length === 2
+    && eq(r25.matches[0].groups, ['1', '2']) && eq(r25.matches[1].groups, ['33', '44'])
+    && r25.matches[1].index === 4,
+    JSON.stringify(r25));
+
+  const r26 = await re({ pattern: '(?<y>\\d{4})-(?<m>\\d{2})', flags: '', subject: '2026-08 x', replacement: '' });
+  r.check('DEV-26（名前付きキャプチャが名前で取れる）',
+    r26.ok && r26.matches.length === 1 && eq(r26.matches[0].named, { y: '2026', m: '08' }),
+    JSON.stringify(r26));
+
+  const r27 = await re({ pattern: '[', flags: '', subject: 'x', replacement: '' });
+  r.check('DEV-27（不正パターンは例外を投げずエラーを返す）',
+    r27.ok === false && typeof r27.error === 'string' && r27.error.length > 0, JSON.stringify(r27));
+
+  const r28 = await page.evaluate(() => ({
+    nested: window.devpad.riskyRegex('(a*)*'),
+    nested2: window.devpad.riskyRegex('(\\w+)+'),
+    plain: window.devpad.riskyRegex('a+a+a+b'),
+    safe: window.devpad.riskyRegex('(\\d+)-(\\d+)'),
+  }));
+  r.check('DEV-28（入れ子量指定子は検出・グループ無し形は検出できない＝記載どおりの限界）',
+    r28.nested === true && r28.nested2 === true && r28.plain === false && r28.safe === false,
+    JSON.stringify(r28));
+
+  const r30 = await re({ pattern: '', flags: 'g', subject: 'abc', replacement: '' });
+  r.check('DEV-30（長さ0マッチで無限ループしない）',
+    r30.ok && r30.matches.length === 4 && r30.matches.every(m => m.text === ''),
+    JSON.stringify(r30.matches.map(m => m.index)));
+
+  const r31 = await re({ pattern: '(\\d+)-(\\d+)', flags: 'g', subject: '1-2 33-44', replacement: '$1/$2' });
+  r.check('DEV-31（置換プレビュー）', r31.ok && r31.replaced === '1/2 33/44', JSON.stringify(r31.replaced));
+
+  /* ========== DEV-32〜37: 基数変換 ========== */
+  const base = (fn, a, b) => page.evaluate(([f, x, y]) => {
+    const out = window.devpad[f](x, y);
+    // BigInt は postMessage できないので文字列に落として返す
+    if (out && out.ok && typeof out.value === 'bigint') return { ok: true, value: out.value.toString() };
+    return out;
+  }, [fn, a, b]);
+  const radixAll = (text, radix) => page.evaluate(([t, rx]) => {
+    const p = window.devpad.parseRadix(t, rx);
+    if (!p.ok) return p;
+    return {
+      ok: true,
+      d10: window.devpad.toRadix(p.value, 10), d16: window.devpad.toRadix(p.value, 16),
+      d8: window.devpad.toRadix(p.value, 8), d2: window.devpad.toRadix(p.value, 2),
+    };
+  }, [text, radix]);
+
+  const b32 = await radixAll('255', 10);
+  r.check('DEV-32（10進 255 → 16/8/2進）',
+    b32.ok && b32.d16 === 'ff' && b32.d8 === '377' && b32.d2 === '11111111', JSON.stringify(b32));
+
+  const b33 = await radixAll('-5', 10);
+  const b33bits = await page.evaluate(() => window.devpad.toBits(-5n, 32));
+  r.check('DEV-33（負数は符号付き表記・ビットは2の補数）',
+    b33.ok && b33.d16 === '-5' && b33.d2 === '-101'
+    && b33bits.ok && b33bits.bits === '11111111 11111111 11111111 11111011'
+    && b33bits.hex === 'fffffffb',
+    JSON.stringify([b33, b33bits]));
+
+  const b34 = await radixAll('FFFFFFFFFFFFFFFF', 16);
+  r.check('DEV-34（64bit 16進の10進変換で精度が落ちない）',
+    b34.ok && b34.d10 === '18446744073709551615', JSON.stringify(b34));
+
+  const b35a = await base('parseRadix', '', 10);
+  const b35b = await base('parseRadix', '0', 10);
+  r.check('DEV-35（空入力は 0 にならない・0 は値 0）',
+    b35a.ok === false && b35a.empty === true && b35b.ok === true && b35b.value === '0',
+    JSON.stringify([b35a, b35b]));
+
+  const b36 = await page.evaluate(() => ({
+    w32: window.devpad.toBits(4294967296n, 32),           // 2^32 は 32bit に入らない
+    w64: window.devpad.toBits(4294967296n, 64),
+    unsigned32: window.devpad.toBits(3735928559n, 32),    // 0xDEADBEEF は符号なし32bitに収まる
+    neg32: window.devpad.toBits(-5n, 32),
+  }));
+  r.check('DEV-36（幅超過は切り詰めず警告・符号なしで収まる値は表示・64bit なら表示できる）',
+    b36.w32.ok === false && b36.w32.error.includes('32bit')
+    && b36.w64.ok === true && b36.w64.bits.split(' ').length === 8
+    && b36.unsigned32.ok === true && b36.unsigned32.hex === 'deadbeef'
+    && b36.neg32.ok === true,
+    JSON.stringify(b36));
+
+  const b37 = await base('parseRadix', '12g', 16);
+  r.check('DEV-37（不正な桁は該当文字を挙げてエラー）',
+    b37.ok === false && b37.error.includes('g'), JSON.stringify(b37));
+
+  /* ========== DEV-38〜43: XML ========== */
+  const xml = (fn, src) => page.evaluate(([f, s]) => window.devpad[f](s), [fn, src]);
+
+  const x38 = await xml('formatXml', '<?xml version="1.0"?><r><a>1</a><b><c/></b></r>');
+  r.check('DEV-38（宣言を残しインデント・テキスト1つだけの要素はインライン）',
+    x38.ok && x38.value ===
+      '<?xml version="1.0"?>\n<r>\n  <a>1</a>\n  <b>\n    <c/>\n  </b>\n</r>',
+    JSON.stringify(x38));
+
+  const x39 = await xml('formatXml', '<r><n/></r>');
+  const x39m = await xml('minifyXml', '<r>\n  <n/>\n</r>');
+  r.check('DEV-39（宣言が無い入力に宣言を足さない・圧縮でも足さない）',
+    x39.ok && !x39.value.includes('<?xml') && x39m.ok && x39m.value === '<r><n/></r>',
+    JSON.stringify([x39, x39m]));
+
+  const x40 = await xml('formatXml', '<r><!-- c --><![CDATA[x < y]]></r>');
+  r.check('DEV-40（コメントと CDATA がそのまま残る）',
+    x40.ok && x40.value.includes('<!-- c -->') && x40.value.includes('<![CDATA[x < y]]>'),
+    JSON.stringify(x40));
+
+  const x41 = await xml('formatXml', '<p>a<b>c</b>d</p>');
+  r.check('DEV-41（混在内容は整形しない＝テキストの前後に空白を入れない）',
+    x41.ok && x41.value === '<p>a<b>c</b>d</p>', JSON.stringify(x41));
+
+  const x42 = await xml('formatXml', '<a><b></a>');
+  r.check('DEV-42（パースエラーは位置とメッセージを返す）',
+    x42.ok === false && x42.line === 1 && x42.col === 11 && x42.error.length > 0,
+    JSON.stringify(x42));
+
+  const x43 = await xml('formatXml', '<root><parsererror>ok</parsererror></root>');
+  r.check('DEV-43（正当な <parsererror> 要素を誤検出しない）',
+    x43.ok === true && x43.value.includes('<parsererror>ok</parsererror>'), JSON.stringify(x43));
+
+  /* ========== DEV-29: 暴走の中断（UI・Worker） ========== */
+  await toTab('regex');
+  const r29 = await page.evaluate(async () => {
+    const set = (id, v) => {
+      const el = document.getElementById(id);
+      el.value = v;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    set('re-pattern', 'a+a+a+a+a+a+a+a+a+b');
+    set('re-flags', '');
+    set('re-subject', 'a'.repeat(60));
+    document.getElementById('re-run').click();
+    await new Promise(d => setTimeout(d, 1600));
+    const note = document.getElementById('re-note');
+    const aborted = { shown: !note.hidden, text: note.textContent, isError: note.className.includes('banner-error') };
+    // 中断後も同じタブで別パターンが実行できる（Worker が作り直されている）
+    set('re-pattern', '(\\d+)');
+    set('re-flags', 'g');
+    set('re-subject', '7 88');
+    document.getElementById('re-run').click();
+    await new Promise(d => setTimeout(d, 400));
+    return {
+      aborted,
+      after: document.getElementById('re-result').textContent,
+      hits: document.querySelectorAll('#re-highlight .re-hit').length,
+      tabErrorShown: !document.querySelector('#tab-regex [data-tab-error]').hidden,
+    };
+  });
+  r.check('DEV-29（1秒で中断し、中断後も同じタブで実行できる）',
+    r29.aborted.shown && r29.aborted.isError && r29.aborted.text.includes('中断')
+    && r29.hits === 2 && r29.after.includes('マッチ 2 件')
+    && r29.tabErrorShown === false,
+    JSON.stringify(r29));
+
+  /* ========== DEV-44: 新4タブでエラー → 既存7タブが正常 ========== */
+  const d44 = await page.evaluate(async () => {
+    const fire = (tab, inputs, btn) => {
+      window.devpad.switchTab(tab);
+      for (const [id, v] of inputs) {
+        const el = document.getElementById(id);
+        el.value = v;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      if (btn) document.getElementById(btn).click();
+    };
+    fire('sql', [['sql-in', "select 'x"]], 'sql-format');
+    fire('xml', [['xml-in', '<a><b></a>']], 'xml-format');
+    fire('base', [['base-16', '12g']], null);
+    fire('regex', [['re-pattern', '['], ['re-flags', 'g'], ['re-subject', 'x']], 're-run');
+    await new Promise(d => setTimeout(d, 400));
+    const shown = (id) => {
+      const b = document.getElementById(id);
+      return { shown: !b.hidden, isError: b.className.includes('banner-error') };
+    };
+    const banners = { sql: shown('sql-result'), xml: shown('xml-result'), base: shown('base-result'), regex: shown('re-note') };
+    // 既存タブが正常に動く
+    window.devpad.switchTab('uuid');
+    document.getElementById('uuid-count').value = '2';
+    document.getElementById('uuid-gen').click();
+    const uuidLines = document.getElementById('uuid-out').value.split('\n').filter(Boolean).length;
+    window.devpad.switchTab('json');
+    document.getElementById('json-in').value = '{"a":1}';
+    document.getElementById('json-format').click();
+    return {
+      banners, uuidLines,
+      jsonOut: document.getElementById('json-out').value,
+      tabErrorMarks: document.querySelectorAll('#tabbar button.tab-error').length,
+    };
+  });
+  r.check('DEV-44（新4タブが同時にエラーでも既存タブは正常・init 失敗印なし）',
+    Object.values(d44.banners).every(b => b.shown && b.isError)
+    && d44.uuidLines === 2 && d44.jsonOut === '{\n  "a": 1\n}' && d44.tabErrorMarks === 0,
+    JSON.stringify(d44));
+
+  /* ========== DEV-45: 新4タブの永続化（基数は10進から再計算） ========== */
+  await page.evaluate(async () => {
+    const set = (tab, id, v) => {
+      window.devpad.switchTab(tab);
+      const el = document.getElementById(id);
+      el.value = v;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    set('sql', 'sql-in', 'select 1');
+    set('xml', 'xml-in', '<r/>');
+    set('regex', 're-pattern', '\\d+');
+    set('base', 'base-10', '255');
+    await new Promise(d => setTimeout(d, 700)); // 保存デバウンス（500ms）を待つ
+  });
+  await page.reload();
+  await page.waitForTimeout(400);
+  const d45 = await page.evaluate(() => ({
+    sql: document.getElementById('sql-in').value,
+    xml: document.getElementById('xml-in').value,
+    pattern: document.getElementById('re-pattern').value,
+    dec: document.getElementById('base-10').value,
+    hex: document.getElementById('base-16').value,
+    bin: document.getElementById('base-2').value,
+    bits: document.getElementById('base-bits').textContent,
+    saved: JSON.parse(localStorage.getItem('tools:devpad')).data.tabs.base,
+  }));
+  r.check('DEV-45（新4タブが復元される・基数は10進から再計算される）',
+    d45.sql === 'select 1' && d45.xml === '<r/>' && d45.pattern === '\\d+'
+    && d45.dec === '255' && d45.hex === 'ff' && d45.bin === '11111111'
+    && d45.bits.includes('11111111') && eq(Object.keys(d45.saved).sort(), ['dec', 'width']),
+    JSON.stringify(d45));
+
+  /* ========== DEV-46: 各タブの性能ガード ========== */
+  const d46 = await page.evaluate(async () => {
+    const out = {};
+    const run = async (tab, id, len, btn, bannerId) => {
+      window.devpad.switchTab(tab);
+      const el = document.getElementById(id);
+      el.value = 'a'.repeat(len);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      if (btn) document.getElementById(btn).click();
+      await new Promise(d => setTimeout(d, 400));
+      const b = document.getElementById(bannerId);
+      return { shown: !b.hidden, text: b.textContent };
+    };
+    out.sql = await run('sql', 'sql-in', 200001, 'sql-format', 'sql-result');
+    out.xml = await run('xml', 'xml-in', 1000001, 'xml-format', 'xml-result');
+    out.base = await run('base', 'base-10', 257, null, 'base-result');
+    window.devpad.switchTab('regex');
+    document.getElementById('re-pattern').value = 'x';
+    document.getElementById('re-subject').value = 'a'.repeat(100001);
+    document.getElementById('re-run').click();
+    await new Promise(d => setTimeout(d, 300));
+    const n = document.getElementById('re-note');
+    out.regex = { shown: !n.hidden, text: n.textContent };
+    return out;
+  });
+  r.check('DEV-46（4タブとも上限超過で処理せず理由を表示）',
+    ['sql', 'xml', 'base', 'regex'].every(k => d46[k].shown && d46[k].text.includes('上限')),
+    JSON.stringify(d46));
+
+  /* ========== DEV-47: 11タブの折り返し ========== */
+  await page.setViewportSize({ width: 390, height: 800 });
+  await page.waitForTimeout(120);
+  const d47 = await page.evaluate(() => {
+    const btns = Array.from(document.querySelectorAll('#tabbar button'));
+    const rows = new Set(btns.map(b => Math.round(b.getBoundingClientRect().top)));
+    return {
+      count: btns.length, rows: rows.size,
+      noHScroll: document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+      allVisible: btns.every(b => b.getBoundingClientRect().width > 0),
+    };
+  });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  r.check('DEV-47（幅390pxで11タブが折り返し・ページは横スクロールしない）',
+    d47.count === 11 && d47.rows > 1 && d47.noHScroll && d47.allVisible, JSON.stringify(d47));
 
   /* ========== ToolStorage 不可時の警告バナー ========== */
   const warn = await page.evaluate(() => {
