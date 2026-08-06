@@ -24,12 +24,27 @@ if ! command -v node >/dev/null 2>&1; then
   exit 1
 fi
 
-# 制御文字の混入チェック。以前 test/taskboard.js に NUL が1バイト混入し、JS としては
-# 動くのに grep がバイナリ扱いして無言になる（＝道具が壊れる）症状が出たため。
-# 許可はタブ(09)と LF(0A) のみ。CR も検出する（このリポジトリは LF 統一）
-if ! perl -ne 'if (/[\x00-\x08\x0B-\x1F]/) { print "  $ARGV:$.\n"; $bad = 1 }
-               END { exit($bad ? 1 : 0) }' test/*.js web/*.html; then
-  print -r -- "制御文字が混入しています（上記の行）。混入したまま検証しても結果が信用できません" >&2
+# 不可視文字の混入チェック。過去に2度やっている:
+#   1) test/taskboard.js に NUL が1バイト → JS は動くが grep がバイナリ扱いして無言になる
+#   2) web/taskboard.html に U+FE0F（異体字セレクタ）が5箇所 → 正規表現としては等価に動くため
+#      テストでも検出できない。文字列リテラルに入れば比較が静かに失敗する
+# 許可はタブ(09)と LF(0A) のみ。CR も検出する（このリポジトリは LF 統一）。
+# 不可視ゆえ「行を見ても分からない」ので、どの文字かを U+XXXX で示す。
+# 判定はバイト列で行う（-C フラグの出力エンコーディングに依存させない）
+if ! perl -ne '
+      BEGIN { %CH = ("\xe2\x80\x8b" => "U+200B ゼロ幅スペース",
+                     "\xef\xbb\xbf" => "U+FEFF BOM") }
+      for my $seq (sort keys %CH) { report($CH{$seq}) if index($_, $seq) >= 0 }
+      # U+FE0F は絵文字の表示を保証する正当な用途がある（favicon の 🛠️ など）。
+      # その1箇所だけ内容で除外する（行番号で除外すると行が動いた瞬間に嘘になる）。
+      # 他の場所に出たら落とす — 正規表現としては等価に動くのでテストでは捕まらないため
+      report("U+FE0F 異体字セレクタ")
+        if index($_, "\xef\xb8\x8f") >= 0 && !/rel="icon"/;
+      while (/([\x00-\x08\x0B-\x1F])/g) { report(sprintf("U+%04X 制御文字", ord $1)) }
+      close ARGV if eof;   # ファイルごとに $. を1に戻す（複数ファイルで行番号が累積するのを防ぐ）
+      sub report { print "  $ARGV:$. に $_[0]\n"; $bad = 1 }
+      END { exit($bad ? 1 : 0) }' test/*.js web/*.html; then
+  print -r -- "不可視文字が混入しています（上記の行）。混入したまま検証しても結果が信用できません" >&2
   exit 1
 fi
 
