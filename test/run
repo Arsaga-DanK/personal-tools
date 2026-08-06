@@ -24,30 +24,81 @@ if ! command -v node >/dev/null 2>&1; then
   exit 1
 fi
 
-# 不可視文字の混入チェック。過去に2度やっている:
+# 文字の混入チェック。過去に3度やっている:
 #   1) test/taskboard.js に NUL が1バイト → JS は動くが grep がバイナリ扱いして無言になる
 #   2) web/taskboard.html に U+FE0F（異体字セレクタ）が5箇所 → 正規表現としては等価に動くため
 #      テストでも検出できない。文字列リテラルに入れば比較が静かに失敗する
-# 許可はタブ(09)と LF(0A) のみ。CR も検出する（このリポジトリは LF 統一）。
-# 不可視ゆえ「行を見ても分からない」ので、どの文字かを U+XXXX で示す。
-# 判定はバイト列で行う（-C フラグの出力エンコーディングに依存させない）。
-# 対象は test/*.js・web/*.html・index.html・lib/*.js・このスクリプト自身
-# （index.html は表示名を持つため、混入するとハブの検索が静かに壊れる）
-if ! perl -ne '
-      BEGIN { %CH = ("\xe2\x80\x8b" => "U+200B ゼロ幅スペース",
-                     "\xef\xbb\xbf" => "U+FEFF BOM") }
-      for my $seq (sort keys %CH) { report($CH{$seq}) if index($_, $seq) >= 0 }
-      # U+FE0F は絵文字の表示を保証する正当な用途がある（favicon のハンマー＋レンチ等）。
-      # その用途だけ内容で除外する（行番号で除外すると行が動いた瞬間に嘘になる）。
-      # 他の場所に出たら落とす — 正規表現としては等価に動くのでテストでは捕まらないため。
-      # このコメントに実物の絵文字を貼らないこと（自分自身が検出対象になる）
-      report("U+FE0F 異体字セレクタ")
-        if index($_, "\xef\xb8\x8f") >= 0 && !/rel="icon"/;
-      while (/([\x00-\x08\x0B-\x1F])/g) { report(sprintf("U+%04X 制御文字", ord $1)) }
+#   3) docs/specs/devpad.md にキリル文字の s（ホモグリフ）→ 不可視ではないため
+#      1・2 のチェックでは拾えず、目視で気づいた
+# 方式は**ホワイトリスト**: 許可した範囲の外の文字はすべて落とす。
+# 2026-08-06 に全対象ファイルを棚卸しし、実在する非ASCII文字（968種）が
+# 下の範囲に収まることを確認した。新しい文字を意図して使うときは範囲を足す
+# （＝意識的な判断を強制する。ブラックリストでは未知のホモグリフを取り逃す）。
+# これで拾えるようになるもの: キリル/ギリシャ文字のホモグリフ・双方向制御文字
+# （trojan source）・U+2028/2029（JS の文字列を壊す）・不正な UTF-8 バイト列。
+# 許可する制御文字はタブ(09)と LF(0A) のみ。CR も検出する（このリポジトリは LF 統一）。
+# 不可視・見分けが付かないゆえ「行を見ても分からない」ので、U+XXXX と Unicode 文字名を出す。
+if ! perl -MEncode -ne '
+      BEGIN {
+        require charnames;
+        # 許可範囲（棚卸しで実在を確認したものだけ）
+        @ALLOW = ([0x00A7,0x00A7],[0x00B0,0x00B1],[0x00B7,0x00B7],[0x00D7,0x00D7],[0x00F7,0x00F7],
+                  [0x2010,0x2027],[0x2030,0x2030],[0x2032,0x2033],[0x203B,0x203B],[0x2044,0x2044],
+                  [0x2190,0x21FF],[0x2200,0x22FF],[0x2300,0x23FF],[0x2460,0x24FF],
+                  [0x2500,0x257F],[0x25A0,0x25FF],[0x2600,0x27BF],[0x2B00,0x2BFF],
+                  [0x3000,0x30FF],[0x31F0,0x31FF],[0x3200,0x33FF],[0x3400,0x4DBF],[0x4E00,0x9FFF],
+                  [0xF900,0xFAFF],[0xFE30,0xFE6F],[0xFF00,0xFFEF],[0x1F000,0x1FAFF]);
+        # 0x3200-0x33FF（囲み CJK・CJK 互換）と 0xFE30-0xFE6F（小字形・互換形）は
+        # norm の NFKC テストが正当に使う（(株) キロ 小さいハイフン等）
+        %SPECIAL = (0x200B => "U+200B ゼロ幅スペース",
+                    0xFEFF => "U+FEFF BOM",
+                    0xFE0E => "U+FE0E 異体字セレクタ（テキスト表示）",
+                    0xFE0F => "U+FE0F 異体字セレクタ（絵文字表示）",
+                    0xFFFD => "U+FFFD 不正な UTF-8 バイト列");
+      }
+      $s = Encode::decode("UTF-8", $_);
+      @c = split //, $s;
+      for my $i (0 .. $#c) {
+        my $o = ord($c[$i]);
+        if ($o < 0x20 && $o != 9 && $o != 10) { report(sprintf("U+%04X 制御文字", $o)); next }
+        if ($o == 0x7F) { report("U+007F 制御文字（DEL）"); next }
+        next if $o < 0x80;
+        if (exists $SPECIAL{$o}) {
+          # 異体字セレクタには正当な用途がある。**用途ごとに条件を書いて許す**
+          # （行番号で除外すると行が動いた瞬間に嘘になる）:
+          #   U+FE0F = favicon の絵文字（ハンマー＋レンチ等）を絵文字として表示させる
+          #   U+FE0E = 取り消しボタンの左向き矢印を絵文字化させない（直前が U+21A9 のときだけ）
+          # このコメントに実物の絵文字を貼らないこと（自分自身が検出対象になる）
+          next if $o == 0xFE0F && /rel="icon"/;
+          next if $o == 0xFE0E && $i > 0 && ord($c[$i-1]) == 0x21A9;
+          report($SPECIAL{$o});
+          next;
+        }
+        next if grep { $o >= $_->[0] && $o <= $_->[1] } @ALLOW;
+        my $name = charnames::viacode($o) || "名称不明";
+        report(sprintf("U+%04X %s（%s）", $o, $name, risk($o)));
+      }
       close ARGV if eof;   # ファイルごとに $. を1に戻す（複数ファイルで行番号が累積するのを防ぐ）
-      sub report { print "  $ARGV:$. に $_[0]\n"; $bad = 1 }
-      END { exit($bad ? 1 : 0) }' test/*.js web/*.html index.html lib/*.js test/run; then
-  print -r -- "不可視文字が混入しています（上記の行）。混入したまま検証しても結果が信用できません" >&2
+      sub report {
+        my $key = "$ARGV:$.:$_[0]";
+        return if $SEEN{$key}++;
+        print "  $ARGV:$. に $_[0]\n";
+        $bad = 1;
+      }
+      # 何が危ないのかを名前だけに頼らず示す
+      sub risk {
+        my $o = shift;
+        return "双方向制御。trojan source の手口" if ($o >= 0x202A && $o <= 0x202E)
+          || ($o >= 0x2066 && $o <= 0x2069) || $o == 0x200E || $o == 0x200F;
+        return "行区切り。JS の文字列リテラルを壊す" if $o == 0x2028 || $o == 0x2029;
+        return "ホモグリフの可能性" if ($o >= 0x0080 && $o <= 0x024F)
+          || ($o >= 0x0370 && $o <= 0x04FF) || ($o >= 0x1E00 && $o <= 0x1EFF);
+        return "許可範囲外";
+      }
+      END { exit($bad ? 1 : 0) }' \
+      test/*.js web/*.html index.html lib/*.js test/run docs/specs/*.md; then
+  print -r -- "使ってよい範囲外の文字が混入しています（上記の行）。" >&2
+  print -r -- "意図した文字なら test/run の @ALLOW に範囲を追加してください" >&2
   exit 1
 fi
 
