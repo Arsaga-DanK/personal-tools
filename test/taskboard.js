@@ -1917,13 +1917,9 @@ const F5 = [
   }, [F6, TODAY, v]);
 
   await setView('list');
-  // ハイライトは**展開したメモ**に付く仕様（TB-Q36）。以前はこのチェックが
-  // 前のテストで開いた state.memoOpen の残りに依存して通っていたので前提を明示する
-  await page.evaluate(() => {
-    const tr = Array.from(document.querySelectorAll('#task-table tbody tr'))
-      .find(x => x.dataset.line === '5');
-    tr.querySelector('.memo-mark').click();
-  });
+  // ハイライトは**展開したメモ**に付く仕様（TB-Q36）。Phase T5 で
+  // 「メモが一致した行は自動で展開する」ようにしたので、手動で開く必要はなくなった
+  // （それ以前は前のテストで開いた state.memoOpen の残りに依存して通っていた）
   const f1 = await searchIn('list', '仕様書');
   r.check('TB-F1（メモがヒット源になる・メモ行もハイライトされる）',
     eq(f1.rows, [5, 7]) && f1.count === '1 件ヒット' && f1.hits >= 1,
@@ -2020,6 +2016,45 @@ const F5 = [
   await f11page.close();
   r.check('TB-F11（検索語は永続化しない）', f11.q === '' && f11.savedHasQ === false,
     JSON.stringify(f11));
+
+  /* --- TB-F13〜F15: 検索でヒットしたメモの自動展開（Phase T5・2026-08-07） --- */
+  const memoRows = () => page.evaluate(() =>
+    Array.from(document.querySelectorAll('#task-table tbody tr.memo-row')).map(tr => tr.textContent.trim()));
+
+  await setView('list');
+  const f13before = await memoRows();
+  const f13 = await searchIn('list', '仕様書');      // メモにだけある語
+  const f13rows = await memoRows();
+  r.check('TB-F13（メモだけが一致した行はメモが自動で開き、ハイライトも出る）',
+    f13before.length === 0 && f13rows.length === 1
+    && f13rows[0].includes('仕様書のレビュー待ち') && f13.hits >= 1,
+    JSON.stringify([f13before, f13rows, f13.hits]));
+
+  await searchIn('list', '');                        // 検索をやめる
+  const f14 = await memoRows();
+  r.check('TB-F14（検索をやめると自動で開いたメモは畳まれる）',
+    f14.length === 0, JSON.stringify(f14));
+
+  // 手動で開いたメモは検索の前後で畳まれない
+  await page.evaluate(() => {
+    const tr = Array.from(document.querySelectorAll('#task-table tbody tr'))
+      .find(x => x.dataset.line === '5');
+    tr.querySelector('.memo-mark').click();
+  });
+  const f15open = await memoRows();
+  await searchIn('list', '仕様書');
+  await searchIn('list', '');
+  const f15after = await memoRows();
+  r.check('TB-F15（手動で開いたメモは検索の前後で開いたまま）',
+    f15open.length === 1 && f15after.length === 1
+    && f15after[0].includes('仕様書のレビュー待ち'),
+    JSON.stringify([f15open, f15after]));
+  // 後続テストのために畳んでおく（ハーネスは状態を共有する）
+  await page.evaluate(() => {
+    const tr = Array.from(document.querySelectorAll('#task-table tbody tr'))
+      .find(x => x.dataset.line === '5');
+    tr.querySelector('.memo-mark').click();
+  });
 
   // TB-F12: 検索中のアーカイブ確認に「（検索で絞り込み中）」が付く（8/3 の事故と同じ型を防ぐ）
   const f12 = await withDialogs('dismiss', () => page.evaluate(async ([f1, today]) => {

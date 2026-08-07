@@ -1040,6 +1040,8 @@ const state = {
   // メモ・ボードの子タスクの展開状態。**永続化しない**
   // （行番号は編集で動くため、保存すると別の行が開く）
   memoOpen: new Set(),
+  // 検索で自動的に開いたメモの行（手動で開いたものと区別して、検索をやめたら畳む）
+  memoAutoOpen: new Set(),
   boardKidsOpen: new Set(),
   // タイムラインで折り畳んだセクション。**永続化しない**（TB-Q48。tasks.md 側で
   // セクション名が変わると迷子になる。メモ・ボードの子と同じ方針）
@@ -1111,6 +1113,7 @@ function loadText(text, adapter) {
   // 展開・折り畳みは読み込んだファイルに紐づくので捨てる
   // （行番号もセクション名も別のファイルでは通じない。ボードの子で踏んだのと同じ型）
   state.memoOpen.clear();
+  state.memoAutoOpen.clear();
   state.boardKidsOpen.clear();
   state.tlClosed.clear();
   hideBanner();
@@ -1482,6 +1485,14 @@ function render() {
     for (const c of t.children) desc = markHit(c) || desc;
     t._hit = q !== '' && haystack(t).includes(q);
     if (t._hit) hitCount++;
+    // メモが一致した行は**メモを自動で展開する**。畳んだままだと 📝 マーカーしか出ず
+    // 「なぜヒットしたのか」が読めない（ハイライトは展開したメモに付く仕様のため）。
+    // 自動で開いたものだけ memoAutoOpen で覚え、検索をやめたら畳む（手動の展開は残す）
+    if (t._hit && t.memo.length && nfc(t.memo.join(' ')).toLowerCase().includes(q)
+        && !state.memoOpen.has(t.line)) {
+      state.memoOpen.add(t.line);
+      state.memoAutoOpen.add(t.line);
+    }
     t._sub = t._hit || desc;
     return t._sub;
   };
@@ -1492,6 +1503,9 @@ function render() {
 
   // 表示判定は親子グループ単位（spec 決定事項）
   const roots = doc.tasks.filter(t => t.parentLine === null);
+  // 前回の自動展開を先に取り消してから測り直す（検索語を変えたときに開きっぱなしにしない）
+  for (const line of state.memoAutoOpen) state.memoOpen.delete(line);
+  state.memoAutoOpen.clear();
   for (const r of roots) { markHit(r); spreadHit(r, false); }
   const markVisible = (t) => {
     let childVis = false;
