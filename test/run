@@ -74,6 +74,10 @@ if ! perl -MEncode -ne '
           report($SPECIAL{$o});
           next;
         }
+        # AppleScript の生コード構文（U+00AB + class utf8 + U+00BB のような書き方）は
+        # 二重山括弧が必須。**osascript を含む行でだけ**許す
+        # （行番号での除外は行が動くと嘘になる。ここに実物の記号を書かないこと＝自己検出する）
+        next if ($o == 0x00AB || $o == 0x00BB) && /osascript/;
         next if grep { $o >= $_->[0] && $o <= $_->[1] } @ALLOW;
         my $name = charnames::viacode($o) || "名称不明";
         report(sprintf("U+%04X %s（%s）", $o, $name, risk($o)));
@@ -96,7 +100,8 @@ if ! perl -MEncode -ne '
         return "許可範囲外";
       }
       END { exit($bad ? 1 : 0) }' \
-      test/*.js web/*.html index.html lib/*.js test/run docs/specs/*.md; then
+      test/*.js web/*.html index.html lib/*.js test/run \
+      docs/specs/*.md docs/*.md CLAUDE.md .cursor/rules/*.mdc(N); then
   print -r -- "使ってよい範囲外の文字が混入しています（上記の行）。" >&2
   print -r -- "意図した文字なら test/run の @ALLOW に範囲を追加してください" >&2
   exit 1
