@@ -516,9 +516,7 @@ function applyDirectionUI() {
   const ui = DIRECTION_UI[direction];
   $('pane-title-in').textContent = ui.inTitle;
   $('pane-title-out').textContent = ui.outTitle;
-  // コピー結果表示（.copied）中はラベルを奪わない。復帰先は dataset.label が持つ
-  if (!el.copyBtn.classList.contains('copied')) el.copyBtn.textContent = ui.copyLabel;
-  el.copyBtn.dataset.label = ui.copyLabel;
+  ToolUI.setLabel(el.copyBtn, ui.copyLabel);   // .copied 中は表示を奪わない（共通核が守る）
   el.optTrim.disabled = direction === 'md2tsv'; // trim は TSV→MD のみ有効
 }
 

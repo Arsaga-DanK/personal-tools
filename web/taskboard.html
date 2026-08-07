@@ -2198,8 +2198,7 @@ const COPY_LABELS = {
 function updateCopyButton() {
   const b = el('btn-copy');
   const cfg = COPY_LABELS[state.ui.view] || COPY_LABELS.list;
-  if (b.textContent !== cfg.text && !b.classList.contains('copied')) b.textContent = cfg.text;
-  b.dataset.label = cfg.text;
+  ToolUI.setLabel(b, cfg.text);   // .copied 中は表示を奪わない（共通核が守る）
   b.title = cfg.title;
 }
 
