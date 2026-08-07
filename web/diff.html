@@ -66,6 +66,7 @@
   <div id="diff-view"></div>
 </main>
 
+<script src="../lib/ui.js"></script>
 <script src="../lib/storage.js"></script>
 <script>
 'use strict';
@@ -311,11 +312,9 @@ const el = {
 
 function uiOpts() { return { ignoreWs: el.optWs.checked, unifyWidth: el.optWidth.checked }; }
 
+// 引数順は (msg, kind) のまま。共通核は (要素, 種別, 文字列) なので**ここで入れ替える**
 function showBanner(msg, kind) {
-  el.banner.className = 'banner ' + (kind === 'warn' ? 'banner-warn' : 'banner-info');
-  el.banner.setAttribute('role', kind === 'warn' ? 'alert' : 'status'); // ui.css の ARIA 規約
-  el.banner.textContent = msg;
-  el.banner.hidden = !msg;
+  ToolUI.banner(el.banner, kind === 'warn' ? 'warn' : 'info', msg);
 }
 
 // 文字レンジ付きの1行を描画（textContent のみ使用）
@@ -478,31 +477,7 @@ function diffToText(result) {
   return out.join('\n');
 }
 
-// コピー（共通プロトコル: clipboard API → 失敗時は一時 textarea 選択方式）
-let copyTimer = null;
-function copyFeedback() {
-  el.copyBtn.textContent = '✓ コピーしました';
-  el.copyBtn.classList.add('copied');
-  clearTimeout(copyTimer);
-  copyTimer = setTimeout(() => {
-    el.copyBtn.textContent = 'diffをコピー';
-    el.copyBtn.classList.remove('copied');
-  }, 1500);
-}
-function copySelectFallback(text) {
-  const ta = document.createElement('textarea');
-  ta.value = text;
-  ta.setAttribute('readonly', '');
-  ta.style.position = 'fixed';
-  ta.style.left = '-9999px';
-  document.body.appendChild(ta);
-  ta.focus();
-  ta.select();
-  let ok = false;
-  try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
-  ta.remove();
-  ok ? copyFeedback() : (el.copyHint.textContent = 'コピーできませんでした');
-}
+// コピー（共通プロトコルは ToolUI.copy が持つ: clipboard API → 失敗時 textarea 選択方式）
 el.copyBtn.addEventListener('click', () => {
   clearTimeout(debounceTimer); // デバウンス中の旧内容コピー防止（同期確定してから書く）
   run();
@@ -512,11 +487,10 @@ el.copyBtn.addEventListener('click', () => {
     el.copyHint.textContent = 'コピーする内容がありません';
     return;
   }
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(text).then(copyFeedback).catch(() => copySelectFallback(text));
-  } else {
-    copySelectFallback(text);
-  }
+  ToolUI.copy(text).then(ok => {
+    if (ok) ToolUI.feedback(el.copyBtn, '✓ コピーしました');
+    else el.copyHint.textContent = 'コピーできませんでした';
+  });
 });
 
 // サンプル投入（空状態の学習用。両ペインが空のときだけ表示。
