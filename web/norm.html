@@ -80,6 +80,7 @@
   </div>
 </main>
 
+<script src="../lib/ui.js"></script>
 <script src="../lib/storage.js"></script>
 <script>
 'use strict';
@@ -303,13 +304,10 @@ function renderSummary(counts, hasInput) {
   else el.summary.textContent = hasInput ? '変更はありません' : '';
 }
 
+// 引数順は (msg, kind) のまま。共通核は (要素, 種別, 文字列) なので**ここで入れ替える**。
+// kind は 'error' / 'warn' / それ以外=info の3値（norm だけが error を使う）
 function showBanner(msg, kind) {
-  const severe = kind === 'error' || kind === 'warn';
-  el.banner.className = 'banner ' +
-    (kind === 'error' ? 'banner-error' : kind === 'warn' ? 'banner-warn' : 'banner-info');
-  el.banner.setAttribute('role', severe ? 'alert' : 'status'); // ui.css の ARIA 規約
-  el.banner.textContent = msg;
-  el.banner.hidden = !msg;
+  ToolUI.banner(el.banner, kind === 'error' ? 'error' : kind === 'warn' ? 'warn' : 'info', msg);
 }
 
 const MAX_INPUT_CHARS = 1000000; // 超過時は処理せず理由を表示（性能ガード）
@@ -421,40 +419,15 @@ $('opts').addEventListener('change', () => {
 });
 
 // コピー（共通プロトコル: clipboard API → 失敗時は選択フォールバック）
-let copyTimer = null;
-function copyFeedback() {
-  el.copyBtn.textContent = '✓ コピーしました';
-  el.copyBtn.classList.add('copied');
-  clearTimeout(copyTimer);
-  copyTimer = setTimeout(() => {
-    el.copyBtn.textContent = '結果をコピー';
-    el.copyBtn.classList.remove('copied');
-  }, 1500);
-}
-// フォールバックは規約どおり textarea 選択方式。出力 div の選択は使わない
-// （ルビ注記 ON 時に <rt> の変更前テキストが混入した壊れたコピーになるため）
-function copySelectFallback(text) {
-  const ta = document.createElement('textarea');
-  ta.value = text;
-  ta.setAttribute('readonly', '');
-  ta.style.position = 'fixed';
-  ta.style.left = '-9999px';
-  document.body.appendChild(ta);
-  ta.focus();
-  ta.select();
-  let ok = false;
-  try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
-  ta.remove();
-  ok ? copyFeedback() : showBanner('コピーできませんでした。出力を手動で選択してコピーしてください。', 'info');
-}
+// フォールバックは ToolUI.copy が持つ一時 textarea 方式。**出力 div の選択は使わない**
+// （ルビ注記 ON 時に <rt> の変更前テキストが混入した壊れたコピーになるため、selectEl を渡さない）
 el.copyBtn.addEventListener('click', () => {
   const text = lastResult.text;
   if (text === '') { showBanner('コピーする内容がありません', 'info'); return; }
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(text).then(copyFeedback).catch(() => copySelectFallback(text));
-  } else {
-    copySelectFallback(text);
-  }
+  ToolUI.copy(text).then(ok => {
+    if (ok) ToolUI.feedback(el.copyBtn, '✓ コピーしました');
+    else showBanner('コピーできませんでした。出力を手動で選択してコピーしてください。', 'info');
+  });
 });
 
 // 設定エクスポート/インポート（インポートは全置換 — DEV-Q4）
