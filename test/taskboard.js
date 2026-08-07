@@ -2690,23 +2690,50 @@ const F5 = [
     const out = await page.evaluate(() => {
       const t = document.querySelector('.tl-drag-tip');
       const bar = document.querySelector('.tl-bar.tl-dragging');
+      const track = t.parentNode;
       const tr = t.getBoundingClientRect(), br = bar.getBoundingClientRect();
-      return { text: t.textContent, below: t.classList.contains('tl-drag-tip-below'),
-        tipBottom: Math.round(tr.bottom), barTop: Math.round(br.top),
-        tipTop: Math.round(tr.top), barBottom: Math.round(br.bottom) };
+      const kr = track.getBoundingClientRect();
+      return {
+        text: t.textContent,
+        // 同じ行にあるか（縦に重なっているか）と、左右どちら側に出ているか
+        sameRow: tr.top < br.bottom && tr.bottom > br.top,
+        rightOf: Math.round(tr.left) >= Math.round(br.right),
+        leftOf: Math.round(tr.right) <= Math.round(br.left),
+        // 「図の中」ではなく**画面に見えているか**で判定する（図が狭いときは
+        // 図の右外にはみ出しても、可視域に収まっていれば読める）
+        insideView: (() => {
+          const sc = document.getElementById('tl-scroll').getBoundingClientRect();
+          return Math.round(tr.left) >= Math.round(sc.left) - 1
+            && Math.round(tr.right) <= Math.round(sc.right) + 1;
+        })(),
+        rowLines: Array.from(document.querySelectorAll('.tl-row')).map(r => r.dataset.line || 'sec'),
+      };
     });
     await page.keyboard.press('Escape');   // 変更を残さない
     await page.mouse.up();
     return out;
   };
 
+  // 吹き出しは**同じ行の右横**（上下に出すと見出し帯や隣の行を隠す。Phase T5b で方式変更）
   await tl(F10);
   const p43top = await tipDuring(5, 48, 'center');    // セクション直下の1行目
   const p43mid = await tipDuring(9, 48, 'center');    // 同じセクションの2行目
-  r.check('TB-P43（見出し直下の行では吹き出しをバーの下に出す・それ以外は上）',
-    p43top.below === true && p43top.tipTop >= p43top.barBottom
-    && p43mid.below === false && p43mid.tipBottom <= p43mid.barTop,
+  r.check('TB-P43（吹き出しは同じ行の右横に出る＝他の行を隠さない）',
+    p43top.sameRow === true && p43top.rightOf === true && p43top.insideView === true
+    && p43mid.sameRow === true && p43mid.rightOf === true && p43mid.insideView === true,
     JSON.stringify([p43top, p43mid]));
+
+  // 右端に寄ったバーでは左へ反転する（F11 の「遠い予定」は範囲の右端にある）。
+  // 図が3,120px あり画面外なので、**先に横スクロールしてから掴む**
+  await tl(F11);
+  await page.evaluate(() => {
+    const sc = document.getElementById('tl-scroll');
+    sc.scrollLeft = sc.scrollWidth;
+  });
+  const p43right = await tipDuring(8, -16, 'center');
+  r.check('TB-P43b（右端のバーでは吹き出しが左へ反転し、図の外へ出ない）',
+    p43right.sameRow === true && p43right.leftOf === true && p43right.insideView === true,
+    JSON.stringify(p43right));
 
   await tl(F10);
   const p44move = await tipDuring(9, 48, 'center');   // 📅 なしのバーを平行移動（+3日）
