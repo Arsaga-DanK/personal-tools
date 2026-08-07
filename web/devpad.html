@@ -43,7 +43,7 @@
   <div class="tabs" id="tabbar"></div>
 
   <section class="tab-panel" id="tab-json" hidden>
-    <div class="banner banner-error" data-tab-error role="alert" hidden></div>
+    <div class="banner" data-tab-error data-kind="error" hidden></div>
     <div class="panes">
       <div class="pane"><p class="pane-title">入力（JSON）<button type="button" class="sample-btn" id="json-sample">サンプルを入れる</button></p>
         <textarea id="json-in" spellcheck="false"></textarea></div>
@@ -61,7 +61,7 @@
   </section>
 
   <section class="tab-panel" id="tab-xml" hidden>
-    <div class="banner banner-error" data-tab-error role="alert" hidden></div>
+    <div class="banner" data-tab-error data-kind="error" hidden></div>
     <div class="panes">
       <div class="pane"><p class="pane-title">入力（XML）</p>
         <textarea id="xml-in" spellcheck="false"></textarea></div>
@@ -78,7 +78,7 @@
   </section>
 
   <section class="tab-panel" id="tab-sql" hidden>
-    <div class="banner banner-error" data-tab-error role="alert" hidden></div>
+    <div class="banner" data-tab-error data-kind="error" hidden></div>
     <div class="panes">
       <div class="pane"><p class="pane-title">入力（SQL / DDL・PostgreSQL 前提）</p>
         <textarea id="sql-in" spellcheck="false"></textarea></div>
@@ -95,7 +95,7 @@
   </section>
 
   <section class="tab-panel" id="tab-escape" hidden>
-    <div class="banner banner-error" data-tab-error role="alert" hidden></div>
+    <div class="banner" data-tab-error data-kind="error" hidden></div>
     <div class="panes">
       <div class="pane"><p class="pane-title">生テキスト</p>
         <textarea id="esc-raw" spellcheck="false"></textarea></div>
@@ -112,7 +112,7 @@
   </section>
 
   <section class="tab-panel" id="tab-url" hidden>
-    <div class="banner banner-error" data-tab-error role="alert" hidden></div>
+    <div class="banner" data-tab-error data-kind="error" hidden></div>
     <div class="panes">
       <div class="pane"><p class="pane-title">生テキスト</p>
         <textarea id="url-raw" class="short" spellcheck="false"></textarea></div>
@@ -129,7 +129,7 @@
   </section>
 
   <section class="tab-panel" id="tab-base64" hidden>
-    <div class="banner banner-error" data-tab-error role="alert" hidden></div>
+    <div class="banner" data-tab-error data-kind="error" hidden></div>
     <div class="panes">
       <div class="pane"><p class="pane-title">テキスト（UTF-8）</p>
         <textarea id="b64-raw" class="short" spellcheck="false"></textarea></div>
@@ -146,7 +146,7 @@
   </section>
 
   <section class="tab-panel" id="tab-regex" hidden>
-    <div class="banner banner-error" data-tab-error role="alert" hidden></div>
+    <div class="banner" data-tab-error data-kind="error" hidden></div>
     <div class="row">
       <label>パターン <input type="text" id="re-pattern" spellcheck="false" style="min-width:240px" placeholder="(\d+)-(\d+)"></label>
       <label>フラグ <input type="text" id="re-flags" value="g" spellcheck="false" style="width:64px"></label>
@@ -164,7 +164,7 @@
   </section>
 
   <section class="tab-panel" id="tab-base" hidden>
-    <div class="banner banner-error" data-tab-error role="alert" hidden></div>
+    <div class="banner" data-tab-error data-kind="error" hidden></div>
     <div class="base-grid">
       <label>10進 <input type="text" id="base-10" spellcheck="false" data-radix="10"></label>
       <label>16進 <input type="text" id="base-16" spellcheck="false" data-radix="16"></label>
@@ -183,7 +183,7 @@
   </section>
 
   <section class="tab-panel" id="tab-time" hidden>
-    <div class="banner banner-error" data-tab-error role="alert" hidden></div>
+    <div class="banner" data-tab-error data-kind="error" hidden></div>
     <div class="row">
       <label>Unix時刻: <input type="text" id="time-epoch" size="20" placeholder="1700000000"></label>
       <label class="toggle"><input type="radio" name="epoch-unit" value="auto" checked> 自動</label>
@@ -203,7 +203,7 @@
   </section>
 
   <section class="tab-panel" id="tab-uuid" hidden>
-    <div class="banner banner-error" data-tab-error role="alert" hidden></div>
+    <div class="banner" data-tab-error data-kind="error" hidden></div>
     <div class="row">
       <label>件数: <input type="number" id="uuid-count" value="1" min="1" max="1000"></label>
       <button class="primary" id="uuid-gen">UUID v4 を生成</button>
@@ -214,7 +214,7 @@
   </section>
 
   <section class="tab-panel" id="tab-count" hidden>
-    <div class="banner banner-error" data-tab-error role="alert" hidden></div>
+    <div class="banner" data-tab-error data-kind="error" hidden></div>
     <div class="panes">
       <div class="pane"><p class="pane-title">テキスト</p>
         <textarea id="count-in" spellcheck="false"></textarea></div>
@@ -770,6 +770,10 @@ function minifyXml(text) {
 
 const $ = id => document.getElementById(id);
 const TOOL = 'devpad';
+
+// HTML の [data-kind] から class と role を組み立てる（markup に role を書かない）。
+// 種別が固定のバナーでも規約は共通核が持つので、適用漏れが起きない
+ToolUI.initBanners();
 
 function tabErrorEl(tabId) { return document.querySelector('#tab-' + tabId + ' [data-tab-error]'); }
 
