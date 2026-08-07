@@ -299,7 +299,24 @@ UI 手順ケース:
 - **DEV-16（性能ガード）**: カウントタブに 2,000,001 文字を入力 → 集計せず中止メッセージ表示
 - **DEV-17（activeTab フォールバック）**: `tools:devpad` の activeTab に不正値を保存してリロード → JSON タブが表示される（空画面にならない）
 
-## 検証手順（Playwright）
+## 検証手順
+
+> **合否の正本は `./test/run devpad` が全 pass（コンソールエラー0件を含む）。**
+
+```sh
+./test/run devpad     # このツールだけ
+./test/run            # 全ツール（共通コードを触ったときの波及を見る）
+```
+
+実行の前提・出力の読み方は `test/README.md`。照合しているコードは `test/devpad.js`。
+**期待値の正本はこのファイル**（テストケース表）で、変えるときは spec を先に直す。
+
+### ハーネスが照合している内容（意図の記録）
+
+以下は手作業で検証していた当時の手順。**`browser_evaluate` は Playwright MCP の道具名**で、
+現在のハーネスは playwright-core を直接起動するため **MCP には依存しない**
+（→ `docs/verification-notes.md` §1）。テストが落ちたときに「何を確かめたかったのか」を
+辿れるように残している。
 
 1. file:// で開く → ロード時コンソールエラー0
 2. DEV-01〜11 を `browser_evaluate` で照合（DEV-02 は Chromium で位置が出る入力を使用）

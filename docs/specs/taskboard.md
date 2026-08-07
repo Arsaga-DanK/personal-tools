@@ -1573,7 +1573,24 @@ parse 表示チェック（`window.taskboard.test.parse(F1)`）:
 links=['2026-07-14_TODO','2026-07-21']・due='2026-08-05'・priority='high' /
 17行目 tags=['UL業務']・priority='low' / 12行目の親=10行目 / セクション=['PEW','UL','その他']。
 
-## 検証手順（Playwright / http://127.0.0.1 配信 — file:// は MCP 不可のため）
+## 検証手順
+
+> **合否の正本は `./test/run taskboard` が全 pass（コンソールエラー0件を含む）。**
+
+```sh
+./test/run taskboard     # このツールだけ
+./test/run            # 全ツール（共通コードを触ったときの波及を見る）
+```
+
+実行の前提・出力の読み方は `test/README.md`。照合しているコードは `test/taskboard.js`。
+**期待値の正本はこのファイル**（テストケース表）で、変えるときは spec を先に直す。
+
+### ハーネスが照合している内容（意図の記録）
+
+以下は手作業で検証していた当時の手順。**`browser_evaluate` は Playwright MCP の道具名**で、
+現在のハーネスは playwright-core を直接起動するため **MCP には依存しない**
+（→ `docs/verification-notes.md` §1）。テストが落ちたときに「何を確かめたかったのか」を
+辿れるように残している。
 
 1. taskboard.html を開く → ロード時コンソールエラー0
 2. TB-01〜20 と parse チェックを `browser_evaluate` で照合

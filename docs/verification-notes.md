@@ -15,6 +15,14 @@
 
 ## 1. 検証環境の立ち上げ
 
+> **前提の整理（2026-08-07 追記・エディタを移る人向け）**
+> このファイルには **Playwright MCP 前提の記述が混ざっている**（`browser_navigate` /
+> `browser_evaluate` / MCP のブラウザプロファイル等）。これは Claude Code + MCP で
+> 手作業検証していた時代の知見で、**現在の合否判定は `./test/run` が正本**。
+> **`test/run` は playwright-core を直接起動するので MCP には一切依存しない**
+> （`test/helpers.js` の `launch()`。MCP が無い環境でも動く）。
+> MCP 由来の罠は「MCP を使うときだけ効く話」として読むこと。
+
 - **通常は http 配信で検証する**。リポジトリ直下で
   `/usr/bin/python3 -m http.server <port> --bind 127.0.0.1` を起動し
   `http://127.0.0.1:<port>/web/<tool>.html` を開く。終了時にプロセスを止める

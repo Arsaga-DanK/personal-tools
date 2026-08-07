@@ -362,7 +362,24 @@ UI（`file://` で開き、入力 textarea に値を設定して `input` イベ�
 | E2M-P23 | 30行の表で `#preview-wrap` を `scrollTop=400` までスクロール | 揃え操作行がラッパ上端に固定（`sticky`）、データヘッダ行は上へ流れて消える、`box-shadow` に `inset` が残る（collapse で枠線が消える対策が効いている） |
 | E2M-P24 | ダークモード（`prefers-color-scheme: dark`） | `body` 背景が `rgb(13,17,23)`・揃え操作行の背景が `rgb(33,38,45)`（ui.css のトークン経由）、右寄せ指定が `text-align: right` として効き、**横スクロールが発生しない**（`scrollWidth <= clientWidth`） |
 
-## 検証手順（Playwright）
+## 検証手順
+
+> **合否の正本は `./test/run excel2md` が全 pass（コンソールエラー0件を含む）。**
+
+```sh
+./test/run excel2md     # このツールだけ
+./test/run            # 全ツール（共通コードを触ったときの波及を見る）
+```
+
+実行の前提・出力の読み方は `test/README.md`。照合しているコードは `test/excel2md.js`。
+**期待値の正本はこのファイル**（テストケース表）で、変えるときは spec を先に直す。
+
+### ハーネスが照合している内容（意図の記録）
+
+以下は手作業で検証していた当時の手順。**`browser_evaluate` は Playwright MCP の道具名**で、
+現在のハーネスは playwright-core を直接起動するため **MCP には依存しない**
+（→ `docs/verification-notes.md` §1）。テストが落ちたときに「何を確かめたかったのか」を
+辿れるように残している。
 
 **`./test/run excel2md` で下記1〜12を自動実行する**（ハーネスは `test/excel2md.js`。
 `--shots` を付けると `.playwright-mcp/` にスクリーンショットを書く）。
