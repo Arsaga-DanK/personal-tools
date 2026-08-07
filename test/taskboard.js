@@ -2443,6 +2443,18 @@ const F5 = [
     '', '',
   ].join('\n');
 
+  // F11: ズーム検査用。**範囲を 163日以上に伸ばす**（Phase T5 で、図がラベル列より
+  // 細くなるズームは選べなくなったため。F10 は範囲18日で週・月が選べない）。
+  // 5日バー・1日バー・2日バーは F10 と同じなので、幅とハンドルの期待値は変わらない
+  const F11 = [
+    '# tasks', '', '## PEW', '',
+    '- [ ] 期間タスク 🛫 2026-08-01 📅 2026-08-05',   //  5（5日 = 日ズームで 80px）
+    '- [ ] 開始のみ 🛫 2026-08-10',                   //  6（1日 = 16px）
+    '- [ ] UL の作業 🛫 2026-08-03 📅 2026-08-04',    //  7（2日 = 32px）
+    '- [ ] 遠い予定 🛫 2027-02-01 📅 2027-02-05',     //  8（範囲を約195日に伸ばす）
+    '', '',
+  ].join('\n');
+
   // バーを掴んで dx ピクセル動かす。where: 'center' | 'left' | 'right'
   const dragBar = async (lineNo, dx, where, opts) => {
     const bar = page.locator('.tl-bar[data-line="' + lineNo + '"]');
@@ -2560,8 +2572,9 @@ const F5 = [
     && onlyChanged(p28due, F10, [9]),
     JSON.stringify([lineOf(p28move, 9), lineOf(p28due, 9)]));
 
-  // TB-Q45 の条件: 端ハンドルは中央を掴む余地が残る幅のときだけ出す（原文の F10 で見る）
-  await tl(F10);
+  // TB-Q45 の条件: 端ハンドルは中央を掴む余地が残る幅のときだけ出す。
+  // **F11（範囲195日）で見る** — F10 は範囲が短く週・月が選べない（Phase T5）
+  await tl(F11);
   const p29 = await page.evaluate(() => {
     const out = {};
     for (const z of ['day', 'week', 'month']) {
@@ -2577,22 +2590,22 @@ const F5 = [
   });
   r.check('TB-P29（幅が足りないバーは端ハンドルを出さない: 週=20px は両端、月=8px はゼロ）',
     // 日: 5日=80px → 両端 / 1日=16px → 右だけ（📅 を新設できる）/ 2日=32px → 両端
-    eq(p29.day.map(b => b.w), [80, 16, 32]) && eq(p29.day.map(b => b.handles), [2, 1, 2])
-    && eq(p29.day.map(b => b.edges), ['start,due', 'due', 'start,due'])
+    eq(p29.day.map(b => b.w), [80, 16, 32, 80]) && eq(p29.day.map(b => b.handles), [2, 1, 2, 2])
+    && eq(p29.day.map(b => b.edges), ['start,due', 'due', 'start,due', 'start,due'])
     // 週: 5日=20px（21px 未満）→ ゼロ / 1日=4px → ゼロ。月はさらに狭いので全部ゼロ
-    && eq(p29.week.map(b => b.handles), [0, 0, 0])
-    && eq(p29.month.map(b => b.handles), [0, 0, 0]),
+    && eq(p29.week.map(b => b.handles), [0, 0, 0, 0])
+    && eq(p29.month.map(b => b.handles), [0, 0, 0, 0]),
     JSON.stringify(p29));
 
-  await tl(F10, { zoom: 'month' });
+  await tl(F11, { zoom: 'month' });
   const p30 = await dragBar(5, 16, 'center');   // 16px / 1.6px = 10日 → 7日スナップで7日
   r.check('TB-P30（月ズームのスナップは7日単位）',
     lineOf(p30, 5) === '- [ ] 期間タスク 🛫 2026-08-08 📅 2026-08-12',
     JSON.stringify(lineOf(p30, 5)));
 
-  const p31 = await plan(F10, { showDone: true });
-  const p31w = await plan(F10, { showDone: true, zoom: 'week' });
-  const p31m = await plan(F10, { showDone: true, zoom: 'month' });
+  const p31 = await plan(F11, { showDone: true });
+  const p31w = await plan(F11, { showDone: true, zoom: 'week' });
+  const p31m = await plan(F11, { showDone: true, zoom: 'month' });
   r.check('TB-P31（ズーム3段階で幅と目盛りが変わる）',
     p31.model.dayPx === 16 && p31w.model.dayPx === 4 && p31m.model.dayPx === 1.6
     && p31.bars[0].width === '80px' && p31w.bars[0].width === '20px'
@@ -2608,24 +2621,97 @@ const F5 = [
   });
   const p32page = r.watch(await context.newPage());
   await p32page.goto(fileUrl('web/taskboard.html'));
-  const p32restored = await p32page.evaluate(f10 => {
-    window.taskboard.test.newSession(f10);        // render は未読込だと select を触らない
+  const p32restored = await p32page.evaluate(f11 => {
+    window.taskboard.test.newSession(f11);        // render は未読込だと select を触らない
     return document.getElementById('f-zoom').value;
-  }, F10);
+  }, F11);
   await p32page.evaluate(() => {
     const env = JSON.parse(localStorage.getItem('tools:taskboard'));
     env.data.tlZoom = 'nonsense';
     localStorage.setItem('tools:taskboard', JSON.stringify(env));
   });
   await p32page.reload();
-  const p32fallback = await p32page.evaluate(f10 => {
-    window.taskboard.test.newSession(f10);
+  const p32fallback = await p32page.evaluate(f11 => {
+    window.taskboard.test.newSession(f11);
     return document.getElementById('f-zoom').value;
-  }, F10);
+  }, F11);
   await p32page.close();
   r.check('TB-P32（ズームが永続化され、未知の値は日にフォールバック）',
     p32 === 'month' && p32restored === 'month' && p32fallback === 'day',
     JSON.stringify([p32, p32restored, p32fallback]));
+
+  /* --- ズームの可否（Phase T5・TB-P40〜P42） --- */
+  const zoomOpts = (text) => page.evaluate(([t, today]) => {
+    window.taskboard.test.setToday(today);
+    const cb = document.getElementById('f-done');
+    cb.checked = true; cb.dispatchEvent(new Event('change', { bubbles: true }));
+    window.__sZ = window.taskboard.test.newSession(t);
+    window.__sZ.setView('timeline');
+    const sel = document.getElementById('f-zoom');
+    return {
+      opts: Array.from(sel.options).map(o => ({ v: o.value, dis: o.disabled, title: o.title })),
+      value: sel.value,
+      days: window.__sZ.getTimeline().days,
+      note: document.getElementById('tl-note').hidden ? '' : document.getElementById('tl-note').textContent,
+    };
+  }, [text, TODAY]);
+
+  const p40short = await zoomOpts(F10);   // 範囲18日
+  const p40long = await zoomOpts(F11);    // 範囲195日
+  r.check('TB-P40（範囲が短いと粗いズームは選べない・日は常に選べる）',
+    p40short.days < 163
+    && eq(p40short.opts.map(o => o.dis), [false, true, true])
+    && p40short.opts[2].title.includes('163日以上で選べます')
+    && p40short.opts[1].title.includes('65日以上で選べます')
+    && eq(p40long.opts.map(o => o.dis), [false, false, false]),
+    JSON.stringify([p40short.days, p40short.opts, p40long.opts.map(o => o.dis)]));
+
+  // 境界: 図の幅がラベル列（260px）ちょうど以上なら選べる。月は 163日 = 260.8px
+  // model.days = (最大end - 最小🛫) + 前後の余白3日ずつ + 1 なので、k 日後に2本目を置くと
+  // days = k + 8 になる（1本目 08-01〜08-02・2本目 08-01+k 〜 08-01+k+1）
+  const spanFixture = (days) => {
+    const k = days - 8;
+    const at = (n) => new Date(Date.UTC(2026, 7, 1 + n)).toISOString().slice(0, 10);
+    return ['# tasks', '', '## PEW', '', '- [ ] a 🛫 2026-08-01 📅 2026-08-02',
+      '- [ ] b 🛫 ' + at(k) + ' 📅 ' + at(k + 1), ''].join('\n');
+  };
+  const p41on = await zoomOpts(spanFixture(163));
+  const p41off = await zoomOpts(spanFixture(162));
+  r.check('TB-P41（月ズームの境界: 163日で選べ、162日では選べない）',
+    p41on.days === 163 && p41on.opts[2].dis === false
+    && p41off.days === 162 && p41off.opts[2].dis === true,
+    JSON.stringify([p41on.days, p41on.opts[2].dis, p41off.days, p41off.opts[2].dis]));
+
+  // 選べないズームが永続化されていたら日へ落とし、**理由を出す**（黙って落とさない）
+  const p42 = await page.evaluate(([f10, today]) => {
+    window.taskboard.test.setToday(today);
+    const env = JSON.parse(localStorage.getItem('tools:taskboard'));
+    env.data.tlZoom = 'month';
+    localStorage.setItem('tools:taskboard', JSON.stringify(env));
+    return null;
+  }, [F10, TODAY]);
+  const p42page = r.watch(await context.newPage());
+  await p42page.goto(fileUrl('web/taskboard.html'));
+  const p42r = await p42page.evaluate(([f10, today]) => {
+    window.taskboard.test.setToday(today);
+    const s = window.taskboard.test.newSession(f10);
+    s.setView('timeline');
+    // 再描画しても理由が残ること（選択を書き換える実装だと2回目で消える）
+    s.setView('list');
+    s.setView('timeline');
+    return {
+      value: document.getElementById('f-zoom').value,
+      note: document.getElementById('tl-note').textContent,
+      dayPx: s.getTimeline().dayPx,
+      saved: JSON.parse(localStorage.getItem('tools:taskboard')).data.tlZoom,
+    };
+  }, [F10, TODAY]);
+  await p42page.close();
+  r.check('TB-P42（選べないズームの選択は保持したまま日で描画し、理由を出し続ける）',
+    p42r.value === 'day' && p42r.dayPx === 16
+    && p42r.saved === 'month'          // 利用者の選択は書き換えない
+    && p42r.note.includes('「月」だと図が細くなりすぎるため「日」で表示しています'),
+    JSON.stringify(p42r));
 
   /* --- セクション区切りと完了率（TB-P33〜P35） --- */
   const p33 = await plan(F10, { showDone: true });

@@ -848,6 +848,19 @@ const TL_ZOOMS = {
 const TL_ZOOM_KEYS = ['day', 'week', 'month'];
 function tlZoom() { return TL_ZOOMS[state.ui.tlZoom] || TL_ZOOMS.day; }
 
+/* 粗いズームを選べる条件（Phase T5・2026-08-07）:
+   **図の幅がラベル列（260px）以上になること**。これより狭いと図が自分のラベル列より
+   細くなり、バーも目盛りも読めない（38日を月ズームで見ると 61px になるのが発端の指摘）。
+   実測（2026-08-07・スクリーンショットで確認）:
+     月ズーム 163日=277px は月目盛りが6つ並んで読める / 100日=176px は苦しい / 38日=61px は判読不能
+   この条件を満たすのは **月=163日以上・週=65日以上**。
+   **日ズームは常に選べる**（既定・最も精密で、範囲が短いほど読みやすい）。
+   なお範囲（from〜to）はズームに依存しないので、どのズームでも同じ日数で判定できる。 */
+const TL_MIN_FIGURE_PX = TL_LABEL_W;
+function zoomUsable(key, days) {
+  return key === 'day' || days * TL_ZOOMS[key].px >= TL_MIN_FIGURE_PX;
+}
+
 // 日数の差は UTC 通日で取る。ローカル Date の減算は DST 境界で1日狂うため
 // （JST に DST は無いが回避コストがゼロなので固定する）。
 // 日付をずらす addDays はローカルのままで正しい（カレンダー演算は Date が処理する）
@@ -1827,17 +1840,42 @@ function renderCard(t, today, q) {
 /* ---------- 計画ビュー（タイムライン）の描画 ---------- */
 
 // 案内・警告は #tl-note（ビュー内）に出す。共通バナー（#banner）に書くと、
+// ズームの選択肢を範囲に合わせて出し入れする。**選べない理由を title に書く**
+// （disabled なだけだと「なぜ選べないのか」が分からない）
+function updateZoomOptions(days, effective) {
+  const sel = el('f-zoom');
+  for (const opt of sel.options) {
+    const need = Math.ceil(TL_MIN_FIGURE_PX / TL_ZOOMS[opt.value].px);
+    const ok = zoomUsable(opt.value, days);
+    opt.disabled = !ok;
+    opt.title = ok ? '' : 'この期間（' + days + '日）では図が細くなりすぎます（' +
+      need + '日以上で選べます）';
+  }
+  sel.value = effective;   // 実効ズームを映す（選択そのものは state 側に残す）
+}
+
 // 直後に呼び出し側が出す「完了にしました」等の情報バナーと奪い合うため
 function renderTimeline() {
   const note = el('tl-note');
   const scroll = el('tl-scroll');
   scroll.textContent = '';
   const today = todayStr();
-  const z = tlZoom();
+  // 範囲はズームに依存しないので、まず日ズームで測って「選べるズーム」を決める。
+  // **利用者の選択（state.ui.tlZoom）は書き換えない** — 絞り込みで範囲が縮んだ間だけ
+  // 日で描き、範囲が戻れば選択も戻る。書き換えてしまうと選択が黙って失われ、
+  // 「日で表示している」理由も次の再描画で消える（2026-08-07 に実測）
+  const span = timelineModel(state.visibleRows, today, DAY_PX);
+  const effective = zoomUsable(state.ui.tlZoom, span.days) ? state.ui.tlZoom : 'day';
+  updateZoomOptions(span.days, effective);
+  const z = TL_ZOOMS[effective];
   const model = timelineModel(state.visibleRows, today, z.px);
   state.timeline = model;
 
   const msgs = [];
+  if (effective !== state.ui.tlZoom) {
+    msgs.push('この期間（' + span.days + '日）では「' + TL_ZOOMS[state.ui.tlZoom].label +
+      '」だと図が細くなりすぎるため「日」で表示しています');
+  }
   if (model.invalidCount > 0) {
     msgs.push(model.invalidCount + '件のタスクで期限が開始日より前です（1日分のバーで表示しています）');
   }
