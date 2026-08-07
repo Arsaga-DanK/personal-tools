@@ -1,7 +1,8 @@
 
 # Personal Tools
 
-業務効率化のための個人ツール群。ブラウザHTML（web/）と CLI（bin/）の2形態。
+業務効率化のための個人ツール群。**現在あるのはブラウザHTML（`web/` 6本）だけ**。
+CLI（`bin/`）は形態として認めているが、まだ1本も無い（→「構成」）。
 
 ## このリポジトリでの作業原則
 
@@ -12,17 +13,23 @@
 - 既存ツール（特に excel2md/excel2md.html＝旧 excel2md、独立リポジトリ）は依頼がない限り変更しない
 - コミットは論理単位。メッセージは日本語1行
 
-## 構成
+## 構成（2026-08-07 時点の実態）
 
 ```
 index.html   ハブ。web/ツール一覧（内部のTOOLS配列に1行足すと追加される）
-web/         ブラウザツール。1ツール=1HTML完結
-bin/         CLIツール。拡張子なし、chmod +x
-lib/         共通コード（web用 classic JS / CLI用 common.zsh）
-dict/        辞書・設定
-docs/specs/  ツールごとの仕様書兼テストケース
+web/         ブラウザツール6本。1ツール=1HTML完結
+lib/         web ツールの共通コード。ui.css / storage.js / sql.js の3つだけ
+docs/        verification-notes.md（検証の罠）/ ux-backlog.md / tool-backlog.md
+docs/specs/  ツールごとの仕様書兼テストケース（6本）
 test/        検証ハーネス（`./test/run [ツール名]`。書き方は test/README.md）
 ```
+
+- **`bin/` と `dict/` は空**（CLI ツールと辞書はまだ1つも無い）。
+  作るときは下の「CLI の制約」に従い `bin/` を使う。**空のまま構成表に並べない**
+  （「CLI もある」と誤解して探す時間が生まれる）
+- `excel2md/` は旧ツールの独立リポジトリ。**.gitignore 済みで追跡外**。
+  `~/Personal/archive/` への移動は 2026-09 上旬の予定（→ `docs/ux-backlog.md`）
+- `lib/` に CLI 用の共通コード（`common.zsh` 等）は**まだ無い**。CLI を作るときに置く
 
 ## 命名規約
 
@@ -56,7 +63,7 @@ test/        検証ハーネス（`./test/run [ツール名]`。書き方は tes
 - 各ツールは `<main>` 直下に `.tool-header`（「← ツール一覧」リンク＋自動保存の注記）を置く
 - ブラウザツールの永続データの正本は `~/Personal/vault` に置く（第一号: `03_Tasks/tasks.md`）。localStorage は UI 状態（オプション・タブ等）のみ
 
-## CLI の制約（bin/）
+## CLI の制約（bin/ — 最初の1本を作るときの規約。現在 bin/ は空）
 
 - asdf 非依存。python3/ruby/node は asdf shim のため GUI 起動時に動かない → 使用禁止
 - 使ってよいもの: /usr/bin 配下（perl, awk, sed, iconv, file, tr...）と homebrew CLI
@@ -68,11 +75,12 @@ test/        検証ハーネス（`./test/run [ツール名]`。書き方は tes
 ## 検証（実装完了の定義）
 
 - 検証時は `docs/verification-notes.md`（環境・道具・既知の罠）を必ず参照する
-- docs/specs/<tool></tool>.md 内のテストケースが全て一致すること。
+- **合否の正本は `./test/run <tool>` が全 pass（コンソールエラー0件を含む）**。
+  6ツールすべてにハーネスがある。手順は `test/README.md`
+- `docs/specs/<tool>.md` のテストケースが全て一致すること（ハーネスがそれを照合している）。
   ブラウザツールも、変換ロジックを node 等で単体実行するのではなく、
   HTML から関数を切り出さずに済む範囲で、入力→期待出力の照合結果を提示する
-- ハーネスがあるツールは `./test/run <tool>` が全 pass すること。
-  新しく書いた検証は使い捨てにせず `test/<tool>.js` に残す（`.playwright-mcp/` は gitignore で消える）
+- 新しく書いた検証は使い捨てにせず `test/<tool>.js` に残す（`.playwright-mcp/` は gitignore で消える）
 - CLI は `env -i /bin/zsh -c '<tool> --help'` が成功すること（asdf 混入検出）
 - ハーネスに残さない一時ファイルは削除する
 - 検証結果を報告してから作業を終える。検証が通らない状態で完了報告しない

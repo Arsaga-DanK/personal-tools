@@ -10,9 +10,19 @@
 - **採用・実装済み**: 確定3項目（CM-1 favicon / CM-6 サンプルボタン / TB-4 アーカイブ）＋
   TB-2, CM-2, CM-3, DF-1, DP-1, DP-2, NM-1, NM-2, NM-3, TB-1, TB-8, HB-1, HB-2、
   任意採用 DF-5, DP-4
-- **不採用（本バックログに残置）**: CM-4, CM-5, HB-3, HB-4, HB-5, XL-1, XL-2, XL-3,
+- **不採用（本バックログに残置）**: HB-3, HB-4, HB-5, XL-1, XL-3,
   DP-3, DP-5, DP-6, DP-7, NM-4, NM-5, NM-6, NM-7, DF-2, DF-3, DF-4, DF-6,
   TB-3, TB-5, TB-6, TB-7, TB-9, TB-10, TB-11
+- **この採否リストは 2026-08-04 時点の判定。その後に状態が変わったものを下に訂正として残す**
+  （リストだけ見て「不採用だったはず」と誤読しないため）
+
+### 採否の訂正（2026-08-07・リファクタ監査で実測）
+
+| ID | 2026-08-04 の判定 | 実際の現状（実測） | 経緯 |
+|---|---|---|---|
+| **CM-5**（バナーの ARIA） | 不採用 | **実装済み。6ファイル全部**が `role="status"` / `role="alert"` を出している（ddl2spec・diff・excel2md・norm は showBanner 内で1箇所、taskboard は5箇所、devpad は HTML 静的属性16箇所） | 2026-08-05 に実施。規約は `lib/ui.css` のバナー節コメントに、罠は `docs/verification-notes.md` §7 に記録。**この対応で9箇所の編集が必要だったことが `docs/tool-backlog.md` の `lib/ui.js` 共通化の根拠になっている** |
+| **CM-4**（入力欄のアクセシブルネーム） | 不採用 | **部分実装**。`aria-label` は excel2md 1箇所（編集可能セル）と taskboard 2箇所（検索欄・モーダル）だけ。ddl2spec / devpad / diff / norm の textarea（計21個）には無い | 新しく作った要素には付けたが、既存の入力欄には遡って付けていない。**残りをやるかは未判断**（不採用の理由「SR 利用が実務で発生していない」は変わっていない） |
+| **XL-2**（Markdown の2つ目以降の表が無言で無視される） | 不採用 | **対応済み**（下の「XL-2 の訂正」節が正本） | 2026-08-05 に「無言の誤変換」と再評価して実装 |
 
 ## Phase P 検証中に発見した追加事項（未対応・将来判断用）
 
@@ -97,8 +107,8 @@
 | CM-1 | favicon 未実装。HTTP 配信時 /favicon.ico が全ページ 404 | 実操作（①②③とも fetch で 404 確認） | 低 | 小 | **確定項目1で対応**（インライン SVG data URI） |
 | CM-2 | ボタンのフォーカスリングが視認困難（lib/ui.css に :focus-visible 定義なし。特に青 primary ボタン上） | スクリーンショット（audit1/e2m-focus-btn-zoom.png、audit2/devpad-16-focus-ring.png） | 中 | 小 | ui.css に `button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }` を1箇所追加（全ツール波及。primary はコントラスト確保） |
 | CM-3 | キーボードショートカット皆無。Cmd+Enter でコピー/変換不可（excel2md・devpad・norm）、Cmd+S 保存不可（taskboard） | 実操作（①②③とも Meta+Enter 押下で無反応を実測） | 中 | 小 | 各ツールの主要ボタンに Cmd/Ctrl+Enter、taskboard に Cmd+S を割当て。ボタン title にキー表記 |
-| CM-4 | 入力欄にアクセシブルネームなし（ペイン見出しが `<p>` で未関連付け、SR には無名欄） | 静的解析（①②③） | 低 | 小 | label/aria-label/aria-labelledby を付与 |
-| CM-5 | 警告・結果バナーに aria-live/role なし（変化が支援技術に通知されない） | 静的解析（①②） | 低 | 小 | 結果=role="status"、エラー=role="alert" |
+| CM-4 | 入力欄にアクセシブルネームなし（ペイン見出しが `<p>` で未関連付け、SR には無名欄）**→ 部分実装（2026-08-07 実測）。excel2md 1・taskboard 2 のみ。ddl2spec/devpad/diff/norm の textarea 21個は未対応** | 静的解析（①②③） | 低 | 小 | label/aria-label/aria-labelledby を付与 |
+| CM-5 | ~~警告・結果バナーに aria-live/role なし~~ **→ 対応済み（2026-08-05・6ファイル全部）。規約は lib/ui.css のバナー節、罠は verification-notes §7** | 静的解析（①②） | 低 | 小 | 結果=role="status"、エラー=role="alert" |
 | CM-6 | サンプル投入ボタンが全ツールにない。空状態でツールの強み（ハイライト・警告の丁寧さ等）が伝わらない | スクリーンショット（①②③の空状態スクショ） | 低 | 小 | **確定項目2で対応** |
 
 ## ハブ（index.html）
