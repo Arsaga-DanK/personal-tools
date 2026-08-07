@@ -68,8 +68,11 @@
     white-space: nowrap; cursor: grab; }
   .tl-bar:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   .tl-bar.tl-dragging { cursor: grabbing; opacity: .9; z-index: 3; }
-  /* 端ハンドル。中央を掴む余地を残せる幅のバーにだけ付ける（TB-Q45） */
-  .tl-handle { position: absolute; top: 0; bottom: 0; width: 7px; cursor: ew-resize; }
+  /* 端ハンドル。中央を掴む余地を残せる幅のバーにだけ付ける（TB-Q45）。
+     **幅は JS の TL_EDGE_PX から与える**（ここに 7px を書くと、閾値
+     TL_MIN_BOTH_EDGES / TL_MIN_ONE_EDGE と二重管理になり、片方だけ変えると
+     「ハンドルの当たり判定と閾値がずれる」ことに気づけない） */
+  .tl-handle { position: absolute; top: 0; bottom: 0; cursor: ew-resize; }
   .tl-handle-l { left: 0; } .tl-handle-r { right: 0; }
   /* 完了率の塗り。バーの下敷きにするので pointer-events を持たせない */
   .tl-bar-fill { position: absolute; left: 0; top: 0; bottom: 0; pointer-events: none;
@@ -104,9 +107,6 @@
   .popover .row-btns { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
   /* 付与済みのタグ（.tabs の外なので ui.css の .active は効かない） */
   .popover button.active { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
-  .addform { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 0 0 12px;
-    padding: 10px 14px; background: var(--panel); border: 1px solid var(--border);
-    border-radius: 8px; font-size: 13px; }
   /* ボードビュー（列＝セクション。ドロップは opMoveSection なのでバイト保全が効く） */
   .board { display: flex; gap: 12px; overflow-x: auto; align-items: flex-start; padding-bottom: 8px; }
   /* 5列（ステータスで保留・中止が出るとき）でも 1280px に収まる幅にする */
@@ -1986,9 +1986,11 @@ function renderTlSectionHead(g) {
    端ハンドルの出し方（TB-Q45 条件付き承認）: 中央を掴む余地（7px）を必ず残す。
      両端 = 幅 21px 以上（7+7+7）／📅 なしのバーは右だけ = 幅 14px 以上（7+7）。
    これ未満は端ドラッグを出さない（「できるように見えて不定」より「できないと分かる」）。 */
+// ハンドルの幅は**この1箇所だけ**が持つ（CSS には書かない）。閾値もここから導く:
+// 両端を出すには「左7 + 中央7 + 右7」、右だけなら「中央7 + 右7」が必要
 const TL_EDGE_PX = 7;
-const TL_MIN_BOTH_EDGES = 21;
-const TL_MIN_ONE_EDGE = 14;
+const TL_MIN_BOTH_EDGES = TL_EDGE_PX * 3;   // 21px
+const TL_MIN_ONE_EDGE = TL_EDGE_PX * 2;     // 14px
 let tlDrag = null;         // ドラッグ中の状態
 let tlJustDragged = false; // 直後の click を捨てるための印
 let tlFocusLine = null;    // キーボード操作後にフォーカスを戻す行
@@ -2000,6 +2002,7 @@ function attachBarDrag(bar, it, model, z, barW) {
   for (const edge of edges) {
     const h = document.createElement('div');
     h.className = 'tl-handle tl-handle-' + (edge === 'start' ? 'l' : 'r');
+    h.style.width = TL_EDGE_PX + 'px';   // 幅の正本は TL_EDGE_PX（CSS と二重に持たない）
     h.dataset.edge = edge;
     h.title = edge === 'start' ? '左右にドラッグして開始日を変更' : '左右にドラッグして期限を変更';
     bar.appendChild(h);
