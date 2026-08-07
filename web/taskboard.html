@@ -313,6 +313,7 @@
 <div id="popover" class="popover" hidden></div>
 <textarea id="copy-helper" class="offscreen" aria-hidden="true" tabindex="-1"></textarea>
 
+<script src="../lib/ui.js"></script>
 <script src="../lib/storage.js"></script>
 <script>
 'use strict';
@@ -1064,11 +1065,10 @@ const el = (id) => document.getElementById(id);
 
 /* ---------- バナー ---------- */
 
+// このツールだけ**バナー内にボタン**を置ける（「再読込」等の次アクション）。
+// class と role の決定は共通核が持ち、ボタンの追加だけがラッパの仕事
 function showBanner(kind, text, actions) {
-  const b = el('banner');
-  b.className = 'banner banner-' + kind;
-  b.setAttribute('role', kind === 'error' || kind === 'warn' ? 'alert' : 'status'); // ui.css の ARIA 規約
-  b.textContent = text;
+  const b = ToolUI.banner(el('banner'), kind, text);
   if (actions) {
     for (const a of actions) {
       const btn = document.createElement('button');
@@ -1654,11 +1654,8 @@ function renderBoard(groups, today, q) {
   host.textContent = '';
   const cards = groups.filter(g => g._vis);
   if (cards.length > MAX_BOARD_CARDS) {
-    note.className = 'banner banner-warn';
-    note.setAttribute('role', 'alert');
-    note.textContent = 'カードが' + cards.length + '件（上限' + MAX_BOARD_CARDS +
-      '件）のためボードを表示しません。セクション・タグ・検索で絞り込んでください';
-    note.hidden = false;
+    ToolUI.banner(note, 'warn', 'カードが' + cards.length + '件（上限' + MAX_BOARD_CARDS +
+      '件）のためボードを表示しません。セクション・タグ・検索で絞り込んでください');
     return;
   }
   const msgs = [];
@@ -1666,10 +1663,7 @@ function renderBoard(groups, today, q) {
     msgs.push(q === '' ? '表示できるタスクがありません'
       : '一致するタスクがありません（検索: ' + state.ui.q.trim() + '）');
   }
-  note.className = 'banner banner-info';
-  note.setAttribute('role', 'status');
-  note.textContent = msgs.join(' / ');
-  note.hidden = msgs.length === 0;
+  ToolUI.banner(note, 'info', msgs.join(' / '));   // 空なら hidden になる
 
   // 描画した列をキーボード移動と共有する（両者が違う集合を見ると端の判定がずれる）
   const columns = boardColumns(cards);
@@ -1868,10 +1862,7 @@ function renderTimeline() {
     msgs.push('今日（' + today + '）は表示範囲外です');
   }
   const warn = !!model.guard || model.invalidCount > 0;
-  note.className = 'banner ' + (warn ? 'banner-warn' : 'banner-info');
-  note.setAttribute('role', warn ? 'alert' : 'status');
-  note.textContent = msgs.join(' / ');
-  note.hidden = msgs.length === 0;
+  ToolUI.banner(note, warn ? 'warn' : 'info', msgs.join(' / '));   // 空なら hidden になる
   if (model.guard || !model.items.length) return; // 一部のみ表示はしない（理由だけ出す）
 
   const px = z.px;
@@ -3152,26 +3143,15 @@ function buildPlanTsv(items) {
 }
 
 function copyFeedback(btn, ok, fallbackMsg) {
-  const orig = btn.dataset.label || (btn.dataset.label = btn.textContent);
-  btn.textContent = ok ? '✓ コピーしました' : fallbackMsg;
-  btn.classList.add('copied');
-  setTimeout(() => { btn.textContent = orig; btn.classList.remove('copied'); }, 1600);
+  ToolUI.feedback(btn, ok ? '✓ コピーしました' : fallbackMsg);
 }
 
 async function copyText(text, btn) {
-  try {
-    await navigator.clipboard.writeText(text);
-    copyFeedback(btn, true);
-  } catch (_) {
-    // フォールバック: textarea 選択方式
-    const ta = el('copy-helper');
-    ta.value = text;
-    ta.focus();
-    ta.select();
-    let ok = false;
-    try { ok = document.execCommand('copy'); } catch (_) {}
-    copyFeedback(btn, ok, '選択済み: Cmd+C でコピー');
-  }
+  // フォールバックしたときに「選択済み」が嘘にならないよう、画面外ヘルパに先に入れて渡す
+  const ta = el('copy-helper');
+  ta.value = text;
+  const ok = await ToolUI.copy(text, { selectEl: ta });
+  copyFeedback(btn, ok, '選択済み: Cmd+C でコピー');
 }
 
 /* ---------- UI 状態の永続化（タスクデータは保存しない） ---------- */
