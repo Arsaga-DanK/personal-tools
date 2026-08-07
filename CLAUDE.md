@@ -46,6 +46,9 @@ test/        検証ハーネス（`./test/run [ツール名]`。書き方は tes
 - `file://` で開いて動作すること。これが全ての前提
 - ES モジュール禁止（file:// で CORS エラーになる）。共有は `<script src>` か1枚完結
 - 外部 CDN・npm・ビルド禁止。オフラインで動くこと。素の HTML/CSS/JS のみ
+- 描画は `textContent` / `createElement` / `createElementNS` のみ。
+  HTML 文字列の組み立て（`innerHTML` 等）は禁止。
+  **SVG は `createElementNS` が必要**（`createElement('svg')` は HTMLUnknownElement になる）
 - クリップボード書き込みは navigator.clipboard → 失敗時 textarea 選択方式にフォールバック
 - 変換系 UI の標準形: 2ペイン（入力/出力）、リアルタイム変換、コピーボタン、
   不正入力でも落ちず警告表示して最善の出力を出す

@@ -819,6 +819,9 @@ const F5 = [
     const cb = document.getElementById('f-done');
     cb.checked = !!opt.showDone;
     cb.dispatchEvent(new Event('change', { bubbles: true }));
+    const zoomSel = document.getElementById('f-zoom');
+    zoomSel.value = opt.zoom || 'day';
+    zoomSel.dispatchEvent(new Event('change', { bubbles: true }));
     const s = window.taskboard.test.newSession(t);
     s.setView(opt.view || 'timeline');
     const m = s.getTimeline();
@@ -828,15 +831,21 @@ const F5 = [
         items: m.items.map(i => ({
           line: i.line, body: i.body, state: i.state, days: i.days,
           start: i.start, end: i.end, hasDue: i.hasDue, inverted: i.inverted,
+          section: i.section, progress: i.progress,
         })),
-        from: m.from, to: m.to, days: m.days, todayIn: m.todayIn,
+        from: m.from, to: m.to, days: m.days, dayPx: m.dayPx, todayIn: m.todayIn,
         invalidCount: m.invalidCount, guard: m.guard,
       },
       note: note.hidden ? '' : note.textContent,
       noteWarn: note.className.includes('banner-warn'),
       bars: Array.from(document.querySelectorAll('.tl-bar')).map(b => ({
         cls: b.className, left: b.style.left, width: b.style.width, text: b.textContent,
+        handles: Array.from(b.querySelectorAll('.tl-handle')).map(h => h.dataset.edge),
+        fill: (b.querySelector('.tl-bar-fill') || {}).style
+          ? b.querySelector('.tl-bar-fill').style.width : null,
       })),
+      sections: Array.from(document.querySelectorAll('.tl-section-btn')).map(x => x.textContent),
+      tickTexts: Array.from(document.querySelectorAll('.tl-tick')).map(x => x.textContent),
       labels: Array.from(document.querySelectorAll('.tl-rows .tl-label')).map(x => x.textContent),
       ticks: document.querySelectorAll('.tl-tick').length,
       todayLine: document.querySelectorAll('.tl-today').length,
@@ -897,8 +906,11 @@ const F5 = [
   const manyRows = ['# tasks', '', '## PEW', ''];
   for (let i = 1; i <= 201; i++) manyRows.push('- [ ] r' + i + ' 🛫 2026-08-01 📅 2026-08-05');
   const p14rows = await plan(manyRows.join('\n') + '\n', { showDone: true });
-  const p14days = await plan('# tasks\n\n## PEW\n\n- [ ] 古 🛫 2026-01-01 📅 2026-01-02\n' +
-    '- [ ] 新 🛫 2027-06-01 📅 2027-06-02\n', { showDone: true });
+  // ガードは**描画ピクセル幅**で判定する（Phase T4・TB-Q50）。
+  // 日ズームで上限 20,000px に届くのは約1,250日なので、1,308日離れた2行で発動させる
+  const FAR = '# tasks\n\n## PEW\n\n- [ ] 古 🛫 2026-01-01 📅 2026-01-02\n' +
+    '- [ ] 新 🛫 2029-08-01 📅 2029-08-02\n';
+  const p14days = await plan(FAR, { showDone: true });
   const p14copy = await page.evaluate(() => {
     const captured = [];
     Object.defineProperty(navigator, 'clipboard', {
@@ -907,14 +919,27 @@ const F5 = [
     document.getElementById('btn-copy').click();   // ガード中（p14days のまま）
     return { captured, label: document.getElementById('btn-copy').textContent };
   });
-  r.check('TB-P14（行数/日数の上限超過で描画せず理由を出す・コピーも拒否）',
+  r.check('TB-P14（行数/描画幅の上限超過で描画せず理由を出す・コピーも拒否）',
     p14rows.model.guard && p14rows.model.guard.reason === 'rows' && p14rows.bars.length === 0
     && p14rows.note.includes('対象が201件（上限200件）') && p14rows.noteWarn === true
-    && p14days.model.guard && p14days.model.guard.reason === 'days' && p14days.bars.length === 0
-    && p14days.note.includes('表示期間が524日（上限400日）')
+    && p14days.model.guard && p14days.model.guard.reason === 'px' && p14days.bars.length === 0
+    && p14days.note.includes('表示期間が長すぎて') && p14days.note.includes('ズーム: 日')
+    && p14days.note.includes('ズームを「月」に')     // 対処を案内する
     && p14copy.captured.length === 0 && p14copy.label === '表示していないためコピーできません',
     JSON.stringify([p14rows.model.guard, p14days.model.guard, p14rows.bars.length,
       p14days.note, p14copy.captured.length, p14copy.label]));
+
+  // Phase T4 の意図した挙動変更: 日数上限（400日）を捨てたので、524日は描画される。
+  // 1,308日でもズームを月にすれば描画できる（＝ズームがガードの回避手段になる）
+  const p14mid = await plan('# tasks\n\n## PEW\n\n- [ ] 古 🛫 2026-01-01 📅 2026-01-02\n' +
+    '- [ ] 新 🛫 2027-06-01 📅 2027-06-02\n', { showDone: true });
+  const p14month = await plan(FAR, { showDone: true, zoom: 'month' });
+  r.check('TB-P14b（524日は日ズームでも描画される・1308日は月ズームなら描画される）',
+    p14mid.model.guard === null && p14mid.bars.length === 2 && p14mid.model.days === 524
+    && p14month.model.guard === null && p14month.bars.length === 2
+    && p14month.model.dayPx === 1.6,
+    JSON.stringify([p14mid.model.days, p14mid.model.guard, p14month.model.guard,
+      p14month.bars.length]));
 
   /* --- 0件案内・バー操作・TSV（TB-P16〜P18） --- */
   const p16 = await plan(F1, { showDone: true });
@@ -1889,6 +1914,13 @@ const F5 = [
   }, [F6, TODAY, v]);
 
   await setView('list');
+  // ハイライトは**展開したメモ**に付く仕様（TB-Q36）。以前はこのチェックが
+  // 前のテストで開いた state.memoOpen の残りに依存して通っていたので前提を明示する
+  await page.evaluate(() => {
+    const tr = Array.from(document.querySelectorAll('#task-table tbody tr'))
+      .find(x => x.dataset.line === '5');
+    tr.querySelector('.memo-mark').click();
+  });
   const f1 = await searchIn('list', '仕様書');
   r.check('TB-F1（メモがヒット源になる・メモ行もハイライトされる）',
     eq(f1.rows, [5, 7]) && f1.count === '1 件ヒット' && f1.hits >= 1,
@@ -2386,6 +2418,248 @@ const F5 = [
     && p19.pageNoHScroll === true,
     JSON.stringify(p19));
   await page.setViewportSize({ width: 1280, height: 900 });
+
+  /* ========== TB-P20〜P32: バーのドラッグ・ズーム・セクション・完了率（Phase T4） ==========
+     ドラッグは pointer events なので **実マウス（page.mouse）で動かす**。
+     判定は保存後のファイル内容（イベントが飛んだかでは見ない）。 */
+
+  // F10: 期間5日（80px）・子3件（1完了・1中止）・📅 なしの1日バー・別セクション
+  const F10 = [
+    '# tasks', '', '## PEW', '',
+    '- [ ] 期間タスク 🛫 2026-08-01 📅 2026-08-05',   //  5（80px のバー）
+    '\t- [x] 子1 ✅ 2026-08-02',                      //  6
+    '\t- [ ] 子2',                                    //  7
+    '\t- [-] 子3（中止）',                            //  8
+    '- [ ] 開始のみ 🛫 2026-08-10',                   //  9（1日バー = 16px）
+    '', '## UL', '',
+    '- [ ] UL の作業 🛫 2026-08-03 📅 2026-08-04',    // 13
+    '', '',
+  ].join('\n');
+
+  // バーを掴んで dx ピクセル動かす。where: 'center' | 'left' | 'right'
+  const dragBar = async (lineNo, dx, where, opts) => {
+    const bar = page.locator('.tl-bar[data-line="' + lineNo + '"]');
+    const box = await bar.boundingBox();
+    const y = box.y + box.height / 2;
+    // 中央を掴むときは端ハンドル（左右7px）を避ける。狭いバーでは中央が右ハンドルに入る
+    const x = where === 'left' ? box.x + 3
+      : (where === 'right' ? box.x + box.width - 3
+        : (box.width < 21 ? box.x + 3 : box.x + box.width / 2));
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + dx, y, { steps: 6 });
+    if (opts && opts.escape) await page.keyboard.press('Escape');
+    await page.mouse.up();
+    return page.evaluate(() => window.__sT.getText());
+  };
+  const tl = (text, o) => page.evaluate(([t, opt]) => {
+    window.taskboard.test.setToday(opt.today);
+    const cb = document.getElementById('f-done');
+    cb.checked = true;
+    cb.dispatchEvent(new Event('change', { bubbles: true }));
+    const z = document.getElementById('f-zoom');
+    z.value = opt.zoom || 'day';
+    z.dispatchEvent(new Event('change', { bubbles: true }));
+    window.__sT = window.taskboard.test.newSession(t);
+    window.__sT.setView('timeline');
+    // 前のテストで開いたままのポップオーバーを閉じる（バーに重なるとドラッグを奪う）。
+    // 閉じる引き金は **mousedown**（body.click() では閉じない）
+    document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+  }, [text, Object.assign({ today: TODAY }, o)]);
+
+  await tl(F10);
+  const p20 = await dragBar(5, 48, 'center');          // +3日
+  r.check('TB-P20（バー全体のドラッグで 🛫 と 📅 が同じ日数ずれる・他行はバイト不変）',
+    lineOf(p20, 5) === '- [ ] 期間タスク 🛫 2026-08-04 📅 2026-08-08'
+    && onlyChanged(p20, F10, [5]), JSON.stringify(lineOf(p20, 5)));
+
+  await tl(F10);
+  const p21 = await dragBar(5, 32, 'left');            // 左端 +2日
+  r.check('TB-P21（左端のドラッグは開始日だけ変える）',
+    lineOf(p21, 5) === '- [ ] 期間タスク 🛫 2026-08-03 📅 2026-08-05'
+    && onlyChanged(p21, F10, [5]), JSON.stringify(lineOf(p21, 5)));
+
+  await tl(F10);
+  const p22 = await dragBar(5, 32, 'right');           // 右端 +2日
+  r.check('TB-P22（右端のドラッグは期限だけ変える）',
+    lineOf(p22, 5) === '- [ ] 期間タスク 🛫 2026-08-01 📅 2026-08-07'
+    && onlyChanged(p22, F10, [5]), JSON.stringify(lineOf(p22, 5)));
+
+  await tl(F10);
+  const p23a = await dragBar(5, 7, 'center');           // 7px = 0.44日 → 0日（変化なし）
+  await tl(F10);
+  const p23b = await dragBar(5, 9, 'center');           // 9px = 0.56日 → 1日
+  r.check('TB-P23（1日単位にスナップする・半日未満は動かない）',
+    p23a === F10 && lineOf(p23b, 5) === '- [ ] 期間タスク 🛫 2026-08-02 📅 2026-08-06',
+    JSON.stringify([p23a === F10, lineOf(p23b, 5)]));
+
+  await tl(F10);
+  const p24 = await dragBar(5, 48, 'center', { escape: true });
+  const p24pop = await page.evaluate(() => document.getElementById('popover').hidden);
+  r.check('TB-P24（Escape でドラッグを取り消す・op を出さない・ポップオーバーも開かない）',
+    p24 === F10 && p24pop === true, JSON.stringify([p24 === F10, p24pop]));
+
+  await tl(F10);
+  const p25a = await dragBar(5, 200, 'left');          // 左端を期限より右へ
+  await tl(F10);
+  const p25b = await dragBar(5, -200, 'right');        // 右端を開始日より左へ
+  r.check('TB-P25（逆転する方向はクランプされる＝📅 < 🛫 を作れない）',
+    lineOf(p25a, 5) === '- [ ] 期間タスク 🛫 2026-08-05 📅 2026-08-05'
+    && lineOf(p25b, 5) === '- [ ] 期間タスク 🛫 2026-08-01 📅 2026-08-01',
+    JSON.stringify([lineOf(p25a, 5), lineOf(p25b, 5)]));
+
+  await tl(F10);
+  await dragBar(5, 48, 'center');
+  const p26drag = await page.evaluate(() => document.getElementById('popover').hidden);
+  await tl(F10);
+  await page.locator('.tl-bar[data-line="5"]').click();
+  const p26click = await page.evaluate(() => ({
+    hidden: document.getElementById('popover').hidden,
+    dates: Array.from(document.querySelectorAll('#popover input[type="date"]')).map(i => i.value),
+  }));
+  r.check('TB-P26（ドラッグ後は計画ポップオーバーが開かない・移動0のクリックでは開く）',
+    p26drag === true && p26click.hidden === false
+    && eq(p26click.dates, ['2026-08-01', '2026-08-05']),
+    JSON.stringify([p26drag, p26click]));
+
+  await tl(F10);
+  const p27 = await page.evaluate(() => {
+    const bar = document.querySelector('.tl-bar[data-line="5"]');
+    bar.focus();
+    const key = (k, shift) => document.activeElement.dispatchEvent(new KeyboardEvent('keydown',
+      { key: k, shiftKey: !!shift, bubbles: true, cancelable: true }));
+    key('ArrowRight');
+    const moved = window.__sT.getText().split('\n')[4];
+    key('ArrowRight', true);
+    const stretched = window.__sT.getText().split('\n')[4];
+    // フォーカスがバーに戻っているか（render で作り直されるため）
+    return { moved, stretched, focused: document.activeElement.className,
+      line: document.activeElement.dataset.line };
+  });
+  r.check('TB-P27（キーボード: →で平行移動・Shift+→で期限のみ伸縮・フォーカスが戻る）',
+    p27.moved === '- [ ] 期間タスク 🛫 2026-08-02 📅 2026-08-06'
+    && p27.stretched === '- [ ] 期間タスク 🛫 2026-08-02 📅 2026-08-07'
+    && p27.focused.includes('tl-bar') && p27.line === '5',
+    JSON.stringify(p27));
+
+  await tl(F10);
+  const p28move = await dragBar(9, 32, 'center');      // 📅 なしの1日バーを平行移動
+  await tl(F10);
+  const p28due = await dragBar(9, 48, 'right');        // 右端で 📅 を新設（TB-Q46）
+  r.check('TB-P28（📅 なしのバー: 平行移動は 🛫 のみ・右端のドラッグで 📅 を新設する）',
+    lineOf(p28move, 9) === '- [ ] 開始のみ 🛫 2026-08-12'
+    && onlyChanged(p28move, F10, [9])
+    && lineOf(p28due, 9) === '- [ ] 開始のみ 🛫 2026-08-10 📅 2026-08-13'
+    && onlyChanged(p28due, F10, [9]),
+    JSON.stringify([lineOf(p28move, 9), lineOf(p28due, 9)]));
+
+  // TB-Q45 の条件: 端ハンドルは中央を掴む余地が残る幅のときだけ出す（原文の F10 で見る）
+  await tl(F10);
+  const p29 = await page.evaluate(() => {
+    const out = {};
+    for (const z of ['day', 'week', 'month']) {
+      const sel = document.getElementById('f-zoom');
+      sel.value = z; sel.dispatchEvent(new Event('change', { bubbles: true }));
+      out[z] = Array.from(document.querySelectorAll('.tl-bar')).map(b => ({
+        line: b.dataset.line, w: Math.round(parseFloat(b.style.width)),
+        handles: b.querySelectorAll('.tl-handle').length,
+        edges: Array.from(b.querySelectorAll('.tl-handle')).map(h => h.dataset.edge).join(','),
+      }));
+    }
+    return out;
+  });
+  r.check('TB-P29（幅が足りないバーは端ハンドルを出さない: 週=20px は両端、月=8px はゼロ）',
+    // 日: 5日=80px → 両端 / 1日=16px → 右だけ（📅 を新設できる）/ 2日=32px → 両端
+    eq(p29.day.map(b => b.w), [80, 16, 32]) && eq(p29.day.map(b => b.handles), [2, 1, 2])
+    && eq(p29.day.map(b => b.edges), ['start,due', 'due', 'start,due'])
+    // 週: 5日=20px（21px 未満）→ ゼロ / 1日=4px → ゼロ。月はさらに狭いので全部ゼロ
+    && eq(p29.week.map(b => b.handles), [0, 0, 0])
+    && eq(p29.month.map(b => b.handles), [0, 0, 0]),
+    JSON.stringify(p29));
+
+  await tl(F10, { zoom: 'month' });
+  const p30 = await dragBar(5, 16, 'center');   // 16px / 1.6px = 10日 → 7日スナップで7日
+  r.check('TB-P30（月ズームのスナップは7日単位）',
+    lineOf(p30, 5) === '- [ ] 期間タスク 🛫 2026-08-08 📅 2026-08-12',
+    JSON.stringify(lineOf(p30, 5)));
+
+  const p31 = await plan(F10, { showDone: true });
+  const p31w = await plan(F10, { showDone: true, zoom: 'week' });
+  const p31m = await plan(F10, { showDone: true, zoom: 'month' });
+  r.check('TB-P31（ズーム3段階で幅と目盛りが変わる）',
+    p31.model.dayPx === 16 && p31w.model.dayPx === 4 && p31m.model.dayPx === 1.6
+    && p31.bars[0].width === '80px' && p31w.bars[0].width === '20px'
+    && p31.tickTexts[0].includes('/')            // 日: M/D
+    && p31m.tickTexts.every(t => t.endsWith('月'))   // 月: N月
+    && p31.ticks > p31w.ticks,                   // 日は7日刻み・週は14日刻み
+    JSON.stringify([p31.model.dayPx, p31.bars[0].width, p31w.bars[0].width,
+      p31.ticks, p31w.ticks, p31m.tickTexts]));
+
+  const p32 = await page.evaluate(() => {
+    const env = JSON.parse(localStorage.getItem('tools:taskboard'));
+    return env.data.tlZoom;
+  });
+  const p32page = r.watch(await context.newPage());
+  await p32page.goto(fileUrl('web/taskboard.html'));
+  const p32restored = await p32page.evaluate(f10 => {
+    window.taskboard.test.newSession(f10);        // render は未読込だと select を触らない
+    return document.getElementById('f-zoom').value;
+  }, F10);
+  await p32page.evaluate(() => {
+    const env = JSON.parse(localStorage.getItem('tools:taskboard'));
+    env.data.tlZoom = 'nonsense';
+    localStorage.setItem('tools:taskboard', JSON.stringify(env));
+  });
+  await p32page.reload();
+  const p32fallback = await p32page.evaluate(f10 => {
+    window.taskboard.test.newSession(f10);
+    return document.getElementById('f-zoom').value;
+  }, F10);
+  await p32page.close();
+  r.check('TB-P32（ズームが永続化され、未知の値は日にフォールバック）',
+    p32 === 'month' && p32restored === 'month' && p32fallback === 'day',
+    JSON.stringify([p32, p32restored, p32fallback]));
+
+  /* --- セクション区切りと完了率（TB-P33〜P35） --- */
+  const p33 = await plan(F10, { showDone: true });
+  const p33closed = await page.evaluate(() => {
+    document.querySelectorAll('.tl-section-btn')[0].click();
+    return {
+      sections: Array.from(document.querySelectorAll('.tl-section-btn')).map(x => x.textContent),
+      bars: Array.from(document.querySelectorAll('.tl-bar')).map(b => b.dataset.line),
+    };
+  });
+  r.check('TB-P33（セクション見出しで区切られ、折り畳むとその行だけ消える）',
+    eq(p33.sections, ['▾ PEW（2）', '▾ UL（1）'])
+    && eq(p33.bars.map(b => b.cls.includes('tl-bar')), [true, true, true])
+    && eq(p33closed.sections, ['▸ PEW（2）', '▾ UL（1）'])
+    && eq(p33closed.bars, ['13']),               // PEW の2本が消え UL だけ残る
+    JSON.stringify([p33.sections, p33closed.sections, p33closed.bars]));
+
+  const p34 = await plan('# tasks\n\n## PEW\n\n- [ ] 親 🛫 2026-08-01 📅 2026-08-05\n' +
+    '\t- [ ] 子1\n- [ ] 子なし 🛫 2026-08-02 📅 2026-08-03\n', { showDone: true });
+  r.check('TB-P34（🛫 を持つ行が無いセクションの見出しは出さない・子なしに完了率は出ない）',
+    eq(p34.sections, ['▾ PEW（2）'])
+    && p34.model.items[0].progress.total === 1 && p34.model.items[1].progress === null
+    && p34.bars[1].fill === null,
+    JSON.stringify([p34.sections, p34.model.items.map(i => i.progress)]));
+
+  const p35 = await plan(F10, { showDone: true });
+  const p35all = await plan('# tasks\n\n## PEW\n\n- [ ] 親 🛫 2026-08-01 📅 2026-08-05\n' +
+    '\t- [x] 子1 ✅ 2026-08-02\n\t- [/] 子2\n', { showDone: true });
+  r.check('TB-P35（完了率: 分子は done のみ・中止は分母から外れる・塗りが出る）',
+    // F10 の親は 子1完了 / 子2未 / 子3中止 → 1/2（50%）
+    p35.model.items[0].progress.done === 1 && p35.model.items[0].progress.total === 2
+    && p35.model.items[0].progress.pct === 50
+    && p35.bars[0].fill === '50%'
+    // 80px のバーには日数だけ（完了率の文字は 96px 以上のときだけ。切れた文字を出さない）
+    && p35.bars[0].text === '5日',
+    JSON.stringify([p35.model.items[0].progress, p35.bars[0].text]));
+
+  r.check('TB-P36（着手中は分子に入らない＝0.5 と数えない）',
+    p35all.model.items[0].progress.done === 1 && p35all.model.items[0].progress.total === 2
+    && p35all.model.items[0].progress.pct === 50,
+    JSON.stringify(p35all.model.items[0].progress));
 
   if (SHOTS) {
     await page.waitForTimeout(1700);   // 直前のコピー結果表示（✓）が消えるのを待つ

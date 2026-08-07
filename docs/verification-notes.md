@@ -99,6 +99,19 @@
   ES モジュールは不可（CLAUDE.md）
 - **file:// では全ローカルページが localStorage を共有する** → キー接頭辞 `tools:<tool>` が衝突防止を担う
   （lib/storage.js の設計理由）
+- **SVG は `createElementNS` なら file:// でも本物として描ける**（2026-08-07 実測。taskboard Phase T4）。
+  `createElement('svg')` が HTMLUnknownElement になるのは**名前空間の問題であって file:// の制約ではない**ため、
+  「描画は div のみ」という制約に読み替えてはいけない（CLAUDE.md の規約を実測に合わせて更新済み）
+
+  ```js
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');   // → SVGSVGElement
+  ```
+
+  実測できた範囲: `namespaceURI` が正しく付く / `getBBox()` が使える /
+  **3次ベジェの曲線パス（`<path d="M… C…">`）と `<marker>` による矢印頭が実寸で描画される**
+  （`getBoundingClientRect()` と `getBBox()` がともに 130×70 を返した）。
+  `<defs>` + `marker-end="url(#id)"` の参照も file:// で解決される
 
 ### 任意のクリップボードを作る（貼り付け経路の検証用）
 
@@ -148,6 +161,18 @@ osascript -e 'the clipboard as «class HTML»' # HTML フレーバーの退避
   止めないとフラッシュが注入値を上書きして偽 fail する（devpad DEV-17 で実測）
 - **favicon 404 は解消済み**（2026-08-04 の UX 改善で全6ページに inline SVG data URI の favicon を追加）。
   「コンソールエラー0」判定に除外ルールは不要
+- **ドラッグ（pointer events）の実測3点**（2026-08-07・taskboard Phase T4。実装前に測って設計を決めた）:
+  - `setPointerCapture` は file:// でも動く（要素の外へ出ても `pointermove` が届く）
+  - **ドラッグの後にも `click` が飛ぶ**（50px 動かしても発火）。
+    → クリックに別の意味を持たせている要素では**抑止フラグが必須**。
+    さらに**フラグは次の `pointerdown` で必ず捨てる** — 要素の外で指を離すと
+    `click` がその要素に来ないため、残ったフラグが次のクリックを飲む
+  - **`el.style.left` は CSS 由来の値を読めない**（インラインスタイルだけが見える）。
+    `parseFloat('')` → `NaN` → `style.left = 'NaNpx'` が黙って無視され「動かない」ように見える。
+    → ドラッグ量は**DOM の座標ではなくモデル（日付・値）から計算する**
+- **`position: absolute` の装飾（今日の縦線など）は `pointer-events: none` を付ける**。
+  付けないと下のバーの click / pointerdown を奪う。
+  図が詰まるズーム（1日=1.6px）では必ず重なるので、広いときの手動確認では見つからない
 
 ---
 
