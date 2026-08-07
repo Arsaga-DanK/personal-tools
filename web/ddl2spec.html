@@ -42,6 +42,7 @@
 
 <textarea id="copy-helper" class="offscreen" aria-hidden="true" tabindex="-1" style="position:fixed;left:-9999px;top:0;width:10px;height:10px"></textarea>
 
+<script src="../lib/ui.js"></script>
 <script src="../lib/sql.js"></script>
 <script src="../lib/storage.js"></script>
 <script>
@@ -631,12 +632,9 @@ function buildTsv(model) {
 
 const el = id => document.getElementById(id);
 
+// 引数順 (kind, text) は共通核と同じ並びなのでそのまま渡す
 function showBanner(kind, text) {
-  const b = el('banner');
-  b.className = 'banner banner-' + kind;
-  b.setAttribute('role', kind === 'error' || kind === 'warn' ? 'alert' : 'status'); // ui.css の ARIA 規約
-  b.textContent = text;
-  b.hidden = !text;
+  ToolUI.banner(el('banner'), kind, text);
 }
 function showWarnings(list) {
   const host = el('warnings');
@@ -685,19 +683,13 @@ function run(kind) {
 
 async function copyText(text, btn, emptyMsg) {
   if (text === '') { showBanner('info', emptyMsg); return; }
-  const done = () => showBanner('success', 'コピーしました');
-  try {
-    await navigator.clipboard.writeText(text);
-    done();
-  } catch (_) {
-    const ta = el('copy-helper');
-    ta.value = text;
-    ta.focus();
-    ta.select();
-    let ok = false;
-    try { ok = document.execCommand('copy'); } catch (_) {}
-    ok ? done() : showBanner('info', '選択済みです。Cmd+C でコピーしてください');
-  }
+  // フォールバックしたときに「選択済み」が嘘にならないよう、画面外ヘルパに先に入れて渡す
+  // （一時 textarea を作る既定の方式は、実行後に要素ごと消えるので選択が残らない）
+  const ta = el('copy-helper');
+  ta.value = text;
+  const ok = await ToolUI.copy(text, { selectEl: ta });
+  showBanner(ok ? 'success' : 'info',
+    ok ? 'コピーしました' : '選択済みです。Cmd+C でコピーしてください');
 }
 
 const SAMPLE = [
