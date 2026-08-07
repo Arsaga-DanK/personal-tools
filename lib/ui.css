@@ -19,6 +19,8 @@
   --error-border: #ff818266;
   --info-bg: #ddf4ff;
   --info-border: #54aeff66;
+  --success-bg: #dafbe1;
+  --success-border: #4ac26b66;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -38,6 +40,8 @@
     --error-border: #f8514966;
     --info-bg: #0c2d6b;
     --info-border: #388bfd66;
+    --success-bg: #12261e;
+    --success-border: #3fb95066;
   }
 }
 
@@ -169,6 +173,10 @@ textarea {
 .banner-warn { background: var(--warn-bg); border-color: var(--warn-border); }
 .banner-error { background: var(--error-bg); border-color: var(--error-border); color: var(--error); }
 .banner-info { background: var(--info-bg); border-color: var(--info-border); }
+/* banner-success は上のコメントで正式な種別として挙げているのに規則が無く、成功バナーが
+   中立の灰色で出ていた（落ちも警告も出ないので気づけない。2026-08-07 のリファクタ監査で発見）。
+   使用箇所: taskboard のアーカイブ成功・ファイル読込成功、ddl2spec のコピー成功 */
+.banner-success { background: var(--success-bg); border-color: var(--success-border); }
 
 /* タブ */
 .tabs {

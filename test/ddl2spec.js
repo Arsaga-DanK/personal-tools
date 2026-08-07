@@ -293,6 +293,31 @@ const GENERATED_DDL = [
     s18.hasSqlLex && eq(s18.dollar, ["$$ a 'b' $$"]) && eq(s18.block, ['/* x /* y */ z */']),
     JSON.stringify(s18));
 
+  /* ========== DS-20: 成功バナーが success の見た目になる ==========
+     .banner-success の CSS 規則が無く、成功が中立の灰色で出ていた（2026-08-07 に発見）。
+     クラス名の一致ではなく**算出背景色が .banner の既定と違う**ことで見る
+     （規則が消えても気づける。CSS の見た目を信用しない） */
+  const s20 = await page.evaluate(async () => {
+    const probe = document.createElement('div');
+    probe.className = 'banner';
+    probe.hidden = false;
+    document.body.appendChild(probe);
+    const base = getComputedStyle(probe).backgroundColor;
+    document.getElementById('input').value = 'create table t (a int);';
+    document.getElementById('to-spec').click();
+    navigator.clipboard.writeText = () => Promise.resolve();   // 実クリップボードに書かない
+    document.getElementById('copy').click();
+    await new Promise(r => setTimeout(r, 30));
+    const b = document.getElementById('banner');
+    const got = getComputedStyle(b).backgroundColor;
+    probe.remove();
+    return { base, got, cls: b.className, role: b.getAttribute('role'), text: b.textContent };
+  });
+  r.check('DS-20（コピー成功のバナーが success の見た目・role=status）',
+    s20.cls.includes('banner-success') && s20.role === 'status'
+    && s20.text === 'コピーしました' && s20.got !== s20.base,
+    JSON.stringify(s20));
+
   /* ========== DS-19: ハブ導線 ========== */
   await page.goto(fileUrl('index.html'));
   const s19cat = await page.evaluate(() =>

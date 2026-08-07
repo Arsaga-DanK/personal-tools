@@ -220,6 +220,7 @@ comment on column public.customer.code is '顧客コード';
 | DS-17 | UI: サンプル投入 → 変換 → Cmd/Ctrl+Enter | サンプルは空のときだけ表示・投入で消える・Cmd+Enter でコピーが走る |
 | DS-18 | `window.SqlLex.tokenize` がこのページで動く | ドル引用符と入れ子コメントが各1トークンになる（共有 lexer が読めている証拠） |
 | DS-19 | ハブ導線 | 「Schema」リンクで遷移し `<title>` が `Schema (ddl2spec)`。カテゴリ「設計」が出る |
+| DS-20 | 変換 → ［出力をコピー］ | バナーが `banner-success`・`role="status"`・「コピーしました」。**算出背景色が `.banner` の既定と異なる**（`.banner-success` の規則が実際に効いていること。クラス名の一致だけでは 2026-08-07 に見つけた「規則が無い」状態を検出できない） |
 
 照合フック: `window.ddl2spec = { ddlToSpec, specToDdl, parseDdl, parseSpec, buildTsv }`。
 
