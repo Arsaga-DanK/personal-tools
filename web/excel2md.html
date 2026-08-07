@@ -535,9 +535,11 @@ function saveOpts() {
   });
 }
 
-// このツールだけ**警告の配列**を受け取る（複数の警告を ' / ' で連結して1本のバナーに出す）。
+// **名前を showBanner から分けている**（2026-08-07）。他の5ツールの showBanner は
+// (kind, text) で統一されており、このツールだけ**警告の配列**を受け取るため、
+// 同じ名前にすると流用したときに落ちずに banner-undefined になる（監査 R6-2）。
 // 配列→(種別, 文字列) の変換がラッパの仕事で、class と role の決定は共通核が持つ
-function showBanner(warnings) {
+function showWarningBanner(warnings) {
   if (warnings.length === 0) { el.banner.hidden = true; return; }
   const hasWarn = warnings.some(w => w.type === 'warn');
   ToolUI.banner(el.banner, hasWarn ? 'warn' : 'info', warnings.map(w => w.message).join(' / '));
@@ -710,7 +712,7 @@ function run() {
     if (result.grid.length === 0) colAligns.length = 0;
     renderPreview(result.grid, colAligns, true);
     maybeSuggestSwitch(result.warnings);
-    showBanner(noticeWarnings().concat(result.warnings));
+    showWarningBanner(noticeWarnings().concat(result.warnings));
   } else {
     const result = convertFromMd(el.input.value, { header: el.optHeader.checked });
     el.output.value = result.tsv;
@@ -718,7 +720,7 @@ function run() {
     // MD→TSV の揃えは区切り行が正本。プレビューは読み取り専用で表示する
     renderPreview(result.grid, result.alignments, false);
     maybeSuggestSwitch(result.warnings);
-    showBanner(noticeWarnings().concat(result.warnings));
+    showWarningBanner(noticeWarnings().concat(result.warnings));
   }
 }
 
@@ -753,7 +755,7 @@ el.input.addEventListener('paste', e => {
     if (result.warnings.length === 0) return; // 表が無い等。無言で既定の貼り付けへ
     // 取り込みを中止した理由はこの場で出す（text/plain が空だと input イベントも来ない）。
     // 既定の貼り付けはこのハンドラの後に反映されるため、通知の紐づけは次のタスクで行う
-    showBanner(result.warnings);
+    showWarningBanner(result.warnings);
     setTimeout(() => {
       importNotice = { warnings: result.warnings, text: el.input.value };
       clearTimeout(debounceTimer);

@@ -312,9 +312,9 @@ const el = {
 
 function uiOpts() { return { ignoreWs: el.optWs.checked, unifyWidth: el.optWidth.checked }; }
 
-// 引数順は (msg, kind) のまま。共通核は (要素, 種別, 文字列) なので**ここで入れ替える**
-function showBanner(msg, kind) {
-  ToolUI.banner(el.banner, kind === 'warn' ? 'warn' : 'info', msg);
+// 引数順は全ツール共通の (kind, text)。共通核と同じ並びなのでそのまま渡す
+function showBanner(kind, text) {
+  ToolUI.banner(el.banner, kind === 'warn' ? 'warn' : 'info', text);
 }
 
 // 文字レンジ付きの1行を描画（textContent のみ使用）
@@ -422,7 +422,7 @@ function run() {
     lastResult = null;
     el.view.textContent = '';
     el.summary.textContent = '';
-    showBanner('入力が上限（合計500万文字・片側5万行）を超えたため比較を中止しました', 'warn');
+    showBanner('warn', '入力が上限（合計500万文字・片側5万行）を超えたため比較を中止しました');
     return;
   }
   const result = diffLines(el.a.value, el.b.value, uiOpts());
@@ -433,11 +433,11 @@ function run() {
     '追加 ' + result.summary.added + '行 / 削除 ' + result.summary.deleted +
     '行 / 変更 ' + result.summary.changed + '行';
   if (result.fallback) {
-    showBanner('差分が大きすぎるため中間部を一括の変更として表示しています', 'warn');
+    showBanner('warn', '差分が大きすぎるため中間部を一括の変更として表示しています');
   } else if (result.lineOnly) {
-    showBanner('行数が多いため文字単位のハイライトを省略しました', 'info');
+    showBanner('info', '行数が多いため文字単位のハイライトを省略しました');
   } else {
-    showBanner('', 'info');
+    showBanner('info', '');
   }
   renderDiff(result);
 }

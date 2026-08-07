@@ -304,10 +304,10 @@ function renderSummary(counts, hasInput) {
   else el.summary.textContent = hasInput ? '変更はありません' : '';
 }
 
-// 引数順は (msg, kind) のまま。共通核は (要素, 種別, 文字列) なので**ここで入れ替える**。
-// kind は 'error' / 'warn' / それ以外=info の3値（norm だけが error を使う）
-function showBanner(msg, kind) {
-  ToolUI.banner(el.banner, kind === 'error' ? 'error' : kind === 'warn' ? 'warn' : 'info', msg);
+// 引数順は全ツール共通の (kind, text)。kind は 'error' / 'warn' / それ以外=info の3値
+// （norm だけが error を使う）
+function showBanner(kind, text) {
+  ToolUI.banner(el.banner, kind === 'error' ? 'error' : kind === 'warn' ? 'warn' : 'info', text);
 }
 
 const MAX_INPUT_CHARS = 1000000; // 超過時は処理せず理由を表示（性能ガード）
@@ -319,7 +319,7 @@ function renderOutput(result, useRuby) {
 
   if (el.input.value.length > MAX_HIGHLIGHT_INPUT) {
     host.textContent = result.text;
-    showBanner('入力が大きいためハイライトを省略しました', 'info');
+    showBanner('info', '入力が大きいためハイライトを省略しました');
     return;
   }
 
@@ -343,7 +343,7 @@ function renderOutput(result, useRuby) {
       spanCount++;
       if (spanCount > MAX_HIGHLIGHT_SPANS) {
         host.textContent = result.text;
-        showBanner('変更箇所が多いためハイライトを省略しました', 'info');
+        showBanner('info', '変更箇所が多いためハイライトを省略しました');
         return;
       }
       const origText = tokens.slice(i, j).map(t => t.orig).join('');
@@ -371,12 +371,12 @@ function renderOutput(result, useRuby) {
 }
 
 function run() {
-  showBanner('', 'info');
+  showBanner('info', '');
   if (el.input.value.length > MAX_INPUT_CHARS) {
     lastResult = { text: '', tokens: [], counts: {} };
     el.output.textContent = '';
     el.summary.textContent = '';
-    showBanner('入力が上限（100万文字）を超えたため処理を中止しました', 'warn');
+    showBanner('warn', '入力が上限（100万文字）を超えたため処理を中止しました');
     return;
   }
   const opts = uiOpts();
@@ -423,29 +423,29 @@ $('opts').addEventListener('change', () => {
 // （ルビ注記 ON 時に <rt> の変更前テキストが混入した壊れたコピーになるため、selectEl を渡さない）
 el.copyBtn.addEventListener('click', () => {
   const text = lastResult.text;
-  if (text === '') { showBanner('コピーする内容がありません', 'info'); return; }
+  if (text === '') { showBanner('info', 'コピーする内容がありません'); return; }
   ToolUI.copy(text).then(ok => {
     if (ok) ToolUI.feedback(el.copyBtn, '✓ コピーしました');
-    else showBanner('コピーできませんでした。出力を手動で選択してコピーしてください。', 'info');
+    else showBanner('info', 'コピーできませんでした。出力を手動で選択してコピーしてください。');
   });
 });
 
 // 設定エクスポート/インポート（インポートは全置換 — DEV-Q4）
 el.exportBtn.addEventListener('click', () => {
   const ok = ToolStorage.exportJson(TOOL, { options: uiOpts() });
-  if (!ok) showBanner('エクスポートに失敗しました', 'error');
+  if (!ok) showBanner('error', 'エクスポートに失敗しました');
 });
 el.importBtn.addEventListener('click', () => el.importFile.click());
 el.importFile.addEventListener('change', () => {
   const file = el.importFile.files[0];
   el.importFile.value = '';
   ToolStorage.importJson(TOOL, file, (err, data) => {
-    if (err) { showBanner('インポート失敗: ' + err, 'error'); return; }
+    if (err) { showBanner('error', 'インポート失敗: ' + err); return; }
     applyOpts(data && data.options);
     ToolStorage.save(TOOL, { options: uiOpts() });
     // run() を先に呼ぶ。run() は先頭でバナーを消すため、逆順だと成功通知が即消える（NM-13）
     run();
-    showBanner('設定をインポートしました', 'info');
+    showBanner('info', '設定をインポートしました');
   });
 });
 
