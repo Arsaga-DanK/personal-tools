@@ -26,6 +26,26 @@ asdf の shim を経由すると環境によって node が解決できないた
 コンソールエラー: 0件
 ```
 
+## 共通ヘルパ（test/helpers.js）
+
+| 名前 | 用途 |
+|---|---|
+| `launch()` / `fileUrl(rel)` | playwright-core を直接起動し `file://` で開く（MCP 非依存） |
+| `createRunner()` | 合否の集計。`r.check(id, ok, detail)` と `r.watch(page)`（コンソールエラー累積） |
+| `eq(a, b)` | JSON 文字列化での比較 |
+| `bannerIs(page, sel, kind, text?)` | **バナーの検査**。クラス名だけでなく **role と算出背景色**まで見る |
+| `bannerState(page, sel)` | 上の生データ（独自の判定を書きたいとき） |
+
+`bannerIs` がクラス名で満足しないのは、**`.banner-success` の CSS 規則が無いまま
+クラスだけ付いていた期間があった**ため（成功バナーが中立の灰色で出ていて、
+落ちも警告も出ないので気づけなかった）。素の `.banner` と算出背景色を比べて
+「その種別の規則が実際に効いている」ことまで確かめる。
+
+```js
+const b = await bannerIs(page, '#banner', 'success', 'コピーしました');
+r.check('DS-20（コピー成功のバナーが success の見た目・role=status）', b.ok, b.detail);
+```
+
 ## 必要なもの
 
 - **node**（homebrew）— 検証専用。`bin/` の CLI で node/python3 を使うのは引き続き禁止

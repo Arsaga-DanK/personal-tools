@@ -9,7 +9,7 @@
 
    クリップボードは壊さない: navigator.clipboard.writeText をスタブして出力だけ捕捉する。 */
 
-const { launch, fileUrl, createRunner, eq } = require('./helpers');
+const { launch, fileUrl, createRunner, eq, bannerIs } = require('./helpers');
 
 // spec の fixture（実務に近い DDL: 複合PK・FK・CHECK・複合UNIQUE・DEFAULT now()・日本語コメント）
 const DDL = [
@@ -295,28 +295,16 @@ const GENERATED_DDL = [
 
   /* ========== DS-20: 成功バナーが success の見た目になる ==========
      .banner-success の CSS 規則が無く、成功が中立の灰色で出ていた（2026-08-07 に発見）。
-     クラス名の一致ではなく**算出背景色が .banner の既定と違う**ことで見る
-     （規則が消えても気づける。CSS の見た目を信用しない） */
-  const s20 = await page.evaluate(async () => {
-    const probe = document.createElement('div');
-    probe.className = 'banner';
-    probe.hidden = false;
-    document.body.appendChild(probe);
-    const base = getComputedStyle(probe).backgroundColor;
+     判定は helpers の bannerIs（クラス名だけでなく算出スタイルと role まで見る） */
+  await page.evaluate(async () => {
     document.getElementById('input').value = 'create table t (a int);';
     document.getElementById('to-spec').click();
     navigator.clipboard.writeText = () => Promise.resolve();   // 実クリップボードに書かない
     document.getElementById('copy').click();
     await new Promise(r => setTimeout(r, 30));
-    const b = document.getElementById('banner');
-    const got = getComputedStyle(b).backgroundColor;
-    probe.remove();
-    return { base, got, cls: b.className, role: b.getAttribute('role'), text: b.textContent };
   });
-  r.check('DS-20（コピー成功のバナーが success の見た目・role=status）',
-    s20.cls.includes('banner-success') && s20.role === 'status'
-    && s20.text === 'コピーしました' && s20.got !== s20.base,
-    JSON.stringify(s20));
+  const s20 = await bannerIs(page, '#banner', 'success', 'コピーしました');
+  r.check('DS-20（コピー成功のバナーが success の見た目・role=status）', s20.ok, s20.detail);
 
   /* ========== DS-19: ハブ導線 ========== */
   await page.goto(fileUrl('index.html'));

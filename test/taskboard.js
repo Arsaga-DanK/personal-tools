@@ -10,7 +10,7 @@
    仕様の正本は docs/specs/taskboard.md。期待値を変えるときは spec を先に直す。 */
 
 const path = require('path');
-const { launch, fileUrl, createRunner, eq, REPO } = require('./helpers');
+const { launch, fileUrl, createRunner, eq, REPO, bannerIs } = require('./helpers');
 
 const SHOTS = process.argv.includes('--shots');
 const shotPath = name => path.join(REPO, '.playwright-mcp', name); // .gitignore 済み
@@ -2164,20 +2164,7 @@ const F5 = [
     cb.checked = true;
     cb.dispatchEvent(new Event('change', { bubbles: true }));
     const s = window.taskboard.test.newSession(f7);
-    return s.archive().then(res => {
-      // 成功バナーの見た目（.banner-success の規則が消えても気づけるよう、
-      // クラス名ではなく**算出背景色が .banner の既定と違う**ことで見る）
-      const probe = document.createElement('div');
-      probe.className = 'banner';
-      probe.hidden = false;
-      document.body.appendChild(probe);
-      const base = getComputedStyle(probe).backgroundColor;
-      const b = document.getElementById('banner');
-      const banner = { cls: b.className, role: b.getAttribute('role'),
-        text: b.textContent, bg: getComputedStyle(b).backgroundColor, base };
-      probe.remove();
-      return { res, archive: s.getArchiveText(), tasks: s.getText(), banner };
-    });
+    return s.archive().then(res => ({ res, archive: s.getArchiveText(), tasks: s.getText() }));
   }, [F7, TODAY]));
   r.check('TB-S30（着手中はアーカイブされない・完了と中止が移る・確認に中止の内訳が出る）',
     s30.result.res.ok === true && s30.result.res.moved === 3
@@ -2190,12 +2177,9 @@ const F5 = [
     && s30.messages[0] === '3件（うち中止 1件）を archive.md へ移動します。よろしいですか？',
     JSON.stringify([s30.result.res, s30.messages, s30.result.archive]));
 
-  r.check('TB-S31a（アーカイブ成功のバナーが success の見た目・role=status）',
-    s30.result.banner.cls.includes('banner-success')
-    && s30.result.banner.role === 'status'
-    && s30.result.banner.text.includes('アーカイブしました')
-    && s30.result.banner.bg !== s30.result.banner.base,
-    JSON.stringify(s30.result.banner));
+  // 成功バナーの検査は helpers の bannerIs（クラス名だけでなく算出スタイルと role まで見る）
+  const s31a = await bannerIs(page, '#banner', 'success', 'アーカイブしました');
+  r.check('TB-S31a（アーカイブ成功のバナーが success の見た目・role=status）', s31a.ok, s31a.detail);
 
   const s31 = await page.evaluate(([f7, today]) => {
     window.taskboard.test.setToday(today);

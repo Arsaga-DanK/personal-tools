@@ -96,4 +96,52 @@ function createRunner() {
 
 const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
-module.exports = { launch, fileUrl, createRunner, eq, REPO };
+/* バナーの検査（2026-08-07 に共通化）。
+   **クラス名ではなく算出スタイルと role を見る。**
+   `.banner-success` はクラスが付いていて CSS 規則だけが無く、成功バナーが中立の灰色で
+   出ていた期間があった（落ちも警告も出ないので気づけない）。クラス名だけを照合すると
+   その状態が緑になるので、「素の .banner と算出背景色が違う」ことまで確かめる。 */
+
+// kind → 期待する role（lib/ui.css のバナー節・CM-5 の規約）
+const BANNER_ROLE = { info: 'status', success: 'status', warn: 'alert', error: 'alert' };
+
+// バナーの実効状態を取る。base は素の .banner の算出背景色（比較の基準）
+async function bannerState(page, selector) {
+  return page.evaluate((sel) => {
+    const el = document.querySelector(sel);
+    if (!el) return null;
+    const probe = document.createElement('div');
+    probe.className = 'banner';
+    probe.hidden = false;
+    document.body.appendChild(probe);
+    const base = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    const cs = getComputedStyle(el);
+    return {
+      cls: el.className, role: el.getAttribute('role'), text: el.textContent,
+      hidden: el.hidden, bg: cs.backgroundColor, base,
+      styled: cs.backgroundColor !== base,   // その種別の CSS 規則が実際に効いているか
+    };
+  }, selector);
+}
+
+/* 期待どおりのバナーかを1回で確かめる。戻り値は r.check にそのまま渡せる形。
+   expectText を渡すと文言の部分一致も見る。
+   使い方: const b = await bannerIs(page, '#banner', 'success', 'コピーしました');
+           r.check('DS-20（…）', b.ok, b.detail); */
+async function bannerIs(page, selector, kind, expectText) {
+  const st = await bannerState(page, selector);
+  const ng = [];
+  if (!st) {
+    ng.push('要素が無い: ' + selector);
+  } else {
+    if (!st.cls.includes('banner-' + kind)) ng.push('クラスが banner-' + kind + ' でない');
+    if (st.role !== BANNER_ROLE[kind]) ng.push('role が ' + BANNER_ROLE[kind] + ' でない');
+    if (!st.styled) ng.push('算出背景色が素の .banner と同じ（その種別の CSS 規則が効いていない）');
+    if (st.hidden) ng.push('hidden のまま');
+    if (expectText !== undefined && !st.text.includes(expectText)) ng.push('文言に「' + expectText + '」を含まない');
+  }
+  return { ok: ng.length === 0, detail: JSON.stringify({ ng, state: st }) };
+}
+
+module.exports = { launch, fileUrl, createRunner, eq, REPO, bannerState, bannerIs, BANNER_ROLE };
