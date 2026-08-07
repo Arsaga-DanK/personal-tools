@@ -791,10 +791,15 @@ function guard(tabId, fn) {
   };
 }
 
-// 引数順は **(id, kind, text)**（2026-08-07 に kind を前へ）。他ツールの showBanner が
-// (kind, text) なので、種別が最後に来る形を残すと、流用して取り違えても落ちない（監査 R6-2）。
-// id → 要素の解決と種別の正規化がラッパの仕事で、class と role の決定は共通核が持つ
-function showResult(id, kind, text) {
+/* 名前は他ツールと同じ showBanner。ただし**このツールだけ第1引数が要素 id**
+   （タブごとにバナー要素が違うため）。引数順は (id, kind, text) で、種別は必ず第2引数。
+   - 他ツール流に種別を先頭で渡すと、それが要素 id として扱われて $() が null を返し
+     **その場で落ちる**（種別が class に化けて無言で間違うより良い）
+   - 逆にこの形を他ツールへ貼ると無言で間違うので、test/run の静的チェックが
+     ファイルごとに「種別が来る位置」を見ている
+   - **ここに実物の呼び出し例を書かないこと**（そのチェック自身に検出される）
+   id → 要素の解決と種別の正規化がラッパの仕事で、class と role の決定は共通核が持つ */
+function showBanner(id, kind, text) {
   ToolUI.banner($(id), kind === 'error' ? 'error' : 'info', text);
 }
 
@@ -802,7 +807,7 @@ function showResult(id, kind, text) {
 const BUTTON_INPUT_LIMIT = 5000000;
 function tooLarge(text, resultId) {
   if (text.length <= BUTTON_INPUT_LIMIT) return false;
-  showResult(resultId, 'error', '入力が上限（500万文字）を超えたため処理を中止しました');
+  showBanner(resultId, 'error', '入力が上限（500万文字）を超えたため処理を中止しました');
   return true;
 }
 
@@ -847,7 +852,7 @@ const TABS = [
         const r = parseJsonWithPos(text);
         if (!r.ok) { showJsonPosError(r, text); return; }
         $('json-out').value = stringify(r.value);
-        showResult('json-result', 'info', '');
+        showBanner('json-result', 'info', '');
       };
       $('json-format').addEventListener('click', guard('json', () => {
         jsonTransform(v => JSON.stringify(v, null, 2));
@@ -858,7 +863,7 @@ const TABS = [
       $('json-validate').addEventListener('click', guard('json', () => {
         if (tooLarge($('json-in').value, 'json-result')) return;
         const r = parseJsonWithPos($('json-in').value);
-        if (r.ok) { showResult('json-result', 'info', '有効なJSONです'); return; }
+        if (r.ok) { showBanner('json-result', 'info', '有効なJSONです'); return; }
         showJsonPosError(r, $('json-in').value);
       }));
       // サンプル投入（空状態の学習用。入力が空のときだけ表示し、投入と同時に整形まで見せる）
@@ -883,17 +888,17 @@ const TABS = [
       const run = (fn) => {
         const text = $('xml-in').value;
         if (text.length > XML_LIMIT) {
-          showResult('xml-result', 'error', '入力が上限（100万文字）を超えたため処理を中止しました');
+          showBanner('xml-result', 'error', '入力が上限（100万文字）を超えたため処理を中止しました');
           return;
         }
         const r = fn(text);
         if (!r.ok) {
           const where = r.line !== null && r.line !== undefined ? r.line + '行目 ' + r.col + '文字目: ' : '';
-          showResult('xml-result', 'error', 'XML エラー: ' + where + r.error);
+          showBanner('xml-result', 'error', 'XML エラー: ' + where + r.error);
           return;
         }
         $('xml-out').value = r.value;
-        showResult('xml-result', 'info', '');
+        showBanner('xml-result', 'info', '');
       };
       $('xml-format').addEventListener('click', guard('xml', () => run(formatXml)));
       $('xml-minify').addEventListener('click', guard('xml', () => run(minifyXml)));
@@ -911,16 +916,16 @@ const TABS = [
       const run = (fn) => {
         const text = $('sql-in').value;
         if (text.length > SQL_LIMIT) {
-          showResult('sql-result', 'error', '入力が上限（20万文字）を超えたため処理を中止しました');
+          showBanner('sql-result', 'error', '入力が上限（20万文字）を超えたため処理を中止しました');
           return;
         }
         const r = fn(text);
         if (!r.ok) {
-          showResult('sql-result', 'error', 'SQL エラー: ' + (r.line ? r.line + '行目: ' : '') + r.error);
+          showBanner('sql-result', 'error', 'SQL エラー: ' + (r.line ? r.line + '行目: ' : '') + r.error);
           return;
         }
         $('sql-out').value = r.value;
-        showResult('sql-result', 'info',
+        showBanner('sql-result', 'info',
           r.droppedComments ? 'コメント ' + r.droppedComments + ' 件を削除しました（1行化のため）' : '');
       };
       $('sql-format').addEventListener('click', guard('sql', () => run(formatSql)));
@@ -938,15 +943,15 @@ const TABS = [
       $('esc-encode').addEventListener('click', guard('escape', () => {
         if (tooLarge($('esc-raw').value, 'esc-result')) return;
         $('esc-lit').value = escapeJsonStr($('esc-raw').value);
-        showResult('esc-result', 'info', '');
+        showBanner('esc-result', 'info', '');
       }));
       $('esc-decode').addEventListener('click', guard('escape', () => {
         if (tooLarge($('esc-lit').value, 'esc-result')) return;
         try {
           $('esc-raw').value = unescapeJsonStr($('esc-lit').value);
-          showResult('esc-result', 'info', '');
+          showBanner('esc-result', 'info', '');
         } catch (e) {
-          showResult('esc-result', 'error', 'アンエスケープ失敗: ' + e.message);
+          showBanner('esc-result', 'error', 'アンエスケープ失敗: ' + e.message);
         }
       }));
     },
@@ -962,15 +967,15 @@ const TABS = [
       $('url-encode').addEventListener('click', guard('url', () => {
         if (tooLarge($('url-raw').value, 'url-result')) return;
         $('url-enc').value = urlEncode($('url-raw').value);
-        showResult('url-result', 'info', '');
+        showBanner('url-result', 'info', '');
       }));
       $('url-decode').addEventListener('click', guard('url', () => {
         if (tooLarge($('url-enc').value, 'url-result')) return;
         try {
           $('url-raw').value = urlDecode($('url-enc').value);
-          showResult('url-result', 'info', '');
+          showBanner('url-result', 'info', '');
         } catch (e) {
-          showResult('url-result', 'error', 'デコード失敗: 不正なパーセントエンコーディングです');
+          showBanner('url-result', 'error', 'デコード失敗: 不正なパーセントエンコーディングです');
         }
       }));
     },
@@ -986,16 +991,16 @@ const TABS = [
       $('b64-encode').addEventListener('click', guard('base64', () => {
         if (tooLarge($('b64-raw').value, 'b64-result')) return;
         $('b64-enc').value = b64encode($('b64-raw').value);
-        showResult('b64-result', 'info', '');
+        showBanner('b64-result', 'info', '');
       }));
       $('b64-decode').addEventListener('click', guard('base64', () => {
         if (tooLarge($('b64-enc').value, 'b64-result')) return;
         const r = b64decode($('b64-enc').value);
         if (typeof r === 'string') {
           $('b64-raw').value = r;
-          showResult('b64-result', 'info', '');
+          showBanner('b64-result', 'info', '');
         } else {
-          showResult('b64-result', 'error', 'デコード失敗: ' + r.error);
+          showBanner('b64-result', 'error', 'デコード失敗: ' + r.error);
         }
       }));
     },
@@ -1047,7 +1052,7 @@ const TABS = [
         const subject = $('re-subject').value;
         if (!r.ok) {
           clearOut();
-          showResult('re-note', 'error', '正規表現エラー: ' + r.error);
+          showBanner('re-note', 'error', '正規表現エラー: ' + r.error);
           return;
         }
         // ハイライト（createElement のみ。HTML 文字列は組み立てない）
@@ -1113,7 +1118,7 @@ const TABS = [
         if (riskyRegex($('re-pattern').value)) {
           hints.push('入れ子の量指定子があります。入力が長いと極端に遅くなることがあります（検出は不完全です）');
         }
-        showResult('re-note', 'info', hints.join(' / '));
+        showBanner('re-note', 'info', hints.join(' / '));
       };
 
       const run = guard('regex', () => {
@@ -1121,15 +1126,15 @@ const TABS = [
         const subject = $('re-subject').value;
         const limit = workerOff ? FALLBACK_SUBJECT_LIMIT : SUBJECT_LIMIT;
         clearTimeout(timer);
-        if (pattern === '' && $('re-flags').value.indexOf('g') < 0) { clearOut(); showResult('re-note', 'info', ''); return; }
+        if (pattern === '' && $('re-flags').value.indexOf('g') < 0) { clearOut(); showBanner('re-note', 'info', ''); return; }
         if (pattern.length > PATTERN_LIMIT) {
           clearOut();
-          showResult('re-note', 'error', 'パターンが上限（' + PATTERN_LIMIT + '文字）を超えたため処理を中止しました');
+          showBanner('re-note', 'error', 'パターンが上限（' + PATTERN_LIMIT + '文字）を超えたため処理を中止しました');
           return;
         }
         if (subject.length > limit) {
           clearOut();
-          showResult('re-note', 'error', 'テスト文字列が上限（' + limit + '文字）を超えたため処理を中止しました');
+          showBanner('re-note', 'error', 'テスト文字列が上限（' + limit + '文字）を超えたため処理を中止しました');
           return;
         }
         const msg = {
@@ -1143,7 +1148,7 @@ const TABS = [
             worker = makeWorker();
             if (!worker) { workerOff = true; }
             clearOut();
-            showResult('re-note', 'error',
+            showBanner('re-note', 'error',
               '実行が' + TIMEOUT_MS + 'ミリ秒を超えたため中断しました（カタストロフィックバックトラッキングの可能性）');
           }, TIMEOUT_MS);
           worker.postMessage(msg);
@@ -1216,19 +1221,19 @@ const TABS = [
         if (syncing) return;
         const raw = $(id).value;
         if (raw.length > DIGIT_LIMIT) {
-          showResult('base-result', 'error', '入力が上限（' + DIGIT_LIMIT + '文字）を超えたため処理を中止しました');
+          showBanner('base-result', 'error', '入力が上限（' + DIGIT_LIMIT + '文字）を超えたため処理を中止しました');
           return;
         }
         const r = parseRadix(raw, radix);
-        if (r.empty) { fill(null, id); showResult('base-result', 'info', ''); return; }
+        if (r.empty) { fill(null, id); showBanner('base-result', 'info', ''); return; }
         if (!r.ok) {
           // 誤った値を出さないため、他フィールドは変更しない
-          showResult('base-result', 'error', r.error);
+          showBanner('base-result', 'error', r.error);
           $('base-bits').textContent = '';
           return;
         }
         fill(r.value, id);
-        showResult('base-result', 'info', '');
+        showBanner('base-result', 'info', '');
       });
 
       for (const [id, radix] of FIELDS) $(id).addEventListener('input', onInput(id, radix));
@@ -1241,7 +1246,7 @@ const TABS = [
       }
       $('base-clear').addEventListener('click', guard('base', () => {
         fill(null, null);
-        showResult('base-result', 'info', '');
+        showBanner('base-result', 'info', '');
       }));
       this._refresh = () => {
         const r = parseRadix($('base-10').value, 10);
@@ -1266,20 +1271,20 @@ const TABS = [
         const r = epochToJst($('time-epoch').value, unit());
         if (typeof r === 'string') {
           $('time-jst-out').textContent = r;
-          showResult('time-result', 'info', '');
+          showBanner('time-result', 'info', '');
         } else {
           $('time-jst-out').textContent = '';
-          showResult('time-result', 'error', r.error);
+          showBanner('time-result', 'error', r.error);
         }
       }));
       $('time-to-epoch').addEventListener('click', guard('time', () => {
         const r = jstToEpoch($('time-dt').value);
         if (typeof r === 'number') {
           $('time-epoch-out').textContent = String(r);
-          showResult('time-result', 'info', '');
+          showBanner('time-result', 'info', '');
         } else {
           $('time-epoch-out').textContent = '';
-          showResult('time-result', 'error', r.error);
+          showBanner('time-result', 'error', r.error);
         }
       }));
       $('time-now').addEventListener('click', guard('time', () => {
@@ -1311,7 +1316,7 @@ const TABS = [
         if (!text) return;
         // 成功したときだけ通知する（失敗時は無言。表示中の変換結果を消さないための既存挙動）
         ToolUI.copy(text).then(ok => {
-          if (ok) showResult('time-result', 'info', 'コピーしました: ' + text);
+          if (ok) showBanner('time-result', 'info', 'コピーしました: ' + text);
         });
       };
       $('time-jst-out').addEventListener('click', () => clickCopy($('time-jst-out').textContent));
@@ -1509,16 +1514,16 @@ function restoreState() {
     }
   });
 
-  wireCopy('json-copy', 'json-out', m => showResult('json-result', 'info', m));
-  wireCopy('esc-copy-raw', 'esc-raw', m => showResult('esc-result', 'info', m));
-  wireCopy('esc-copy-lit', 'esc-lit', m => showResult('esc-result', 'info', m));
-  wireCopy('url-copy-raw', 'url-raw', m => showResult('url-result', 'info', m));
-  wireCopy('url-copy-enc', 'url-enc', m => showResult('url-result', 'info', m));
-  wireCopy('b64-copy-raw', 'b64-raw', m => showResult('b64-result', 'info', m));
-  wireCopy('b64-copy-enc', 'b64-enc', m => showResult('b64-result', 'info', m));
+  wireCopy('json-copy', 'json-out', m => showBanner('json-result', 'info', m));
+  wireCopy('esc-copy-raw', 'esc-raw', m => showBanner('esc-result', 'info', m));
+  wireCopy('esc-copy-lit', 'esc-lit', m => showBanner('esc-result', 'info', m));
+  wireCopy('url-copy-raw', 'url-raw', m => showBanner('url-result', 'info', m));
+  wireCopy('url-copy-enc', 'url-enc', m => showBanner('url-result', 'info', m));
+  wireCopy('b64-copy-raw', 'b64-raw', m => showBanner('b64-result', 'info', m));
+  wireCopy('b64-copy-enc', 'b64-enc', m => showBanner('b64-result', 'info', m));
   wireCopy('uuid-copy', 'uuid-out', m => { $('uuid-hint').textContent = m; });
-  wireCopy('sql-copy', 'sql-out', m => showResult('sql-result', 'info', m));
-  wireCopy('xml-copy', 'xml-out', m => showResult('xml-result', 'info', m));
+  wireCopy('sql-copy', 'sql-out', m => showBanner('sql-result', 'info', m));
+  wireCopy('xml-copy', 'xml-out', m => showBanner('xml-result', 'info', m));
 
   document.querySelector('main').addEventListener('input', scheduleSave);
   // 入力の再開でそのタブの古いエラー・結果バナーを消す（修正済み入力に旧エラーが残る問題の解消）。

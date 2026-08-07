@@ -108,34 +108,41 @@ if ! perl -MEncode -ne '
 fi
 
 # バナー API の引数順チェック（2026-08-07）。
-# showBanner は (kind, text) / showResult は (id, kind, text) で全ツール統一した。
 # **型が無いので取り違えても落ちず banner-undefined になるだけ**（監査 R6-2）なので、
 # 「種別の位置に既知の種別リテラルが来ているか」を静的に見る。
-# 種別が変数の呼び出しは判定しない（リテラルのときだけ検査する）。
+# 種別が来る位置は API ごとに違うので、**ファイルと関数名で使い分ける**:
+#   showBanner(kind, text)          … 5ツール（第1引数）
+#   showBanner(id, kind, text)      … devpad だけ（第2引数。タブごとにバナー要素が違うため）
+#   ToolUI.banner(el, kind, text)   … 共通核の呼び出し（第2引数）
+# 種別が変数・三項演算子の呼び出しは判定しない（リテラルのときだけ検査する）。
 if ! perl -ne '
       BEGIN { %KIND = map { $_ => 1 } qw(info warn error success) }
-      next if /^\s*(\/\/|\*)/;                      # コメント行は見ない
-      next if /function\s+show(Banner|Result)\s*\(/; # 定義行は対象外
-      # showBanner(<第1引数>… の第1引数が文字列リテラルなら種別でなければならない
-      if (/\bshowBanner\(\s*(?!\s)([^,)]*)/) {
-        my $a = $1;
+      next if /^\s*(\/\/|\*)/;                 # コメント行は見ない
+      next if /function\s+showBanner\s*\(/;     # 定義行は対象外
+      # 第 N 引数が文字列リテラルなら種別でなければならない、という共通の判定
+      sub want_kind {
+        my ($label, $arg) = @_;
+        return unless defined $arg;
         # 種別以外の**あらゆる文字列リテラル**を落とす（[a-z]+ に限ると
         # 日本語のメッセージが素通りする。2026-08-07 に実測して修正）
-        if ($a =~ /^\x27([^\x27]*)\x27$/ && !$KIND{$1}) {
-          print "  $ARGV:$. showBanner の第1引数が種別ではありません: $a\n"; $bad = 1;
+        if ($arg =~ /^\x27([^\x27]*)\x27$/ && !$KIND{$1}) {
+          print "  $ARGV:$. $label: $arg\n"; $bad = 1;
         }
       }
-      # showResult(<id>, <第2引数>… の第2引数が文字列リテラルなら種別でなければならない
-      if (/\bshowResult\(\s*[^,]+,\s*([^,)]*)/) {
-        my $a = $1;
-        if ($a =~ /^\x27([^\x27]*)\x27$/ && !$KIND{$1}) {
-          print "  $ARGV:$. showResult の第2引数が種別ではありません: $a\n"; $bad = 1;
-        }
+      if ($ARGV =~ /devpad\.html$/) {
+        want_kind("showBanner の第2引数が種別ではありません", $1)
+          if /\bshowBanner\(\s*[^,]+,\s*([^,)]*)/;
+      } else {
+        want_kind("showBanner の第1引数が種別ではありません", $1)
+          if /\bshowBanner\(\s*(?!\s)([^,)]*)/;
       }
+      want_kind("ToolUI.banner の第2引数が種別ではありません", $1)
+        if /\bToolUI\.banner\(\s*[^,]+,\s*([^,)]*)/;
       close ARGV if eof;
-      END { exit($bad ? 1 : 0) }' web/*.html; then
+      END { exit($bad ? 1 : 0) }' web/*.html lib/*.js test/*.js; then
   print -r -- "バナー API の引数順が統一形と違います（上記の行）。" >&2
-  print -r -- "showBanner(kind, text) / showResult(id, kind, text) に揃えてください" >&2
+  print -r -- "showBanner(kind, text)／devpad だけ showBanner(id, kind, text)／" >&2
+  print -r -- "ToolUI.banner(el, kind, text) に揃えてください" >&2
   print -r -- "配列を受け取る excel2md は showWarningBanner という別名です" >&2
   exit 1
 fi
