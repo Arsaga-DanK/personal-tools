@@ -842,11 +842,12 @@ const TL_LABEL_W = 260;          // 行ラベル列の幅（sticky で固定す�
 /* ズーム（Phase T4・TB-Q49）。**スナップ単位をズームに合わせる** —
    月ズームは 1日 = 1.6px なので1日スナップでは掴めない（日単位の微調整は
    バークリック → 計画ポップオーバーで行う）。
-   tick: 目盛りの刻み方。week は7日刻みだとラベル（最大 `12/29` ≒ 30px）が
-   28px の間隔に収まらないので14日刻みにする */
+   tick: 目盛りの刻み方。every は**最小の候補**で、ラベルが収まらなければ
+   tlTicks が 14日・28日へ広げる（週ズームは1桁月なら7日刻みで収まり、
+   2桁月を含む範囲では14日刻みになる。Phase T5b で範囲ごとに切り替えるようにした） */
 const TL_ZOOMS = {
   day:   { px: DAY_PX, snap: 1, every: 7,  tick: 'date',  label: '日' },
-  week:  { px: 4,      snap: 1, every: 14, tick: 'date',  label: '週' },
+  week:  { px: 4,      snap: 1, every: 7,  tick: 'date',  label: '週' },
   month: { px: 1.6,    snap: 7, every: 1,  tick: 'month', label: '月' },
 };
 const TL_ZOOM_KEYS = ['day', 'week', 'month'];
@@ -1980,12 +1981,34 @@ function tlTicks(model, z) {
     }
     return out;
   }
-  for (let d = 0; d < model.days; d += z.every) {
-    const ymd = addDays(model.from, d);
-    out.push({ day: d, text: Number(ymd.slice(5, 7)) + '/' + Number(ymd.slice(8, 10)) });
+  // 日付の目盛りは**ラベルが重ならない最小の刻み**を選ぶ。
+  // 刻みは px/日だけで決まる（範囲の長さには依存しない）ので、
+  // 決め手は**その範囲に出るラベルの最大幅**になる。
+  // 実測（11px フォント・padding 3px 込み・2026-08-07）:
+  //   `8/3`=21.5px / `8/10`=26.7px / `11/24`=31.4px / `12/29`=33.1px
+  // → 週ズーム（7日=28px）は1桁月なら収まり、2桁月では重なる（実際に重なる図を確認）
+  for (const every of [z.every, 14, 28]) {
+    const cand = [];
+    let widest = 0;
+    for (let d = 0; d < model.days; d += every) {
+      const ymd = addDays(model.from, d);
+      const text = Number(ymd.slice(5, 7)) + '/' + Number(ymd.slice(8, 10));
+      widest = Math.max(widest, tickWidth(text));
+      cand.push({ day: d, text: text });
+    }
+    if (every * z.px >= widest + TICK_GAP_PX || every === 28) return cand;
   }
   return out;
 }
+
+/* ラベル幅の見積り。実測（11px フォント・padding 3px 込み・2026-08-07）:
+     `8/3`=21.5px `8/10`=26.7px `10/4`=26.7px `11/24`=31.4px `12/29`=33.1px
+   → 3 + 文字数 × 6.0 でほぼ一致する。
+   **必要なのは「間隔に収まること」だけ**（すきま0以上）。図で確認した境目:
+     `10/4`（26.7px）は 28px に収まり読める / `11/16`（31.4px）は重なって読めない
+   すきまに余裕（+2px）を要求すると、読める `10/4` まで弾いてしまう（実測して修正） */
+const TICK_PAD_PX = 3, TICK_CHAR_PX = 6.0, TICK_GAP_PX = 0;
+function tickWidth(text) { return TICK_PAD_PX + text.length * TICK_CHAR_PX; }
 
 // 出現順にセクションでまとめる（並び順は visibleRows のまま = ソート指定に従う）
 function tlSections(items) {

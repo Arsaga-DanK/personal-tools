@@ -2782,6 +2782,41 @@ const F5 = [
     return ['# tasks', '', '## PEW', '', '- [ ] a 🛫 2026-08-01 📅 2026-08-02',
       '- [ ] b 🛫 ' + at(k) + ' 📅 ' + at(k + 1), ''].join('\n');
   };
+
+  /* --- 目盛りの刻み（Phase T5b・TB-P45） --- */
+  const ticksOf = (text, zoom) => page.evaluate(([t, z]) => {
+    window.taskboard.test.setToday('2026-08-04');
+    const sel = document.getElementById('f-zoom');
+    sel.value = z; sel.dispatchEvent(new Event('change', { bubbles: true }));
+    window.taskboard.test.newSession(t).setView('timeline');
+    const ts = Array.from(document.querySelectorAll('.tl-tick'));
+    const gaps = [];
+    for (let i = 1; i < ts.length; i++) {
+      gaps.push(ts[i].getBoundingClientRect().left - ts[i - 1].getBoundingClientRect().right);
+    }
+    return { n: ts.length, texts: ts.map(x => x.textContent),
+      minGap: gaps.length ? Math.round(Math.min(...gaps)) : null };
+  }, [text, zoom]);
+
+  // 65日: 1桁月なら `10/4`(26.7px) まで 28px に収まるので**7日刻み**
+  const wk1 = await ticksOf(spanFixture(65), 'week');
+  // 12月をまたぐと `11/16`(31.4px) が 28px に収まらないので**14日刻み**
+  const decFx = ['# tasks', '', '## PEW', '', '- [ ] a 🛫 2026-11-05 📅 2026-11-25',
+    '- [ ] b 🛫 2027-01-20 📅 2027-02-05', ''].join('\n');
+  const wk2 = await ticksOf(decFx, 'week');
+  const dayT = await ticksOf(spanFixture(30), 'day');
+  const monT = await ticksOf(spanFixture(200), 'month');
+  // 刻みは本数で判定する（ラベル文字列は範囲の始点で変わるため決め打ちしない）
+  r.check('TB-P45（目盛りはラベルが収まる最小の刻みを選ぶ・重ならない）',
+    // 週・1桁月（範囲65日）: 7日刻み = ceil(65/7) = 10本。すきま0以上（`10/4` が 28px に収まる）
+    wk1.n === 10 && wk1.minGap >= 0
+    // 週・2桁月をまたぐ（範囲99日）: `11/16` が収まらないので14日刻み = ceil(99/14) = 8本
+    && wk2.n === 8 && wk2.minGap > 0 && wk2.texts.includes('11/16')
+    // 日は常に7日刻み（範囲30日 → 5本）・月は月初のラベル（どちらも従来どおり）
+    && dayT.n === Math.ceil(30 / 7) && dayT.minGap > 0
+    && monT.texts.every(t => t.endsWith('月')) && monT.minGap > 0,
+    JSON.stringify([wk1, wk2, dayT.n, dayT.minGap, monT.texts]));
+
   const p41on = await zoomOpts(spanFixture(163));
   const p41off = await zoomOpts(spanFixture(162));
   r.check('TB-P41（月ズームの境界: 163日で選べ、162日では選べない）',
