@@ -225,6 +225,7 @@
   </section>
 </main>
 
+<script src="../lib/ui.js"></script>
 <script src="../lib/sql.js"></script>
 <script src="../lib/storage.js"></script>
 <script>
@@ -780,21 +781,15 @@ function guard(tabId, fn) {
       return fn.apply(this, args);
     } catch (e) {
       // このバナーは復元通知（banner-info）に流用されるため、見た目と role をエラー用に戻す
-      const el = tabErrorEl(tabId);
-      el.className = 'banner banner-error';
-      el.setAttribute('role', 'alert'); // ui.css の ARIA 規約
-      el.textContent = 'エラー: ' + (e && e.message ? e.message : String(e));
-      el.hidden = false;
+      ToolUI.banner(tabErrorEl(tabId), 'error',
+        'エラー: ' + (e && e.message ? e.message : String(e)));
     }
   };
 }
 
+// 引数順は (id, msg, kind) のまま。id → 要素の解決と種別の正規化がラッパの仕事
 function showResult(id, msg, kind) {
-  const el = $(id);
-  el.className = 'banner ' + (kind === 'error' ? 'banner-error' : 'banner-info');
-  el.setAttribute('role', kind === 'error' ? 'alert' : 'status'); // ui.css の ARIA 規約
-  el.textContent = msg;
-  el.hidden = !msg;
+  ToolUI.banner($(id), kind === 'error' ? 'error' : 'info', msg);
 }
 
 // 性能ガード: ボタン駆動の変換は500万文字で処理中止（一部のみ処理はしない）
@@ -808,31 +803,16 @@ function tooLarge(text, resultId) {
 // 出力コピー（共通プロトコル: clipboard API → 選択フォールバック）
 function wireCopy(btnId, srcId, hint) {
   const btn = $(btnId);
-  const orig = btn.textContent;
-  let timer = null;
-  const done = () => {
-    btn.textContent = '✓ コピー';
-    btn.classList.add('copied');
-    clearTimeout(timer);
-    timer = setTimeout(() => { btn.textContent = orig; btn.classList.remove('copied'); }, 1500);
-  };
   btn.addEventListener('click', () => {
     const src = $(srcId);
     const text = src.value;
     hint('');
     if (text === '') { hint('コピーする内容がありません'); return; }
-    const fallback = () => {
-      src.focus();
-      src.select();
-      let ok = false;
-      try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
-      ok ? done() : hint('選択済みです。Cmd+C でコピーしてください');
-    };
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(done).catch(fallback);
-    } else {
-      fallback();
-    }
+    // 失敗時は出力欄そのものを選択させる（一時 textarea だと実行後に消えて案内が嘘になる）
+    ToolUI.copy(text, { selectEl: src }).then(ok => {
+      if (ok) ToolUI.feedback(btn, '✓ コピー');
+      else hint('選択済みです。Cmd+C でコピーしてください');
+    });
   });
 }
 
@@ -852,11 +832,8 @@ const TABS = [
         } else {
           msg = r.message + '（このブラウザでは位置情報が得られません）';
         }
-        const el = $('json-result');
-        el.className = 'banner banner-error json-error-pos mono';
-        el.setAttribute('role', 'alert'); // ui.css の ARIA 規約
-        el.textContent = msg;
-        el.hidden = false;
+        // 位置表示のため追加クラスを足す（banner() は要素を返すのでそのまま繋げる）
+        ToolUI.banner($('json-result'), 'error', msg).classList.add('json-error-pos', 'mono');
       };
       const jsonTransform = stringify => {
         const text = $('json-in').value;
@@ -1035,13 +1012,7 @@ const TABS = [
 
       // Worker 由来のエラーは guard() の同期 try/catch を通らないので、
       // onerror / onmessage / タイムアウトのすべてを明示的にこのタブのバナーへ流す
-      const fail = (msg) => {
-        const el = tabErrorEl('regex');
-        el.className = 'banner banner-error';
-        el.setAttribute('role', 'alert');
-        el.textContent = msg;
-        el.hidden = false;
-      };
+      const fail = (msg) => { ToolUI.banner(tabErrorEl('regex'), 'error', msg); };
       const makeWorker = () => {
         try {
           const src = 'self.onmessage=function(e){var f=' + runRegexCore.toString() +
@@ -1334,26 +1305,10 @@ const TABS = [
       // 変換結果はクリックでコピー（他タブのコピーボタンとの非対称の解消）
       const clickCopy = text => {
         if (!text) return;
-        const done = () => showResult('time-result', 'コピーしました: ' + text, 'info');
-        const fallback = () => {
-          const ta = document.createElement('textarea');
-          ta.value = text;
-          ta.setAttribute('readonly', '');
-          ta.style.position = 'fixed';
-          ta.style.left = '-9999px';
-          document.body.appendChild(ta);
-          ta.focus();
-          ta.select();
-          let ok = false;
-          try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
-          ta.remove();
-          if (ok) done();
-        };
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(text).then(done).catch(fallback);
-        } else {
-          fallback();
-        }
+        // 成功したときだけ通知する（失敗時は無言。表示中の変換結果を消さないための既存挙動）
+        ToolUI.copy(text).then(ok => {
+          if (ok) showResult('time-result', 'コピーしました: ' + text, 'info');
+        });
       };
       $('time-jst-out').addEventListener('click', () => clickCopy($('time-jst-out').textContent));
       $('time-epoch-out').addEventListener('click', () => clickCopy($('time-epoch-out').textContent));
@@ -1493,11 +1448,9 @@ function restoreState() {
       }
       t.setState(clean);
       if (omitted) {
-        const el = tabErrorEl(t.id);
-        el.className = 'banner banner-info';
-        el.setAttribute('role', 'status'); // ui.css の ARIA 規約（タブエラー枠の流用のため alert から戻す）
-        el.textContent = '前回の入力は大きすぎたため復元されませんでした（保存上限 100KB/フィールド）';
-        el.hidden = false;
+        // タブのエラー枠を復元通知に流用するので、種別を info に戻す（role も一緒に戻る）
+        ToolUI.banner(tabErrorEl(t.id), 'info',
+          '前回の入力は大きすぎたため復元されませんでした（保存上限 100KB/フィールド）');
       }
     } catch (_) { /* 1タブ分の破損は他へ波及させない */ }
   }
