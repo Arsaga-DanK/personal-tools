@@ -101,6 +101,9 @@ button.primary {
 }
 button.copied { color: var(--success); border-color: var(--success); }
 button.primary.copied { background: var(--success); border-color: var(--success); color: var(--accent-text); }
+/* サンプル投入ボタン（ペイン見出しに並ぶ小さいボタン。CM-6）。
+   5ツールで同一定義だったのでここへ集約した（2026-08-07） */
+.sample-btn { font-size: 11px; padding: 1px 8px; margin-left: 6px; }
 
 label.toggle { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
 
