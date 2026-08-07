@@ -79,6 +79,7 @@
   </section>
 </main>
 
+<script src="../lib/ui.js"></script>
 <script src="../lib/storage.js"></script>
 <script>
 'use strict';
@@ -515,7 +516,9 @@ function applyDirectionUI() {
   const ui = DIRECTION_UI[direction];
   $('pane-title-in').textContent = ui.inTitle;
   $('pane-title-out').textContent = ui.outTitle;
-  el.copyBtn.textContent = ui.copyLabel;
+  // コピー結果表示（.copied）中はラベルを奪わない。復帰先は dataset.label が持つ
+  if (!el.copyBtn.classList.contains('copied')) el.copyBtn.textContent = ui.copyLabel;
+  el.copyBtn.dataset.label = ui.copyLabel;
   el.optTrim.disabled = direction === 'md2tsv'; // trim は TSV→MD のみ有効
 }
 
@@ -532,13 +535,12 @@ function saveOpts() {
   });
 }
 
+// このツールだけ**警告の配列**を受け取る（複数の警告を ' / ' で連結して1本のバナーに出す）。
+// 配列→(種別, 文字列) の変換がラッパの仕事で、class と role の決定は共通核が持つ
 function showBanner(warnings) {
   if (warnings.length === 0) { el.banner.hidden = true; return; }
   const hasWarn = warnings.some(w => w.type === 'warn');
-  el.banner.className = 'banner ' + (hasWarn ? 'banner-warn' : 'banner-info');
-  el.banner.setAttribute('role', hasWarn ? 'alert' : 'status'); // ui.css の ARIA 規約
-  el.banner.textContent = warnings.map(w => w.message).join(' / ');
-  el.banner.hidden = false;
+  ToolUI.banner(el.banner, hasWarn ? 'warn' : 'info', warnings.map(w => w.message).join(' / '));
 }
 
 // 入力が逆方向の形式に見えるときの切替提案（自動では反転しない）
@@ -817,16 +819,7 @@ for (const radio of document.querySelectorAll('input[name="direction"]')) {
 
 // コピー: click ハンドラ内で同期的に開始する（Safari のユーザー操作失効対策）。
 // 確実な保険は「選択状態にする」こと。
-let copyTimer = null;
-function copyFeedback() {
-  el.copyBtn.textContent = '✓ コピーしました';
-  el.copyBtn.classList.add('copied');
-  clearTimeout(copyTimer);
-  copyTimer = setTimeout(() => {
-    el.copyBtn.textContent = DIRECTION_UI[direction].copyLabel;
-    el.copyBtn.classList.remove('copied');
-  }, 1500);
-}
+function copyFeedback() { ToolUI.feedback(el.copyBtn, '✓ コピーしました'); }
 
 // copy イベントを横取りして任意 MIME を書き込む execCommand 方式（旧版から移植）。
 // Chrome の navigator.clipboard.write は HTML をサニタイズし
@@ -857,17 +850,13 @@ function copyForExcel(html, tsv) {
   }
   return Promise.reject(new Error('clipboard unavailable'));
 }
+// 出力欄そのものを選択させる（一時 textarea だと実行後に消えて「選択済み」が嘘になる）。
+// 変換警告バナーを潰さないよう、コピー案内は専用表示に出す
 function copySelectFallback() {
-  el.output.focus();
-  el.output.select();
-  let ok = false;
-  try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
-  if (ok) {
-    copyFeedback();
-  } else {
-    // 変換警告バナーを潰さないよう、コピー案内は専用表示に出す
-    el.copyHint.textContent = '出力を選択済みです。Cmd+C でコピーしてください。';
-  }
+  ToolUI.copy(el.output.value, { selectEl: el.output }).then(ok => {
+    if (ok) copyFeedback();
+    else el.copyHint.textContent = '出力を選択済みです。Cmd+C でコピーしてください。';
+  });
 }
 el.copyBtn.addEventListener('click', () => {
   clearTimeout(debounceTimer); // デバウンス中の旧内容コピー防止（同期確定してから書く）
@@ -880,12 +869,12 @@ el.copyBtn.addEventListener('click', () => {
   if (direction === 'md2tsv') {
     // Excel用: text/html + text/plain を同時に書く（execCommand 先行はクリックハンドラ内で同期実行）
     copyForExcel(lastHtml, el.output.value).then(copyFeedback).catch(copySelectFallback);
-  } else if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(el.output.value)
-      .then(copyFeedback)
-      .catch(copySelectFallback);
   } else {
-    copySelectFallback();
+    // 平文（Markdown 出力）は共通核。失敗時は出力欄の選択にフォールバックする
+    ToolUI.copy(el.output.value, { selectEl: el.output }).then(ok => {
+      if (ok) copyFeedback();
+      else el.copyHint.textContent = '出力を選択済みです。Cmd+C でコピーしてください。';
+    });
   }
 });
 

@@ -334,6 +334,33 @@ const shotPath = name => path.join(REPO, '.playwright-mcp', name); // .gitignore
     && multiUi.previewRows === 1 && eq(multiUi.previewHeader, ['A', 'B']),
     JSON.stringify(multiUi));
 
+  /* ========== E2M-C1: コピー表示中に方向を切り替えてもラベルが現在の方向に戻る ==========
+     lib/ui.js への共通化（2026-08-07）で、復帰ラベルを**呼び出し時**に控えると
+     古い方向のラベルに戻る回帰が出た。復帰時点の dataset.label を読むことを固定する */
+  const copyLbl = await page.evaluate(async () => {
+    const btn = document.getElementById('copy-btn');
+    const dir = v => document.querySelector('input[value="' + v + '"]');
+    dir('md2tsv').click();
+    navigator.clipboard.writeText = () => Promise.resolve();
+    const inp = document.getElementById('input');
+    inp.value = '| a |\n|---|\n| 1 |';
+    inp.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise(r => setTimeout(r, 350));
+    btn.click();
+    await new Promise(r => setTimeout(r, 80));
+    const during = btn.textContent;
+    dir('tsv2md').click();                 // ✓ 表示中に方向を戻す
+    const stillFeedback = btn.textContent;
+    await new Promise(r => setTimeout(r, 1600));
+    const out = { during, stillFeedback, restored: btn.textContent, ds: btn.dataset.label };
+    dir('md2tsv').click();   // 後続テストが前提にしている方向へ戻す（状態を残さない）
+    return out;
+  });
+  r.check('E2M-C1（コピー表示中に方向を切り替えても、復帰ラベルは切替後の方向のもの）',
+    copyLbl.during === '✓ コピーしました' && copyLbl.stillFeedback === '✓ コピーしました'
+    && copyLbl.restored === 'Markdownをコピー' && copyLbl.ds === 'Markdownをコピー',
+    JSON.stringify(copyLbl));
+
   /* ========== E2M-P18: MD として認識できない入力 ========== */
   await setInput('ただのテキスト');
   d = await dom();
