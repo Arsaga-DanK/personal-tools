@@ -23,7 +23,7 @@ CLI（`bin/`）は形態として認めているが、まだ1本も無い（→�
 ```
 index.html   ハブ。web/ツール一覧（内部のTOOLS配列に1行足すと追加される）
 web/         ブラウザツール6本。1ツール=1HTML完結
-lib/         web ツールの共通コード。ui.css / storage.js / sql.js の3つだけ
+lib/         web ツールの共通コード。ui.css / ui.js / storage.js / sql.js
 docs/        verification-notes.md（検証の罠）/ ux-backlog.md / tool-backlog.md
 docs/specs/  ツールごとの仕様書兼テストケース（6本）
 test/        検証ハーネス（`./test/run [ツール名]`。書き方は test/README.md）
@@ -61,7 +61,9 @@ test/        検証ハーネス（`./test/run [ツール名]`。書き方は tes
 - 描画は `textContent` / `createElement` / `createElementNS` のみ。
   HTML 文字列の組み立て（`innerHTML` 等）は禁止。
   **SVG は `createElementNS` が必要**（`createElement('svg')` は HTMLUnknownElement になる）
-- クリップボード書き込みは navigator.clipboard → 失敗時 textarea 選択方式にフォールバック
+- クリップボード書き込みは navigator.clipboard → 失敗時 textarea 選択方式にフォールバック。
+  **`lib/ui.js` の `ToolUI.copy` / `ToolUI.banner` を使う**（バナーの class と role の規約、
+  コピーのフォールバックと復帰表示はここが正本。ツール固有の引数はラッパで吸収する）
 - 変換系 UI の標準形: 2ペイン（入力/出力）、リアルタイム変換、コピーボタン、
   不正入力でも落ちず警告表示して最善の出力を出す
 - 完成したら index.html の TOOLS 配列に登録する
