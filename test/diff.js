@@ -9,7 +9,7 @@
 
    クリップボードは壊さない: navigator.clipboard.writeText をスタブして出力だけ捕捉する。 */
 
-const { launch, fileUrl, createRunner, eq } = require('./helpers');
+const { launch, fileUrl, createRunner, eq, bannerIs } = require('./helpers');
 
 (async () => {
   const r = createRunner();
@@ -199,11 +199,13 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
   });
   await page.waitForTimeout(1200); // 大きな入力はデバウンス後の描画まで余裕をとる
   const u11 = await ui();
+  // バナーの種別は helpers の bannerIs（class だけでなく role と算出背景色まで見る）
+  const b11 = await bannerIs(page, '#banner', 'warn');
   r.check('DIFF-11（片側50,001行で比較中止・差分ペイン空・warn バナー）',
     u11.viewEmpty && u11.summary === ''
     && u11.banner === '入力が上限（合計500万文字・片側5万行）を超えたため比較を中止しました'
-    && u11.bannerClass.includes('banner-warn'),
-    JSON.stringify([u11.viewEmpty, u11.summary, u11.banner]));
+    && b11.ok,
+    JSON.stringify([u11.viewEmpty, u11.summary, u11.banner, b11.detail]));
   await setInputs('', '');
 
   /* ========== DIFF-08 の UI 面: フォールバック時の警告バナー ========== */
@@ -211,9 +213,10 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
   for (let i = 0; i < 5000; i++) { fbA.push('old ' + i); fbB.push('new ' + i); }
   await setInputs(fbA.join('\n'), fbB.join('\n'), 2500);
   const uFb = await ui();
+  const bFb = await bannerIs(page, '#banner', 'warn');
   r.check('DIFF-08-UI（フォールバック時に警告バナー・黙って劣化しない）',
     uFb.banner === '差分が大きすぎるため中間部を一括の変更として表示しています'
-    && uFb.bannerClass.includes('banner-warn'), JSON.stringify([uFb.banner, uFb.bannerClass]));
+    && bFb.ok, JSON.stringify([uFb.banner, bFb.detail]));
   await setInputs('', '');
 
   /* ========== DIFF-Q2: オプションの永続化と復元 ========== */

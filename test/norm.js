@@ -10,7 +10,7 @@
    クリップボードは壊さない: navigator.clipboard.writeText をスタブして出力だけ捕捉する。
    エクスポートも実ダウンロードさせず、URL.createObjectURL に渡る Blob を捕捉する。 */
 
-const { launch, fileUrl, createRunner, eq } = require('./helpers');
+const { launch, fileUrl, createRunner, eq, bannerIs } = require('./helpers');
 
 // 不可視文字・紛らわしい文字はコードポイントで組む（ソースへの実文字混入と誤読を防ぐ）
 const KUMIMOJI = '㌔㈱';          // ㌔㈱
@@ -192,11 +192,12 @@ const ALL_OFF = {
   /* ========== NORM-15: 性能ガード ========== */
   await setInput('x'.repeat(1000001), 900);
   const u15 = await ui();
+  const b15 = await bannerIs(page, '#banner', 'warn');   // class だけでなく role と算出背景色も
   r.check('NORM-15（100万文字超で処理中止・出力空・warn バナー）',
     u15.outputText === '' && u15.summary === ''
     && u15.banner === '入力が上限（100万文字）を超えたため処理を中止しました'
-    && u15.bannerClass.includes('banner-warn'),
-    JSON.stringify([u15.outputText.length, u15.summary, u15.banner]));
+    && b15.ok,
+    JSON.stringify([u15.outputText.length, u15.summary, u15.banner, b15.detail]));
   await setInput('');
 
   /* ========== ハイライト省略（64KB 超） ========== */

@@ -9,7 +9,7 @@
 
    クリップボードは壊さない: navigator.clipboard.writeText をスタブして出力だけ捕捉する。 */
 
-const { launch, fileUrl, createRunner, eq } = require('./helpers');
+const { launch, fileUrl, createRunner, eq, bannerIs } = require('./helpers');
 
 const TAB_IDS = ['json', 'xml', 'sql', 'escape', 'url', 'base64', 'regex', 'base', 'time', 'uuid', 'count'];
 
@@ -116,10 +116,12 @@ const TAB_IDS = ['json', 'xml', 'sql', 'escape', 'url', 'base64', 'regex', 'base
     return { hidden: b.hidden, text: b.textContent, cls: b.className,
       raw: document.getElementById('url-raw').value };
   });
+  // 種別の検査は helpers の bannerIs（class だけでなく role と算出背景色まで見る）
+  const bUrl = await bannerIs(page, '#url-result', 'error');
   r.check('URL デコード失敗（専用のエラーバナー文言・出力は変えない）',
     urlBad.hidden === false && urlBad.raw === ''
     && urlBad.text === 'デコード失敗: 不正なパーセントエンコーディングです'
-    && urlBad.cls.includes('banner-error'), JSON.stringify(urlBad));
+    && bUrl.ok, JSON.stringify([urlBad, bUrl.detail]));
 
   /* ========== DEV-09: カウント ========== */
   const d09 = await page.evaluate(() => window.devpad.countText('abcあいう\n123'));
@@ -176,10 +178,11 @@ const TAB_IDS = ['json', 'xml', 'sql', 'escape', 'url', 'base64', 'regex', 'base
     return { hidden: b.hidden, text: b.textContent, cls: b.className,
       raw: document.getElementById('esc-raw').value };
   });
+  const bEsc = await bannerIs(page, '#esc-result', 'error');
   r.check('アンエスケープ失敗（エラーバナーに理由が出る・出力は変えない）',
     escBad.hidden === false && escBad.raw === ''
     && escBad.text.startsWith('アンエスケープ失敗: ')
-    && escBad.cls.includes('banner-error'), JSON.stringify(escBad));
+    && bEsc.ok, JSON.stringify([escBad, bEsc.detail]));
 
   /* ========== UI ヘルパー ========== */
   const toTab = async (id) => {
@@ -233,11 +236,12 @@ const TAB_IDS = ['json', 'xml', 'sql', 'escape', 'url', 'base64', 'regex', 'base
   await toTab('json');
   const jsonKept = await page.inputValue('#json-in');
   const jsonErrStill = await banner('json-result');
+  const bJson = await bannerIs(page, '#json-result', 'error');
   r.check('DEV-12（JSON のエラーが URL タブに波及しない・入力は残る）',
-    jsonErr.hidden === false && jsonErr.cls.includes('banner-error')
+    jsonErr.hidden === false && bJson.ok
     && urlOut === '%E3%81%82' && urlBanner.hidden === true
     && jsonKept === '{' && jsonErrStill.hidden === false,
-    JSON.stringify([jsonErr.text.slice(0, 30), urlOut, urlBanner.hidden, jsonKept]));
+    JSON.stringify([jsonErr.text.slice(0, 30), urlOut, urlBanner.hidden, jsonKept, bJson.detail]));
 
   // JSON エラー表示の内容（位置＋該当行＋キャレット。存在ではなく文字列を照合）
   await setVal('json-in', '{\n"a": 1,\n}');
@@ -492,12 +496,13 @@ const TAB_IDS = ['json', 'xml', 'sql', 'escape', 'url', 'base64', 'regex', 'base
       resultHidden: document.getElementById('json-result').hidden,
     };
   });
+  // エラー枠の流用なので info 表示・role=status に戻っていること（ui.css の ARIA 規約）
+  const bRestored = await bannerIs(page, '#tab-json [data-tab-error]', 'info');
   r.check('DEV-Q3（omitted マーカーは空欄復元＋注記。古いデータを黙って復活させない）',
     bigRestore && restored.jsonIn === '' && restored.bannerHidden === false
     && restored.banner === '前回の入力は大きすぎたため復元されませんでした（保存上限 100KB/フィールド）'
-    // エラー枠の流用なので info 表示・role=status に戻っていること（ui.css の ARIA 規約）
-    && restored.cls.includes('banner-info') && restored.role === 'status',
-    JSON.stringify(restored));
+    && bRestored.ok,
+    JSON.stringify([restored, bRestored.detail]));
 
   /* ========== DEV-17: activeTab が不正値なら json にフォールバック ========== */
   await page.evaluate(() => {

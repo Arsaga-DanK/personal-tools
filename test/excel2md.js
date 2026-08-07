@@ -8,7 +8,7 @@
    仕様の正本は docs/specs/excel2md.md。期待値を変えるときは spec を先に直す。 */
 
 const path = require('path');
-const { launch, fileUrl, createRunner, eq, REPO } = require('./helpers');
+const { launch, fileUrl, createRunner, eq, REPO, bannerIs } = require('./helpers');
 
 const SHOTS = process.argv.includes('--shots');
 const shotPath = name => path.join(REPO, '.playwright-mcp', name); // .gitignore 済み
@@ -327,12 +327,13 @@ const shotPath = name => path.join(REPO, '.playwright-mcp', name); // .gitignore
       previewHeader: Array.from(document.querySelectorAll('#preview thead tr:nth-child(2) th')).map(t => t.textContent),
     };
   });
+  const bR09 = await bannerIs(page, '#banner', 'info');   // class だけでなく role と算出背景色も
   r.check('E2M-R09-UI（バナー文言・出力とプレビューが1つ目の表だけ）',
     multiUi.banner === '最初の表のみ変換しました（2つ目以降の表は無視されます）'
-    && multiUi.cls.includes('banner-info')
+    && bR09.ok
     && multiUi.output === 'A\tB\n1\t2'
     && multiUi.previewRows === 1 && eq(multiUi.previewHeader, ['A', 'B']),
-    JSON.stringify(multiUi));
+    JSON.stringify([multiUi, bR09.detail]));
 
   /* ========== E2M-C1: コピー表示中に方向を切り替えてもラベルが現在の方向に戻る ==========
      lib/ui.js への共通化（2026-08-07）で、復帰ラベルを**呼び出し時**に控えると

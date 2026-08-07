@@ -895,17 +895,20 @@ const F5 = [
 
   const INV = '# tasks\n\n## PEW\n\n- [ ] 逆転 🛫 2026-08-10 📅 2026-08-01\n';
   const p13 = await plan(INV, { showDone: true });
+  // 種別の検査は helpers の bannerIs（class だけでなく role と算出背景色まで見る）
+  const b13 = await bannerIs(page, '#tl-note', 'warn');
   r.check('TB-P13（📅 < 🛫 は1日バーに丸めて件数を警告する）',
     p13.model.invalidCount === 1 && p13.model.items[0].hasDue === false
     && p13.model.items[0].end === '2026-08-10' && p13.bars.length === 1
-    && p13.bars[0].width === '16px' && p13.noteWarn === true
+    && p13.bars[0].width === '16px' && b13.ok
     && p13.note.includes('1件のタスクで期限が開始日より前です'),
-    JSON.stringify([p13.model.invalidCount, p13.bars[0].width, p13.note]));
+    JSON.stringify([p13.model.invalidCount, p13.bars[0].width, p13.note, b13.detail]));
 
   // 性能ガード: 超過時は「一部のみ表示」ではなく理由を出し、コピーも拒否する
   const manyRows = ['# tasks', '', '## PEW', ''];
   for (let i = 1; i <= 201; i++) manyRows.push('- [ ] r' + i + ' 🛫 2026-08-01 📅 2026-08-05');
   const p14rows = await plan(manyRows.join('\n') + '\n', { showDone: true });
+  const b14 = await bannerIs(page, '#tl-note', 'warn');   // 次の plan が上書きする前に測る
   // ガードは**描画ピクセル幅**で判定する（Phase T4・TB-Q50）。
   // 日ズームで上限 20,000px に届くのは約1,250日なので、1,308日離れた2行で発動させる
   const FAR = '# tasks\n\n## PEW\n\n- [ ] 古 🛫 2026-01-01 📅 2026-01-02\n' +
@@ -921,7 +924,7 @@ const F5 = [
   });
   r.check('TB-P14（行数/描画幅の上限超過で描画せず理由を出す・コピーも拒否）',
     p14rows.model.guard && p14rows.model.guard.reason === 'rows' && p14rows.bars.length === 0
-    && p14rows.note.includes('対象が201件（上限200件）') && p14rows.noteWarn === true
+    && p14rows.note.includes('対象が201件（上限200件）') && b14.ok
     && p14days.model.guard && p14days.model.guard.reason === 'px' && p14days.bars.length === 0
     && p14days.note.includes('表示期間が長すぎて') && p14days.note.includes('ズーム: 日')
     && p14days.note.includes('ズームを「月」に')     // 対処を案内する
