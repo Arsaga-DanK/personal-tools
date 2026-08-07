@@ -2675,6 +2675,51 @@ const F5 = [
     p32 === 'month' && p32restored === 'month' && p32fallback === 'day',
     JSON.stringify([p32, p32restored, p32fallback]));
 
+  /* --- 吹き出しの位置と差分日数（Phase T5・TB-P43〜P44） --- */
+  // ドラッグ中の吹き出しを読む（pointerup せずに測る）
+  const tipDuring = async (lineNo, dx, where) => {
+    const bar = page.locator('.tl-bar[data-line="' + lineNo + '"]');
+    const box = await bar.boundingBox();
+    const y = box.y + box.height / 2;
+    const x = where === 'left' ? box.x + 3
+      : (where === 'right' ? box.x + box.width - 3
+        : (box.width < 21 ? box.x + 3 : box.x + box.width / 2));
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + dx, y, { steps: 6 });
+    const out = await page.evaluate(() => {
+      const t = document.querySelector('.tl-drag-tip');
+      const bar = document.querySelector('.tl-bar.tl-dragging');
+      const tr = t.getBoundingClientRect(), br = bar.getBoundingClientRect();
+      return { text: t.textContent, below: t.classList.contains('tl-drag-tip-below'),
+        tipBottom: Math.round(tr.bottom), barTop: Math.round(br.top),
+        tipTop: Math.round(tr.top), barBottom: Math.round(br.bottom) };
+    });
+    await page.keyboard.press('Escape');   // 変更を残さない
+    await page.mouse.up();
+    return out;
+  };
+
+  await tl(F10);
+  const p43top = await tipDuring(5, 48, 'center');    // セクション直下の1行目
+  const p43mid = await tipDuring(9, 48, 'center');    // 同じセクションの2行目
+  r.check('TB-P43（見出し直下の行では吹き出しをバーの下に出す・それ以外は上）',
+    p43top.below === true && p43top.tipTop >= p43top.barBottom
+    && p43mid.below === false && p43mid.tipBottom <= p43mid.barTop,
+    JSON.stringify([p43top, p43mid]));
+
+  await tl(F10);
+  const p44move = await tipDuring(9, 48, 'center');   // 📅 なしのバーを平行移動（+3日）
+  await tl(F10);
+  const p44start = await tipDuring(5, -32, 'left');   // 開始日を2日戻す
+  await tl(F10);
+  const p44due = await tipDuring(5, 32, 'right');     // 期限を2日進める
+  r.check('TB-P44（差分日数をモードごとの言葉で併記する）',
+    p44move.text.includes('+3日ずらす')
+    && p44start.text.includes('開始 -2日') && p44start.text.includes('🛫 2026-07-30')
+    && p44due.text.includes('期限 +2日') && p44due.text.includes('📅 2026-08-07'),
+    JSON.stringify([p44move.text, p44start.text, p44due.text]));
+
   /* --- ズームの可否（Phase T5・TB-P40〜P42） --- */
   const zoomOpts = (text) => page.evaluate(([t, today]) => {
     window.taskboard.test.setToday(today);

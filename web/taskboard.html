@@ -80,6 +80,8 @@
   .tl-bar-text { position: relative; }
   .tl-drag-tip { position: absolute; top: -19px; z-index: 4; font-size: 11px; white-space: nowrap;
     background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; }
+  /* 上がセクション見出しの行では帯に重なるので下に出す（判定は JS 側） */
+  .tl-drag-tip.tl-drag-tip-below { top: 22px; }
   /* セクション見出し行（折り畳める） */
   /* 見出しの帯はラベル列から続けて塗る（.tl-label は sticky のため独自の背景を持つ） */
   .tl-section, .tl-section .tl-label { background: var(--th-bg); }
@@ -2066,6 +2068,14 @@ function attachBarDrag(bar, it, model, z, barW) {
       newStart: it.start, newDue: it.hasDue ? it.due : null,
       origLeft: bar.style.left, origWidth: bar.style.width,
     };
+    // 吹き出しは既定でバーの上に出すが、**上がセクション見出しなら帯に重なる**ので下に出す
+    // （ポップオーバーのクランプと同じ「出せない側なら反対側へ」の考え方。ただし吹き出しは
+    //   トラック内の絶対配置なので、ビューポート座標ではなく**直上の要素**で判定する）
+    const row = bar.parentNode.parentNode;               // .tl-bar → .tl-track → .tl-row
+    const prev = row.previousElementSibling;
+    if (!prev || !prev.classList.contains('tl-row') || prev.classList.contains('tl-section')) {
+      tip.classList.add('tl-drag-tip-below');
+    }
     try { bar.setPointerCapture(e.pointerId); } catch (_) {}
     bar.classList.add('tl-dragging');
     paintDrag(tlDrag);
@@ -2107,14 +2117,29 @@ function computeDragDates(d) {
   d.newDue = u;
 }
 
+// 何日動かしたかを添える。**モードごとに何の差分かが変わる**ので言葉も変える
+// （クランプされた場合も「実際に動いた分」が出る。要求値ではなく結果を書く）
+function dragDelta(d) {
+  if (d.mode === 'due') {
+    if (!d.newDue) return 0;
+    return diffDays(d.due || d.start, d.newDue);
+  }
+  return diffDays(d.start, d.newStart);
+}
+const DELTA_LABEL = { move: 'ずらす', start: '開始', due: '期限' };
 function paintDrag(d) {
   const end = d.newDue || d.newStart;
   const left = diffDays(d.from, d.newStart) * d.px;
   d.bar.style.left = left + 'px';
   d.bar.style.width = Math.max(d.px, (diffDays(d.newStart, end) + 1) * d.px) + 'px';
   d.tip.style.left = left + 'px';
+  const n = dragDelta(d);
+  const delta = n === 0 ? '' : (d.mode === 'move'
+    ? '・' + (n > 0 ? '+' : '') + n + '日' + DELTA_LABEL.move
+    : '・' + DELTA_LABEL[d.mode] + ' ' + (n > 0 ? '+' : '') + n + '日');
   d.tip.textContent = '🛫 ' + d.newStart +
-    (d.newDue ? ' → 📅 ' + d.newDue + '（' + (diffDays(d.newStart, d.newDue) + 1) + '日）' : '（期限なし）');
+    (d.newDue ? ' → 📅 ' + d.newDue + '（' + (diffDays(d.newStart, d.newDue) + 1) + '日）' : '（期限なし）') +
+    delta;
 }
 
 function closeDrag(d) {
