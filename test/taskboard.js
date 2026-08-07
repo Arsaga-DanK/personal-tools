@@ -2017,7 +2017,7 @@ const F5 = [
   r.check('TB-F11（検索語は永続化しない）', f11.q === '' && f11.savedHasQ === false,
     JSON.stringify(f11));
 
-  /* --- TB-F13〜F15: 検索でヒットしたメモの自動展開（Phase T5・2026-08-07） --- */
+  /* --- TB-F13〜F18: 検索でヒットしたメモの自動展開（Phase T5・2026-08-07） --- */
   const memoRows = () => page.evaluate(() =>
     Array.from(document.querySelectorAll('#task-table tbody tr.memo-row')).map(tr => tr.textContent.trim()));
 
@@ -2055,6 +2055,42 @@ const F5 = [
       .find(x => x.dataset.line === '5');
     tr.querySelector('.memo-mark').click();
   });
+
+  /* --- ボードでのメモ自動展開（Phase T5b・TB-F16〜F18） --- */
+  const cardMemos = () => page.evaluate(() =>
+    Array.from(document.querySelectorAll('.board-card .card-memo')).map(x => x.textContent.trim()));
+
+  await setView('board');
+  const f16before = await cardMemos();
+  const f16 = await searchIn('board', '仕様書');
+  const f16after = await cardMemos();
+  const f16hit = await page.evaluate(() =>
+    document.querySelectorAll('.board-card .card-memo .hit').length);
+  r.check('TB-F16（ボードでもメモが自動展開し、ハイライトも効く）',
+    f16before.length === 0 && f16after.length === 1
+    && f16after[0].includes('仕様書のレビュー待ち') && f16hit >= 1
+    && eq(f16.rows, [5]),
+    JSON.stringify([f16before, f16after, f16hit, f16.rows]));
+
+  await searchIn('board', '');
+  const f17 = await cardMemos();
+  r.check('TB-F17（ボードでも検索をやめると自動展開分が畳まれる）',
+    f17.length === 0, JSON.stringify(f17));
+
+  // リストとボードを往復しても展開状態が壊れない（同じ memoOpen を見ている）
+  await searchIn('board', '仕様書');
+  const f18board = await cardMemos();
+  await page.evaluate(() => window.__sF.setView('list'));
+  const f18list = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('#task-table tbody tr.memo-row')).map(x => x.textContent.trim()));
+  await page.evaluate(() => window.__sF.setView('board'));
+  const f18back = await cardMemos();
+  await searchIn('board', '');
+  r.check('TB-F18（リストとボードを往復しても展開状態が壊れない）',
+    f18board.length === 1 && f18list.length === 1 && f18back.length === 1
+    && f18list[0].includes('仕様書のレビュー待ち'),
+    JSON.stringify([f18board, f18list, f18back]));
+  await setView('list');   // 後続テストはリスト前提（状態を残さない）
 
   // TB-F12: 検索中のアーカイブ確認に「（検索で絞り込み中）」が付く（8/3 の事故と同じ型を防ぐ）
   const f12 = await withDialogs('dismiss', () => page.evaluate(async ([f1, today]) => {

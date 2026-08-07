@@ -130,6 +130,9 @@
   .card-body { word-break: break-word; }
   .card-meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
     margin-top: 5px; font-size: 12px; }
+  /* 展開されたメモ（検索の自動展開・リストでの手動展開が反映される） */
+  .card-memo { margin-top: 4px; font-size: 12px; color: var(--muted);
+    border-left: 2px solid var(--border); padding-left: 6px; word-break: break-word; }
   .card-kids { margin-top: 5px; font-size: 12px; }
   .card-kid { padding: 2px 0 2px 14px; color: var(--muted); word-break: break-word; }
   .card-kid:hover { color: var(--accent); }
@@ -1766,6 +1769,22 @@ function renderCard(t, today, q) {
     body.appendChild(m);
   }
   card.appendChild(body);
+
+  /* 展開されているメモはカードにも出す（Phase T5b）。
+     検索でメモが一致した行は memoOpen に入る（自動展開）ので、ボードでも
+     **なぜヒットしたのかが読める**。リスト側で手動展開したメモもここに出る
+     （同じ memoOpen を見るので、リストとボードを往復しても状態がずれない）。
+     ハイライトはリストと同じ appendHighlighted を通す */
+  if (t.memo.length && state.memoOpen.has(t.line)) {
+    const box = document.createElement('div');
+    box.className = 'card-memo';
+    for (const line of t.memo) {
+      const p = document.createElement('div');
+      appendHighlighted(p, line, q);
+      box.appendChild(p);
+    }
+    card.appendChild(box);
+  }
 
   const meta = document.createElement('div');
   meta.className = 'card-meta';
