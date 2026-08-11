@@ -2188,6 +2188,56 @@ const F5 = [
     r8.ok === true && r8.collide === false && new Set(r8.ids).size >= 29,
     JSON.stringify([r8.ids.slice(0, 3), r8.ok, r8.collide]));
 
+  /* ========== TB-R9・R13・R17: 依存グラフ（純関数・Phase T6-2） ========== */
+  const graph = (text) => page.evaluate(f => window.taskboard.test.depGraph(f), text);
+
+  // 重複 id: Tasks は「その id を持つ全部に依存」だが、図にすると意味が読めないので描かない
+  const r9 = await graph(['# tasks', '', '## PEW', '',
+    '- [ ] A 🆔 dup001', '- [ ] B 🆔 dup001', '- [ ] C ⛔ dup001', ''].join('\n'));
+  r.check('TB-R9（重複 id は辺にせず duplicateIds に出す）',
+    eq(r9.duplicateIds, ['dup001']) && r9.edges.length === 0 && r9.unresolved === 1,
+    JSON.stringify(r9));
+
+  // 未解決: 存在しない id への依存（他ファイルのタスクを参照している可能性があるので原文は消さない）
+  const r9b = await graph(['# tasks', '', '## PEW', '',
+    '- [ ] A 🆔 aaa111', '- [ ] B ⛔ aaa111,nope99', ''].join('\n'));
+  r.check('TB-R9b（存在しない id は unresolved に数え、解決できる分だけ辺にする）',
+    r9b.unresolved === 1 && eq(r9b.edges, [[5, 6]]) && r9b.cycle === null,
+    JSON.stringify(r9b));
+
+  const r13a = await graph(['# tasks', '', '## PEW', '',
+    '- [ ] A 🆔 a1 ⛔ b1', '- [ ] B 🆔 b1 ⛔ a1', ''].join('\n'));
+  const r13b = await graph(['# tasks', '', '## PEW', '',
+    '- [ ] A 🆔 a1 ⛔ c1', '- [ ] B 🆔 b1 ⛔ a1', '- [ ] C 🆔 c1 ⛔ b1', ''].join('\n'));
+  const r13c = await graph(['# tasks', '', '## PEW', '',
+    '- [ ] A 🆔 a1 ⛔ a1', ''].join('\n'));
+  r.check('TB-R13（循環を検出する: 直接 A↔B・間接 A→B→C→A・自己参照）',
+    !!r13a.cycle && !!r13b.cycle && !!r13c.cycle
+    && r13c.cycle.length >= 2 && r13c.cycle[0] === 'A',
+    JSON.stringify([r13a.cycle, r13b.cycle, r13c.cycle]));
+
+  // 5値化との整合: どちらかが finished（完了・中止）なら関係は効かない。保留は効く
+  const r17 = await graph(['# tasks', '', '## PEW', '',
+    '- [x] 済 🆔 s1 ✅ 2026-08-01',   //  5
+    '- [-] 中止 🆔 s2',               //  6
+    '- [h] 保留 🆔 s3',               //  7
+    '- [ ] 後続1 ⛔ s1',              //  8（先行が完了 → 効かない）
+    '- [ ] 後続2 ⛔ s2',              //  9（先行が中止 → 効かない）
+    '- [ ] 後続3 ⛔ s3',              // 10（先行が保留 → 効く）
+    '- [x] 済の後続 ⛔ s3 ✅ 2026-08-02', // 11（自分が完了 → 効かない）
+    '', ''].join('\n'));
+  r.check('TB-R17（完了・中止が絡む関係は効かない・保留は効く＝finished と一致）',
+    eq(r17.edges, [[5, 8], [6, 9], [7, 10], [7, 11]])
+    && eq(r17.live, [[7, 10]]) && eq(r17.blocked, [10]),
+    JSON.stringify(r17));
+
+  const many = ['# tasks', '', '## PEW', '', '- [ ] 親 🆔 root1'];
+  for (let i = 0; i < 61; i++) many.push('- [ ] 子' + i + ' ⛔ root1');
+  const r14 = await graph(many.join('\n') + '\n');
+  r.check('TB-R14（矢印が上限 60 を超えるとガードに出る）',
+    r14.live.length === 61 && r14.guard && r14.guard.reason === 'arrows'
+    && r14.guard.limit === 60, JSON.stringify(r14.guard));
+
   /* ========== TB-S20〜S36: ステータス（Phase T2 の3値 ＋ Phase T3 の保留・中止） ========== */
   // F7 の9行目は Phase T3 から「中止（CANCELLED）」。真の不明・保留は F9 で見る
   const F7 = [

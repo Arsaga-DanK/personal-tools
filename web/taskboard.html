@@ -930,6 +930,83 @@ function parseDoc(lines) {
   return { tasks, sections };
 }
 
+/* ---------- 依存グラフ: 純関数（Phase T6・DOM も I/O も触らない） ----------
+   Tasks の意味（公式で確認）:
+     blocked  = 自分が TODO/IN_PROGRESS/ON_HOLD かつ、依存先のいずれかも同じ
+     blocking = 自分が TODO/IN_PROGRESS/ON_HOLD かつ、自分に依存するタスクのいずれかも同じ
+     「リンクのどちらかの端が DONE / CANCELLED / NON_TASK なら blocking は起きない」
+   **これは本ツールの finished（done か cancelled）とちょうど一致する**ので、
+   Phase T3 の派生フラグをそのまま使う（新しい判定を足さない）。 */
+const MAX_TL_ARROWS = 60;   // 矢印の本数の上限（超過時は矢印だけ描かない）
+
+function depGraph(rows) {
+  const byId = new Map();          // id → タスク（重複は配列で持つ）
+  for (const t of rows) {
+    if (!t.id) continue;
+    if (!byId.has(t.id)) byId.set(t.id, []);
+    byId.get(t.id).push(t);
+  }
+  const duplicateIds = [];
+  for (const [id, list] of byId) if (list.length > 1) duplicateIds.push(id);
+
+  // 辺（先行 → 後続）。**依存先が見つからないものは unresolved に回す**
+  const edges = [];
+  let unresolved = 0;
+  for (const t of rows) {
+    for (const id of t.dependsOn) {
+      const from = byId.get(id);
+      if (!from || from.length !== 1) { unresolved++; continue; }
+      edges.push({ from: from[0], to: t, id: id });
+    }
+  }
+
+  // 循環検出（white/gray/black の DFS）。**再帰ではなく明示スタック**で深さを気にしない。
+  // 自己参照（⛔ に自分の id）もここで循環として拾える
+  const state = new Map();         // line → 0:white 1:gray 2:black
+  const next = new Map();          // line → 後続タスクの配列
+  for (const e of edges) {
+    if (!next.has(e.from.line)) next.set(e.from.line, []);
+    next.get(e.from.line).push(e.to);
+  }
+  let cycle = null;
+  for (const t of rows) {
+    if (state.get(t.line) === 2 || cycle) continue;
+    const stack = [{ t: t, i: 0, path: [t] }];
+    state.set(t.line, 1);
+    while (stack.length && !cycle) {
+      const top = stack[stack.length - 1];
+      const kids = next.get(top.t.line) || [];
+      if (top.i >= kids.length) {
+        state.set(top.t.line, 2);
+        stack.pop();
+        continue;
+      }
+      const k = kids[top.i++];
+      const st = state.get(k.line) || 0;
+      if (st === 1) {                                   // gray に戻った = 循環
+        const at = top.path.findIndex(x => x.line === k.line);
+        const loop = (at >= 0 ? top.path.slice(at) : [k]).concat([k]);
+        cycle = loop.map(x => x.displayBody || x.body || ('行' + x.line));
+        break;
+      }
+      if (st === 0) {
+        state.set(k.line, 1);
+        stack.push({ t: k, i: 0, path: top.path.concat([k]) });
+      }
+    }
+  }
+
+  // 表示する辺は「効いている関係」だけ（どちらかが finished なら Tasks でも blocking しない）
+  const live = edges.filter(e => !e.from.finished && !e.to.finished);
+  // blocked = 自分が未終了で、未終了の先行を持つ
+  const blocked = new Set(live.map(e => e.to.line));
+  return {
+    edges, live, blocked, duplicateIds, unresolved, cycle,
+    guard: live.length > MAX_TL_ARROWS
+      ? { reason: 'arrows', count: live.length, limit: MAX_TL_ARROWS } : null,
+  };
+}
+
 /* ---------- 計画ビュー（タイムライン）のモデル: 純関数 ---------- */
 
 const MAX_TIMELINE_ROWS = 200;   // 対象タスク数の上限（超過時は描画しない）
@@ -3499,6 +3576,16 @@ window.taskboard = {
     timelineModel: timelineModel,
     // id 発行はランダムなので、テストからは「形式と衝突しないこと」を見る
     newId: (text) => newId(toLines(text)),
+    depGraph: (text) => {
+      const g = depGraph(parseDoc(toLines(text)).tasks);
+      return {
+        edges: g.edges.map(e => [e.from.line, e.to.line]),
+        live: g.live.map(e => [e.from.line, e.to.line]),
+        blocked: Array.from(g.blocked),
+        duplicateIds: g.duplicateIds, unresolved: g.unresolved,
+        cycle: g.cycle, guard: g.guard,
+      };
+    },
     parse: (text) => {
       const doc = parseDoc(toLines(text));
       return {
