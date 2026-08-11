@@ -1405,6 +1405,7 @@ const F5 = [
         }
         for (const b of document.querySelectorAll('#modal-tag-list .chip-del')) b.click();
         for (const b of document.querySelectorAll('#modal-link-list .chip-del')) b.click();
+        for (const b of document.querySelectorAll('#modal-dep-list .chip-del')) b.click();
       },
     };
   });
@@ -2117,6 +2118,79 @@ const F5 = [
     inp.dispatchEvent(new InputEvent('input', { bubbles: true }));
   });
   await page.waitForTimeout(300);
+
+  /* ========== TB-R15・R16: モーダルの依存欄（Phase T6-4） ==========
+     F14: 親子＋相互依存の候補がある fixture */
+  const F14 = [
+    '# tasks', '', '## PEW', '',
+    '- [ ] 要件定義 🆔 aa1',     //  5
+    '- [ ] 基本設計',            //  6（id なし → 依存を張ると発行される）
+    '\t- [ ] 子の設計',          //  7（6 の子孫）
+    '- [ ] 詳細設計 ⛔ aa1',     //  8（5 に依存 → 5 から見ると「自分に依存している」）
+    '', '',
+  ].join('\n');
+
+  const r15 = await page.evaluate(([f14, today]) => {
+    window.taskboard.test.setToday(today);
+    const s = window.taskboard.test.newSession(f14);
+    s.setView('list');
+    window.__h.openEdit('基本設計');
+    const opts6 = Array.from(document.getElementById('modal-dep-select').options)
+      .map(o => o.textContent);
+    document.getElementById('modal-cancel').click();
+    window.__h.openEdit('要件定義');
+    const opts5 = Array.from(document.getElementById('modal-dep-select').options)
+      .map(o => o.textContent);
+    document.getElementById('modal-cancel').click();
+    window.__h.openEdit('詳細設計');
+    const chips8 = window.__h.chips('modal-dep-list');
+    document.getElementById('modal-cancel').click();
+    return { opts6, opts5, chips8 };
+  }, [F14, TODAY]);
+  r.check('TB-R15（自分・子孫・自分に依存しているタスクは選べない・既存の依存はチップに出る）',
+    // 「基本設計」からは自分と子（子の設計）が消える
+    !r15.opts6.some(o => o.includes('基本設計')) && !r15.opts6.some(o => o.includes('子の設計'))
+    && r15.opts6.some(o => o.includes('要件定義')) && r15.opts6.some(o => o.includes('詳細設計'))
+    // 「要件定義」からは、自分に依存している「詳細設計」が消える（直接循環の予防）
+    && !r15.opts5.some(o => o.includes('詳細設計')) && !r15.opts5.some(o => o.includes('要件定義'))
+    // 既存の依存はチップで出る
+    && eq(r15.chips8, ['要件定義']),
+    JSON.stringify(r15));
+
+  const r16 = await page.evaluate(([f14, today]) => {
+    window.taskboard.test.setToday(today);
+    const s = window.taskboard.test.newSession(f14);
+    s.setView('list');
+    window.__h.openEdit('詳細設計');
+    // 「基本設計」（id なし）を先行に足す → id が発行される
+    const sel = document.getElementById('modal-dep-select');
+    const opt = Array.from(sel.options).find(o => o.textContent.includes('基本設計'));
+    sel.value = opt.value;
+    document.getElementById('modal-dep-add').click();
+    const chips = window.__h.chips('modal-dep-list');
+    document.getElementById('modal-save').click();
+    return { chips, text: s.getText() };
+  }, [F14, TODAY]);
+  const r16lines = r16.text.split('\n');
+  r.check('TB-R16（依存を足すと先行に id が発行され、⛔ に両方の id が入る）',
+    eq(r16.chips, ['要件定義', '基本設計'])
+    && /^- \[ \] 基本設計 🆔 [a-z0-9]{6}$/.test(r16lines[5])
+    && /^- \[ \] 詳細設計 ⛔ aa1,[a-z0-9]{6}$/.test(r16lines[7]),
+    JSON.stringify([r16.chips, r16lines[5], r16lines[7]]));
+
+  // 解除して保存すると ⛔ が消える（バイト同一に戻る）
+  const r16b = await page.evaluate(([f14, today]) => {
+    window.taskboard.test.setToday(today);
+    const s = window.taskboard.test.newSession(f14);
+    s.setView('list');
+    window.__h.openEdit('詳細設計');
+    document.querySelector('#modal-dep-list .chip-del').click();
+    document.getElementById('modal-save').click();
+    return s.getText();
+  }, [F14, TODAY]);
+  r.check('TB-R16b（依存を解除すると ⛔ が消える）',
+    r16b.split('\n')[7] === '- [ ] 詳細設計'
+    && onlyChanged(r16b, F14, [8]), JSON.stringify(r16b.split('\n')[7]));
 
   /* ========== TB-R1〜R8: 依存関係の記法とバイト保全（Phase T6・2026-08-12） ==========
      記法は Obsidian Tasks の標準。トークン順は 本文 → 🆔 → ⛔ → 優先度 → 🛫 → 📅 → ✅ */

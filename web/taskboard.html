@@ -306,6 +306,16 @@
           <label>期限 <input type="date" id="modal-due"></label>
         </div>
       </div>
+      <div class="mf"><span>依存（先行タスク）</span>
+        <div class="mf-body">
+          <div class="row-btns" id="modal-dep-list"></div>
+          <div class="row-btns">
+            <select id="modal-dep-select"></select>
+            <button type="button" id="modal-dep-add">追加</button>
+            <span class="muted" id="modal-dep-note" style="font-size:12px"></span>
+          </div>
+        </div>
+      </div>
       <div class="mf"><span>関連ノート</span>
         <div class="mf-body">
           <div class="row-btns" id="modal-link-list"></div>
@@ -3237,6 +3247,54 @@ function refreshModalTags() {
     refreshModalTags();
   });
 }
+/* 依存欄（Phase T6）。**id ではなく行番号で持つ**ので、id 未設定の先行タスクも選べる。
+   選択肢から外すのは「自分・自分の子孫・自分に依存しているタスク」（直接循環の予防）。
+   祖先は外さない（親子関係は依存関係ではないので、親を先行にするのは循環にならない）。 */
+function depLinesOf(t) {
+  const out = [];
+  for (const id of t.dependsOn) {
+    const hit = state.doc.tasks.filter(x => x.id === id);
+    if (hit.length === 1) out.push(hit[0].line);   // 重複・未解決はチップにしない（原文は保つ）
+  }
+  return out;
+}
+function descendantLines(t, out) {
+  for (const c of t.children) { out.push(c.line); descendantLines(c, out); }
+  return out;
+}
+function refreshModalDeps() {
+  const lineOfName = (line) => {
+    const x = state.doc.tasks.find(y => y.line === line);
+    return x ? (x.displayBody || x.body || ('行' + line)) : ('行' + line);
+  };
+  renderModalChips('modal-dep-list', modalState.deps.map(lineOfName), (i) => {
+    modalState.deps.splice(i, 1);
+    refreshModalDeps();
+  });
+  // 選択肢
+  const sel = el('modal-dep-select');
+  const me = modalState.line;
+  const self = me === null ? null : state.doc.tasks.find(x => x.line === me);
+  const banned = new Set(modalState.deps);
+  if (me !== null) banned.add(me);
+  if (self) for (const l of descendantLines(self, [])) banned.add(l);
+  // 自分に依存しているタスク（＝自分が先行）を選ぶと直接循環になる
+  if (self && self.id) {
+    for (const x of state.doc.tasks) if (x.dependsOn.includes(self.id)) banned.add(x.line);
+  }
+  const opts = state.doc.tasks.filter(x => !banned.has(x.line) && !x.hasCR);
+  sel.textContent = '';
+  for (const x of opts) {
+    const o = document.createElement('option');
+    o.value = String(x.line);
+    o.textContent = (x.displayBody || x.body || ('行' + x.line)) +
+      (x.section ? '（' + x.section + '）' : '');
+    sel.appendChild(o);
+  }
+  el('modal-dep-add').disabled = opts.length === 0;
+  el('modal-dep-note').textContent = opts.length === 0
+    ? '選べる先行タスクがありません（自分・子孫・自分に依存しているタスクは選べません）' : '';
+}
 function refreshModalLinks() {
   renderModalChips('modal-link-list', modalState.links.map(l => '[[' + l + ']]'), (i) => {
     modalState.links.splice(i, 1);
@@ -3250,6 +3308,7 @@ function readModal() {
     memo: el('modal-memo').value.replace(/\s+$/, ''),
     tags: modalState.tags.slice(),
     links: modalState.links.slice(),
+    deps: modalState.deps.slice(),
     section: el('modal-section').value,
     start: el('modal-start').value,
     due: el('modal-due').value,
@@ -3284,6 +3343,9 @@ function openTaskModal(mode, t, opts) {
     // 新規は前回値（記憶したセクションが無ければ先頭へフォールバック）。編集は既存値
     tags: mode === 'edit' ? t.tags.slice() : (a.tags || []).slice(),
     links: mode === 'edit' ? t.links.slice() : [],
+    // 依存は id ではなく**行番号**で持つ（id が無い先行タスクも選べるようにするため。
+    // 保存時に id が無ければその場で発行する）
+    deps: mode === 'edit' ? depLinesOf(t) : [],
   };
   el('modal-title').textContent = mode === 'edit' ? 'タスクを編集' : 'タスクを追加';
   el('modal-content').value = mode === 'edit' ? modalContentOf(t) : '';
@@ -3294,6 +3356,7 @@ function openTaskModal(mode, t, opts) {
   el('modal-due').value = mode === 'edit' ? (t.due || '') : a.due;
   el('modal-pri').value = mode === 'edit' ? (t.priority || '') : a.priority;
   refreshModalTags();
+  refreshModalDeps();
   refreshModalLinks();
   el('modal-tag-input').value = '';
   el('modal-link-input').value = '';
@@ -3362,6 +3425,23 @@ function saveModal() {
   if (v.due !== a.due) ops.push({ type: 'setDue', line, date: v.due || null });
   if (v.priority !== a.priority) ops.push({ type: 'setPriority', line, value: v.priority || null });
   if (v.memo !== a.memo) ops.push({ type: 'setMemo', line, text: v.memo });
+  /* 依存（Phase T6）。行番号で持っているので、**id が無い先行タスクにはその場で発行する**。
+     id 発行は先行タスク側の行を書き換えるので setDependsOn より前に出す
+     （行番号は変わらないので順序の危険はない。行を動かすのは moveSection だけ） */
+  if (JSON.stringify(v.deps) !== JSON.stringify(a.deps)) {
+    const ids = [];
+    for (const dl of v.deps) {
+      const from = state.doc.tasks.find(x => x.line === dl);
+      if (!from) continue;
+      let id = from.id;
+      if (!id) {
+        id = newId(state.lines);
+        ops.push({ type: 'setId', line: dl, id: id });
+      }
+      ids.push(id);
+    }
+    ops.push({ type: 'setDependsOn', line, ids: ids });
+  }
   if (v.section !== a.section) ops.push({ type: 'moveSection', line, section: v.section });
   if (!ops.length) { closeModal(); return; }
   for (const op of ops) if (!applyUiOp(op)) return;
@@ -3411,6 +3491,12 @@ const addModalLink = (name) => {
   el('modal-link-input').value = '';
   refreshModalLinks();
 };
+el('modal-dep-add').addEventListener('click', () => {
+  const v = Number(el('modal-dep-select').value);
+  if (!v || modalState.deps.includes(v)) return;
+  modalState.deps.push(v);
+  refreshModalDeps();
+});
 el('modal-link-add').addEventListener('click', () => addModalLink());
 el('modal-link-today').addEventListener('click', () => addModalLink(todayStr()));
 el('modal-link-input').addEventListener('keydown', (e) => {
