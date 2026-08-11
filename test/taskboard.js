@@ -2118,6 +2118,76 @@ const F5 = [
   });
   await page.waitForTimeout(300);
 
+  /* ========== TB-R1〜R8: 依存関係の記法とバイト保全（Phase T6・2026-08-12） ==========
+     記法は Obsidian Tasks の標準。トークン順は 本文 → 🆔 → ⛔ → 優先度 → 🛫 → 📅 → ✅ */
+  const F12 = [
+    '# tasks', '', '## PEW', '',
+    '- [ ] 要件定義 🆔 aaa111',                              //  5
+    '- [ ] 基本設計 ⛔ aaa111 ⏫ 🛫 2026-08-05 📅 2026-08-10', //  6
+    '- [ ] 詳細設計 ⛔ aaa111, bbb222',                       //  7（空白あり・複数）
+    '- [ ] 資料Rv #144 📅 2026-08-05 ⏫',                     //  8（非標準順）
+    '', '',
+  ].join('\n');
+
+  const r1 = await page.evaluate(f => window.taskboard.test.parse(f).tasks
+    .map(t => [t.line, t.id, t.dependsOn, t.body]), F12);
+  r.check('TB-R1（🆔 と ⛔ を読む・空白ありの複数依存・本文から除去される）',
+    eq(r1, [[5, 'aaa111', [], '要件定義'], [6, null, ['aaa111'], '基本設計'],
+      [7, null, ['aaa111', 'bbb222'], '詳細設計'], [8, null, [], '資料Rv #144']]),
+    JSON.stringify(r1));
+
+  const r2 = await ops(F12, [{ type: 'setId', line: 6, id: 'ccc333' }]);
+  r.check('TB-R2（🆔 は ⛔・優先度・🛫・📅 のうち最も前の直前に入る）',
+    lineOf(r2, 6) === '- [ ] 基本設計 🆔 ccc333 ⛔ aaa111 ⏫ 🛫 2026-08-05 📅 2026-08-10'
+    && onlyChanged(r2, F12, [6]), JSON.stringify(lineOf(r2, 6)));
+
+  const r3 = await ops(F12, [{ type: 'setDependsOn', line: 5, ids: ['zzz999'] }]);
+  r.check('TB-R3（⛔ は 🆔 の後・優先度の前に入る）',
+    lineOf(r3, 5) === '- [ ] 要件定義 🆔 aaa111 ⛔ zzz999' && onlyChanged(r3, F12, [5]),
+    JSON.stringify(lineOf(r3, 5)));
+
+  const r4 = await ops(F12, [
+    { type: 'setId', line: 8, id: 'ddd444' },
+    { type: 'setDependsOn', line: 8, ids: ['aaa111'] },
+  ]);
+  r.check('TB-R4（非標準順の行でも ⏫ の位置は動かない＝バイト保全優先）',
+    lineOf(r4, 8) === '- [ ] 資料Rv #144 🆔 ddd444 ⛔ aaa111 📅 2026-08-05 ⏫'
+    && onlyChanged(r4, F12, [8]), JSON.stringify(lineOf(r4, 8)));
+
+  const r5a = await ops(F12, [
+    { type: 'setId', line: 8, id: 'ddd444' },
+    { type: 'setDependsOn', line: 8, ids: ['aaa111'] },
+  ]);
+  const r5 = await ops(r5a, [
+    { type: 'setDependsOn', line: 8, ids: [] },
+    { type: 'setId', line: 8, id: null },
+  ]);
+  r.check('TB-R5（追加 → 削除の往復でバイト同一）', r5 === F12,
+    JSON.stringify(r5 === F12 ? '' : lineOf(r5, 8)));
+
+  const r6a = await ops(F12, [{ type: 'setDependsOn', line: 7, ids: ['aaa111'] }]);
+  const r6b = await ops(F12, [{ type: 'setDependsOn', line: 7, ids: [] }]);
+  const r6c = await ops(F12, [{ type: 'setDependsOn', line: 6, ids: ['aaa111', 'bbb222', 'ccc333'] }]);
+  r.check('TB-R6（複数依存: 1件へ減らす・全解除・3件へ増やす。位置は不変）',
+    lineOf(r6a, 7) === '- [ ] 詳細設計 ⛔ aaa111'
+    && lineOf(r6b, 7) === '- [ ] 詳細設計'
+    && lineOf(r6c, 6) === '- [ ] 基本設計 ⛔ aaa111,bbb222,ccc333 ⏫ 🛫 2026-08-05 📅 2026-08-10',
+    JSON.stringify([lineOf(r6a, 7), lineOf(r6b, 7), lineOf(r6c, 6)]));
+
+  const r7 = await ops(F12, [{ type: 'editContent', line: 6, text: '基本設計 改' }]);
+  r.check('TB-R7（本文編集で再構成した行が Tasks 標準順になる: 本文 → 🆔 → ⛔ → 優先度 → 🛫 → 📅）',
+    lineOf(r7, 6) === '- [ ] 基本設計 改 ⛔ aaa111 ⏫ 🛫 2026-08-05 📅 2026-08-10',
+    JSON.stringify(lineOf(r7, 6)));
+
+  const r8 = await page.evaluate(f => {
+    const ids = [];
+    for (let i = 0; i < 30; i++) ids.push(window.taskboard.test.newId(f));
+    return { ids, ok: ids.every(x => /^[a-z0-9]{6}$/.test(x)), collide: ids.includes('aaa111') };
+  }, F12);
+  r.check('TB-R8（id は [a-z0-9]{6} で、ファイル内の既存 id と衝突しない）',
+    r8.ok === true && r8.collide === false && new Set(r8.ids).size >= 29,
+    JSON.stringify([r8.ids.slice(0, 3), r8.ok, r8.collide]));
+
   /* ========== TB-S20〜S36: ステータス（Phase T2 の3値 ＋ Phase T3 の保留・中止） ========== */
   // F7 の9行目は Phase T3 から「中止（CANCELLED）」。真の不明・保留は F9 で見る
   const F7 = [

@@ -360,6 +360,31 @@ const START_SET  = /(🛫\uFE0F? )\d{4}-\d{2}-\d{2}/;   // 日付部分のみ置
 // （Obsidian 側で付いた ⏳ の前に 🛫 を入れないと Tasks 標準順が壊れる）
 const SCHED_CUT  = / ?⏳\uFE0F? \d{4}-\d{2}-\d{2}/;
 
+/* ---------- 依存関係（Phase T6・2026-08-12） ----------
+   記法は Obsidian Tasks の標準（公式ドキュメントとプラグインのソースで確認）:
+     🆔 <id>            … このタスクの id
+     ⛔ <id>,<id>       … 依存する（先行する）タスクの id。**カンマ区切り・空白は任意で可**
+   id の文字は [A-Za-z0-9_-]+。**vault 全体で一意が意図されるが Tasks は検査しない**
+   （重複するとその id を持つ全タスクに依存する）。
+   トークン順は `src/Layout/TaskLayoutOptions.ts` の TaskLayoutComponent enum で確認:
+     Description → **Id → DependsOn** → Priority → 🔁 → 🏁 → ➕ → 🛫 → ⏳ → 📅 → ❌ → ✅
+   （公式ドキュメントには id が「行末に置かれる」という記述もあるが、**行を書き出している
+     ソースの enum を採用する** — enum のコメントが「書き出し順を決める」と明言している） */
+const ID_FIND  = /🆔\uFE0F? ([A-Za-z0-9_-]+)/;
+const ID_CUT   = / ?🆔\uFE0F? [A-Za-z0-9_-]+/;
+const DEP_FIND = /⛔\uFE0F? ([A-Za-z0-9_-]+(?:\s*,\s*[A-Za-z0-9_-]+)*)/;
+const DEP_CUT  = / ?⛔\uFE0F? [A-Za-z0-9_-]+(?:\s*,\s*[A-Za-z0-9_-]+)*/;
+const ID_CHARS = 'abcdefghijklmnopqrstuvwxyz0123456789';
+const ID_LEN = 6;          // 観測例（4ijuhy / dcf64c）に合わせる。公式は生成規則を明記していない
+const ID_TRIES = 20;       // 衝突したら引き直す回数（実運用では1回目で決まる）
+
+// `⛔ a, b` → ['a','b']（空白は任意なので落とす）
+function parseDeps(text) {
+  const m = DEP_FIND.exec(text);
+  if (!m) return [];
+  return m[1].split(',').map(x => x.trim()).filter(Boolean);
+}
+
 /* ---------- ステータス（Phase T2・2026-08-06 / Phase T3 で保留・中止を追加） ----------
    記法は Obsidian Tasks の Status Types（公式）に従う。独自記法は作らない:
      [ ]=TODO / [/]=IN_PROGRESS / [h]=ON_HOLD / [x]=DONE / [-]=CANCELLED / [~]=NON_TASK
@@ -497,13 +522,81 @@ function opEditContent(lines, lineNo, text) {
   const due  = (DUE_FIND.exec(t.rest)  || [])[1] || null;
   const done = (DONE_FIND.exec(t.rest) || [])[1] || null;
   const pri  = (PRI_RE.exec(t.rest)    || [])[0] || null;
+  const id   = (ID_FIND.exec(t.rest)   || [])[1] || null;
+  const deps = parseDeps(t.rest);
   let rest = nfc(text).trim();
+  // Tasks 標準順（ソースの enum）: 本文 → 🆔 → ⛔ → 優先度 → 🛫 → 📅 → ✅
+  if (id)         rest += ' 🆔 ' + id;
+  if (deps.length) rest += ' ⛔ ' + deps.join(',');
   if (pri)   rest += ' ' + pri;
   if (start) rest += ' 🛫 ' + start;
   if (due)   rest += ' 📅 ' + due;
   if (done)  rest += ' ✅ ' + done;
   setRest(t, rest);
 }
+/* 🆔 と ⛔ の設定（Phase T6）。挿入位置は**標準順の位置にある「最も前のメタトークン」の直前**。
+   「最初にマッチした正規表現の前」で決めてはいけない（既存行のトークン順が非標準でも
+   矯正しないのがこのツールの方針で、F1 の13行目のような `📅 … ⏫` で位置を誤る。
+   タグ挿入（opSetTags）で同じ罠を踏んで直した実績があるので、同じ書き方に揃える）。
+   既存があれば**その位置のまま値だけ差し替える**（バイト保全）。 */
+function insertBefore(rest, token, cuts) {
+  let at = rest.length;
+  for (const re of cuts) {
+    const m = re.exec(rest);
+    if (m) at = Math.min(at, m.index);
+  }
+  return rest.slice(0, at) + ' ' + token + rest.slice(at);
+}
+function opSetId(lines, lineNo, id) {
+  const t = taskAt(lines, lineNo);
+  let rest = t.rest;
+  if (id === null || id === '') {
+    rest = rest.replace(ID_CUT, '');
+  } else if (!/^[A-Za-z0-9_-]+$/.test(id)) {
+    throw new Error('id に使えない文字があります（英数字・_・- のみ）: ' + id);
+  } else if (ID_FIND.test(rest)) {
+    rest = rest.replace(/(🆔\uFE0F? )[A-Za-z0-9_-]+/, '$1' + id);   // 位置不変
+  } else {
+    rest = insertBefore(rest.trimEnd(), '🆔 ' + id,
+      [DEP_CUT, PRI_CUT, START_CUT, SCHED_CUT, DUE_CUT, DONE_CUT]);
+  }
+  setRest(t, rest.trimEnd());
+}
+function opSetDependsOn(lines, lineNo, ids) {
+  const t = taskAt(lines, lineNo);
+  const want = (ids || []).map(x => String(x).trim()).filter(Boolean);
+  for (const id of want) {
+    if (!/^[A-Za-z0-9_-]+$/.test(id)) throw new Error('id に使えない文字があります: ' + id);
+  }
+  let rest = t.rest;
+  if (want.length === 0) {
+    rest = rest.replace(DEP_CUT, '');
+  } else if (DEP_FIND.test(rest)) {
+    rest = rest.replace(DEP_CUT, ' ⛔ ' + want.join(','));   // 位置不変（トークンごと差し替え）
+  } else {
+    rest = insertBefore(rest.trimEnd(), '⛔ ' + want.join(','),
+      [PRI_CUT, START_CUT, SCHED_CUT, DUE_CUT, DONE_CUT]);
+  }
+  setRest(t, rest.trimEnd());
+}
+
+// ファイル内で衝突しない id を作る（vault 全体は見られないので**開いているファイル内**だけ）
+function newId(lines) {
+  const used = new Set();
+  for (const l of lines) {
+    const m = ID_FIND.exec(l.raw);
+    if (m) used.add(m[1]);
+  }
+  for (let i = 0; i < ID_TRIES; i++) {
+    let id = '';
+    for (let k = 0; k < ID_LEN; k++) {
+      id += ID_CHARS[Math.floor(Math.random() * ID_CHARS.length)];
+    }
+    if (!used.has(id)) return id;
+  }
+  throw new Error('id を発行できませんでした（衝突が続きました）');
+}
+
 // 指定セクションの末尾（最終タスク行の直後。子孫を含む）へ block を挿入する。
 // タスクが無いセクションは見出しの直後に空行1つを挟む（既存の体裁に合わせる）。
 // 新規追加（opAddTask）とセクション移動（opMoveSection）で**同じ規則**を使う
@@ -735,6 +828,8 @@ function runOp(lines, op, today) {
     case 'setStatus':   opSetStatus(lines, op.line, op.status, today); break;
     case 'setDue':      opSetDue(lines, op.line, op.date === undefined ? null : op.date); break;
     case 'setStart':    opSetStart(lines, op.line, op.date === undefined ? null : op.date); break;
+    case 'setId':       opSetId(lines, op.line, op.id === undefined ? null : op.id); break;
+    case 'setDependsOn': opSetDependsOn(lines, op.line, op.ids); break;
     case 'setPriority': opSetPriority(lines, op.line, op.value === undefined ? null : op.value); break;
     case 'editContent': opEditContent(lines, op.line, op.text); break;
     case 'addTask':     opAddTask(lines, op); break;
@@ -790,11 +885,14 @@ function parseDoc(lines) {
     if (!m) continue; // タスク以外はパススルー行（解釈も破壊もしない）
     const indent = m[1].length, rest = m[3];
     const priEmoji = (PRI_RE.exec(rest) || [])[0] || null;
+    // 本文からメタトークンを落とす。**🆔 と ⛔ も生の絵文字を画面に出さない**（Phase T6）
     let body = rest
       .replace(new RegExp(DONE_CUT.source, 'g'), '')
       .replace(new RegExp(DUE_CUT.source, 'g'), '')
       .replace(new RegExp(START_CUT.source, 'g'), '')
       .replace(new RegExp(PRI_CUT.source, 'g'), '')
+      .replace(new RegExp(DEP_CUT.source, 'g'), '')
+      .replace(new RegExp(ID_CUT.source, 'g'), '')
       .trim();
     const tags = tagsOf(body);
     const links = [];
@@ -813,6 +911,8 @@ function parseDoc(lines) {
       finished: isFinished(statusOf(m[2])),
       body,
       displayBody: body.replace(/ ?\[\[[^\]]+\]\]/g, '').replace(/\s+/g, ' ').trim(),
+      id: (ID_FIND.exec(rest) || [])[1] || null,
+      dependsOn: parseDeps(rest),
       start: (START_FIND.exec(rest) || [])[1] || null,
       due: (DUE_FIND.exec(rest) || [])[1] || null,
       doneDate: (DONE_FIND.exec(rest) || [])[1] || null,
@@ -3397,12 +3497,15 @@ window.taskboard = {
   test: {
     applyOps: applyOpsPure,
     timelineModel: timelineModel,
+    // id 発行はランダムなので、テストからは「形式と衝突しないこと」を見る
+    newId: (text) => newId(toLines(text)),
     parse: (text) => {
       const doc = parseDoc(toLines(text));
       return {
         sections: doc.sections,
         tasks: doc.tasks.map(t => ({
           line: t.line, indent: t.indent, done: t.done, finished: t.finished,
+          id: t.id, dependsOn: t.dependsOn,
           status: t.status, statusChar: t.statusChar, body: t.body,
           displayBody: t.displayBody, start: t.start, due: t.due, doneDate: t.doneDate,
           priority: t.priority, tags: t.tags, links: t.links,
