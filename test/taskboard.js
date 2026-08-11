@@ -2119,6 +2119,73 @@ const F5 = [
   });
   await page.waitForTimeout(300);
 
+  /* ========== TB-R18・R19: 印と完了時の警告（Phase T6-5） ========== */
+  const F15 = [
+    '# tasks', '', '## PEW', '',
+    '- [ ] 要件定義 🆔 aa1',                          //  5（先行・未完了）
+    '- [ ] 基本設計 ⛔ aa1',                          //  6（blocked）
+    '- [x] 済みの先行 🆔 bb2 ✅ 2026-08-01',           //  7
+    '- [ ] 済みに依存 ⛔ bb2',                        //  8（効いていない＝blocked ではない）
+    '', '',
+  ].join('\n');
+
+  const r18 = await page.evaluate(([f15, today]) => {
+    window.taskboard.test.setToday(today);
+    const cb = document.getElementById('f-done');
+    cb.checked = true; cb.dispatchEvent(new Event('change', { bubbles: true }));
+    const s = window.taskboard.test.newSession(f15);
+    s.setView('list');
+    const markOf = (body) => {
+      const tr = Array.from(document.querySelectorAll('#task-table tbody tr'))
+        .find(x => x.children[1] && x.children[1].textContent.includes(body));
+      const m = tr.querySelector('.dep-mark');
+      return m ? { text: m.textContent, blocked: m.classList.contains('dep-blocked'), title: m.title } : null;
+    };
+    const list = { blocked: markOf('基本設計'), free: markOf('済みに依存'), none: markOf('要件定義') };
+    s.setView('board');
+    const cardMark = (body) => {
+      const c = Array.from(document.querySelectorAll('.board-card'))
+        .find(x => x.textContent.includes(body));
+      const m = c.querySelector('.dep-mark');
+      return m ? { text: m.textContent, blocked: m.classList.contains('dep-blocked') } : null;
+    };
+    const board = { blocked: cardMark('基本設計'), free: cardMark('済みに依存') };
+    s.setView('list');
+    return { list, board };
+  }, [F15, TODAY]);
+  r.check('TB-R18（リストとボードに ⛔N の印。blocked だけ警告色）',
+    r18.list.blocked.text === '⛔1' && r18.list.blocked.blocked === true
+    && r18.list.blocked.title.includes('先行タスクが終わっていません')
+    && r18.list.free.text === '⛔1' && r18.list.free.blocked === false
+    && r18.list.none === null
+    && r18.board.blocked.blocked === true && r18.board.free.blocked === false,
+    JSON.stringify(r18));
+
+  const r19 = await page.evaluate(([f15, today]) => {
+    window.taskboard.test.setToday(today);
+    const cb = document.getElementById('f-done');
+    cb.checked = true; cb.dispatchEvent(new Event('change', { bubbles: true }));
+    const s = window.taskboard.test.newSession(f15);
+    s.setView('list');
+    const rowOf = (body) => Array.from(document.querySelectorAll('#task-table tbody tr'))
+      .find(x => x.children[1] && x.children[1].textContent.includes(body));
+    rowOf('基本設計').querySelector('input[type="checkbox"]').click();
+    const b = document.getElementById('banner');
+    const warned = { text: b.textContent, cls: b.className, line: s.getText().split('\n')[5] };
+    // 効いていない依存（先行が完了）なら警告しない
+    rowOf('済みに依存').querySelector('input[type="checkbox"]').click();
+    const b2 = document.getElementById('banner');
+    // hideBanner は hidden を立てるだけで textContent は残るので、**表示状態で見る**
+    return { warned, free: { hidden: b2.hidden, text: b2.hidden ? '' : b2.textContent } };
+  }, [F15, TODAY]);
+  r.check('TB-R19（先行が未完了のまま完了にしたら警告するが止めない・効いていない依存では警告しない）',
+    r19.warned.text.includes('先行タスク1件が終わっていないまま完了にしました')
+    && r19.warned.text.includes('要件定義')
+    && r19.warned.cls.includes('banner-warn')
+    && /^- \[x\] 基本設計 ⛔ aa1 ✅ /.test(r19.warned.line)   // 止めない（完了になっている）
+    && r19.free.hidden === true && r19.free.text === '',
+    JSON.stringify(r19));
+
   /* ========== TB-R15・R16: モーダルの依存欄（Phase T6-4） ==========
      F14: 親子＋相互依存の候補がある fixture */
   const F14 = [

@@ -67,6 +67,9 @@
      決めるため、見出し行も同じ高さでなければ位置がずれる（DOM は測らない方針） */
   .tl-row { height: 24px; box-sizing: border-box; }
   .tl-section .tl-label { display: flex; align-items: center; padding-top: 0; padding-bottom: 0; }
+  /* 依存の印（リスト・ボード）。blocked（先行が未終了）なら警告色にする */
+  .dep-mark { font-size: 11px; color: var(--muted); margin-left: 4px; white-space: nowrap; }
+  .dep-mark.dep-blocked { color: var(--warn-border); font-weight: 600; }
   /* 依存関係の矢印。バーのドラッグを奪わないよう pointer-events を持たせない。
      ラベル列（z-index 2）より下に敷いて、矢印がラベルの上を通らないようにする */
   .tl-arrows { position: absolute; left: 0; top: 0; z-index: 1; pointer-events: none; }
@@ -279,7 +282,7 @@
     <label class="mf"><span>メモ</span>
       <textarea id="modal-memo" spellcheck="false" placeholder="任意。複数行可（tasks.md ではタスクの下の箇条書きになります）"></textarea></label>
     <details id="modal-more">
-      <summary>詳細（すべて任意） — タグ・セクション・開始日・期限・優先度・関連ノート</summary>
+      <summary>詳細（すべて任意） — タグ・セクション・開始日・期限・優先度・依存・関連ノート</summary>
       <div class="mf"><span>タグ</span>
         <div class="mf-body">
           <div class="row-btns" id="modal-tag-list"></div>
@@ -1964,6 +1967,8 @@ function renderCard(t, today, q) {
   if (STATUS_MARK[t.status]) body.appendChild(document.createTextNode(STATUS_MARK[t.status] + ' '));
   else if (t.status === ST_OTHER) body.appendChild(document.createTextNode('[' + t.statusChar + '] '));
   appendHighlighted(body, t.displayBody || t.body || '(内容なし)', q);
+  const dmc = depMark(t);
+  if (dmc) body.appendChild(dmc);
   if (t.memo.length) {
     const m = document.createElement('span');
     m.className = 'muted';
@@ -2282,6 +2287,31 @@ function renderTlSectionHead(g) {
   label.appendChild(btn);
   row.appendChild(label);
   return row;
+}
+
+/* 依存の印（Phase T6）。タイムラインに 🛫 の無いタスクは図に出ないので、
+   **依存があること自体がタイムラインだけでは分からない**（TB-Q54）。
+   数字は**関係の総数**（効いていない＝先行が終わっている関係も含む。記法として
+   書かれている事実は隠さない）。色を変えるのは blocked のときだけ。 */
+// まだ終わっていない先行タスクの名前（警告の文言に出す）
+function unfinishedPredecessors(t) {
+  const g = state.depGraph;
+  if (!g) return [];
+  return g.live.filter(e => e.to.line === t.line)
+    .map(e => e.from.displayBody || e.from.body || ('行' + e.from.line));
+}
+
+function depMark(t) {
+  if (!t.dependsOn.length) return null;
+  const g = state.depGraph;
+  const blocked = !!(g && g.blocked.has(t.line));
+  const span = document.createElement('span');
+  span.className = 'dep-mark' + (blocked ? ' dep-blocked' : '');
+  span.textContent = '⛔' + t.dependsOn.length;
+  span.title = blocked
+    ? '先行タスクが終わっていません（' + t.dependsOn.length + '件の依存）'
+    : '依存 ' + t.dependsOn.length + '件（先行はすべて終わっています）';
+  return span;
 }
 
 /* 依存関係の矢印（Phase T6）。**SVG を createElementNS で作る**
@@ -2818,7 +2848,18 @@ function renderRow(t, today) {
   cb.disabled = t.hasCR;
   cb.addEventListener('change', () => {
     const completing = cb.checked;
+    // blocked（先行が終わっていない）まま完了にしたら**警告するが止めない**（TB-Q55）。
+    // Obsidian Tasks 自身も止めも警告もしないので**記法の意味を変えない**。
+    // 8/3 のアーカイブ事故の教訓は「無言で通さない」であって「禁止する」ではない。
+    // 判定は op を出す前に取る（適用後は状態が変わって blocked ではなくなる）
+    const blockedNow = completing && !!(state.depGraph && state.depGraph.blocked.has(t.line));
+    const pending = blockedNow ? unfinishedPredecessors(t) : [];
     applyUiOp({ type: completing ? 'complete' : 'uncomplete', line: t.line });
+    if (pending.length) {
+      showBanner('warn', '先行タスク' + pending.length + '件が終わっていないまま完了にしました（' +
+        pending.slice(0, 2).join('・') + (pending.length > 2 ? ' ほか' : '') + '）');
+      return;
+    }
     // 「終了を含む」OFF では行が即座に消えるため、削除と誤解されない案内を出す
     if (completing && !state.ui.showDone) {
       showBanner('info', '完了にしました。完了行は「終了を含む」を ON にすると表示されます（ファイルへは保存時に反映）');
@@ -2849,6 +2890,8 @@ function renderRow(t, today) {
   appendHighlighted(span, t.displayBody || t.body || '(内容なし)',
     nfc(state.ui.q || '').trim().toLowerCase());
   tdBody.appendChild(span);
+  const dm = depMark(t);
+  if (dm) tdBody.appendChild(dm);
   // メモを持つ行の印。クリックで直下に展開／折り畳み（展開状態は永続化しない）
   if (t.memo.length) {
     const mk = document.createElement('button');
