@@ -63,6 +63,15 @@
     font-size: 11px; color: var(--muted); white-space: nowrap; border-left: 1px solid var(--border); }
   .tl-rows { position: relative; }
   .tl-track { height: 24px; }
+  /* **すべての行の高さを 24px に固定する**（Phase T6）。矢印の Y をモデル側の累算で
+     決めるため、見出し行も同じ高さでなければ位置がずれる（DOM は測らない方針） */
+  .tl-row { height: 24px; box-sizing: border-box; }
+  .tl-section .tl-label { display: flex; align-items: center; padding-top: 0; padding-bottom: 0; }
+  /* 依存関係の矢印。バーのドラッグを奪わないよう pointer-events を持たせない。
+     ラベル列（z-index 2）より下に敷いて、矢印がラベルの上を通らないようにする */
+  .tl-arrows { position: absolute; left: 0; top: 0; z-index: 1; pointer-events: none; }
+  .tl-arrow { fill: none; stroke: var(--muted); stroke-width: 1.2; }
+  .tl-arrow-blocked { stroke: var(--warn-border); stroke-width: 1.6; }
   .tl-bar { position: absolute; top: 3px; height: 18px; border-radius: 4px; box-sizing: border-box;
     font-size: 11px; line-height: 16px; padding: 0 4px; overflow: hidden;
     white-space: nowrap; cursor: grab; }
@@ -1018,6 +1027,7 @@ const DAY_PX = 16;               // 1日あたりの幅（日ズーム。1ヶ月
 const TL_TODAY_NEAR = 31;        // today をこの日数以内なら表示範囲に含める
 const TL_PAD_DAYS = 3;           // 表示範囲の余白
 const TL_LABEL_W = 260;          // 行ラベル列の幅（sticky で固定する）
+const TL_ROW_H = 24;             // 1行の高さ（CSS と一致させる。矢印の Y を累算で出すため）
 
 /* ズーム（Phase T4・TB-Q49）。**スナップ単位をズームに合わせる** —
    月ズームは 1日 = 1.6px なので1日スナップでは掴めない（日単位の微調整は
@@ -1096,6 +1106,7 @@ function timelineModel(rows, today, dayPx) {
     items.push({
       line: t.line, indent: t.indent, body: t.displayBody || t.body || '(内容なし)',
       done: t.done, finished: t.finished, status: t.status,
+      id: t.id, dependsOn: t.dependsOn,          // 依存の矢印が使う（Phase T6）
       section: t.section || '', start: t.start, due: t.due,
       end, hasDue, inverted, state: kind, hasCR: !!t.hasCR,   // CR 行はドラッグさせない
       days: hasDue ? diffDays(t.start, t.due) + 1 : null, // 両端含む。📅 なしは null
@@ -1222,6 +1233,7 @@ const state = {
   archiveAdapter: null, archiveHandle: null,
   timeline: null,    // 直近の timelineModel（Excel 用コピーが参照する。リスト時は null）
   boardCols: null,   // 直近に描画したボードの列（キーボード移動が同じ集合を見るため）
+  depGraph: null,    // 直近の依存グラフ（リスト・ボードの印と完了時の警告が参照する）
   // メモ・ボードの子タスクの展開状態。**永続化しない**
   // （行番号は編集で動くため、保存すると別の行が開く）
   memoOpen: new Set(),
@@ -1729,6 +1741,9 @@ function render() {
   const collect = (t) => { if (t._vis) rows.push(t); for (const c of t.children) collect(c); };
   for (const g of groups) collect(g);
   state.visibleRows = rows;
+  // 依存グラフは**表示中の行全体**から作る（🛫 が無くて図に出ない行も含める。
+  // リスト・ボードの印と完了時の警告も同じグラフを見る）
+  state.depGraph = depGraph(rows);
 
   const tbody = el('task-body');
   tbody.textContent = '';
@@ -2151,11 +2166,27 @@ function renderTimeline() {
     rowsEl.appendChild(line);
   }
   // セクションごとにまとめ、見出し行を挟む（Phase T4）。
-  // **items に現れないセクションは見出しも出さない**（空の帯が並ぶのを防ぐ）
+  // **items に現れないセクションは見出しも出さない**（空の帯が並ぶのを防ぐ）。
+  // 行の Y は**描いた順の累算**で決める（DOM を測らない。CSS 側で全行 24px に固定してある）
+  const rowY = new Map();
+  let y = 0;
   for (const g of tlSections(model.items)) {
     rowsEl.appendChild(renderTlSectionHead(g));
+    y += TL_ROW_H;
     if (state.tlClosed.has(g.name)) continue;
-    for (const it of g.items) rowsEl.appendChild(renderTlRow(it, model, z, today));
+    for (const it of g.items) {
+      rowsEl.appendChild(renderTlRow(it, model, z, today));
+      rowY.set(it.line, y + TL_ROW_H / 2);
+      y += TL_ROW_H;
+    }
+  }
+  const arrowNote = renderArrows(rowsEl, model, z, rowY, y);
+  if (arrowNote) {
+    msgs.push(arrowNote);
+    note.className = 'banner banner-warn';
+    note.setAttribute('role', 'alert');
+    note.textContent = msgs.join(' / ');
+    note.hidden = false;
   }
   scroll.appendChild(rowsEl);
   // キーボードで日付を変えると render でバーが作り直されるのでフォーカスを戻す
@@ -2241,6 +2272,72 @@ function renderTlSectionHead(g) {
   label.appendChild(btn);
   row.appendChild(label);
   return row;
+}
+
+/* 依存関係の矢印（Phase T6）。**SVG を createElementNS で作る**
+   （`createElement('svg')` は HTMLUnknownElement になる。file:// でも描けることは
+   2026-08-07 に実測済み → docs/verification-notes.md §2）。
+   座標はモデルから計算する（x は日オフセット × dayPx、y は行の累算）。
+   戻り値は #tl-note に足す文言（無ければ null）。 */
+const SVG_NS = 'http://www.w3.org/2000/svg';
+function renderArrows(rowsEl, model, z, rowY, totalH) {
+  const g = state.depGraph;
+  const itemByLine = new Map(model.items.map(it => [it.line, it]));
+  if (g.cycle) {
+    return '依存関係が循環しています（' + g.cycle.join(' → ') + '）。矢印を表示しません';
+  }
+  if (g.duplicateIds.length) {
+    return '同じ 🆔 が複数のタスクにあります（' + g.duplicateIds.join(', ') +
+      '）。どれに依存しているか決められないため矢印を表示しません';
+  }
+  if (g.guard) {
+    return '依存関係が' + g.guard.count + '件（上限' + g.guard.limit +
+      '件）のため矢印を表示しません。セクションやタグで絞り込んでください';
+  }
+  // 端が図に出ていない関係は描かない（TB-Q52）。折り畳み・絞り込み・🛫 なしで起きる
+  const drawable = g.live.filter(e => rowY.has(e.from.line) && rowY.has(e.to.line));
+  const hidden = g.live.length - drawable.length;
+  if (drawable.length) {
+    const px = z.px;
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('class', 'tl-arrows');
+    svg.setAttribute('width', String(TL_LABEL_W + model.days * px));
+    svg.setAttribute('height', String(totalH));
+    const defs = document.createElementNS(SVG_NS, 'defs');
+    const marker = document.createElementNS(SVG_NS, 'marker');
+    marker.setAttribute('id', 'tl-arrowhead');
+    marker.setAttribute('markerWidth', '6');
+    marker.setAttribute('markerHeight', '6');
+    marker.setAttribute('refX', '5');
+    marker.setAttribute('refY', '3');
+    marker.setAttribute('orient', 'auto');
+    const tip = document.createElementNS(SVG_NS, 'path');
+    tip.setAttribute('d', 'M0,0 L6,3 L0,6 Z');
+    tip.setAttribute('fill', 'currentColor');
+    marker.appendChild(tip);
+    defs.appendChild(marker);
+    svg.appendChild(defs);
+    for (const e of drawable) {
+      const fi = itemByLine.get(e.from.line), ti = itemByLine.get(e.to.line);
+      const x1 = TL_LABEL_W + (diffDays(model.from, fi.end) + 1) * px;  // 先行の右端
+      const x2 = TL_LABEL_W + diffDays(model.from, ti.start) * px;      // 後続の左端
+      const y1 = rowY.get(e.from.line), y2 = rowY.get(e.to.line);
+      const c = Math.min(40, Math.max(12, Math.abs(x2 - x1) / 2));
+      const path = document.createElementNS(SVG_NS, 'path');
+      path.setAttribute('d', 'M' + x1 + ',' + y1 + ' C' + (x1 + c) + ',' + y1 +
+        ' ' + (x2 - c) + ',' + y2 + ' ' + x2 + ',' + y2);
+      path.setAttribute('class', 'tl-arrow' + (g.blocked.has(e.to.line) ? ' tl-arrow-blocked' : ''));
+      path.setAttribute('marker-end', 'url(#tl-arrowhead)');
+      path.dataset.from = String(e.from.line);
+      path.dataset.to = String(e.to.line);
+      svg.appendChild(path);
+    }
+    rowsEl.insertBefore(svg, rowsEl.firstChild);
+  }
+  const notes = [];
+  if (hidden) notes.push(hidden + ' 本の依存は表示範囲外のタスクへ繋がっています');
+  if (g.unresolved) notes.push('解決できない依存が' + g.unresolved + ' 件あります（🆔 が見つかりません）');
+  return notes.length ? notes.join(' / ') : null;
 }
 
 /* ---------- バーのドラッグで日付変更（Phase T4・pointer events） ----------

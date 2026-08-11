@@ -2903,6 +2903,96 @@ const F5 = [
     && p44due.text.includes('期限 +2日') && p44due.text.includes('📅 2026-08-07'),
     JSON.stringify([p44move.text, p44start.text, p44due.text]));
 
+  /* ========== TB-R10〜R12: 矢印の描画（Phase T6-3） ==========
+     F13: 同セクション2本＋別セクションへ1本＋図に出ない依存先（🛫 なし）1本 */
+  const F13 = [
+    '# tasks', '', '## PEW', '',
+    '- [ ] 要件定義 🆔 aa1 🛫 2026-08-01 📅 2026-08-05',      //  5
+    '- [ ] 基本設計 🆔 bb2 ⛔ aa1 🛫 2026-08-06 📅 2026-08-12', //  6
+    '- [ ] 詳細設計 ⛔ bb2 🛫 2026-08-13 📅 2026-08-18',        //  7
+    '- [ ] 🛫なし ⛔ aa1',                                      //  8（図に出ない）
+    '', '## UL', '',
+    '- [ ] 別セクション ⛔ aa1 🛫 2026-08-20 📅 2026-08-25',     // 12
+    '', '',
+  ].join('\n');
+
+  // 矢印の端点が**実際のバーの端**と一致しているかを DOM で測る（モデル計算の検算）
+  const arrows = () => page.evaluate(() => {
+    const svg = document.querySelector('.tl-arrows');
+    if (!svg) return { n: 0, paths: [], note: document.getElementById('tl-note').textContent };
+    const rows = svg.parentNode.getBoundingClientRect();
+    const paths = Array.from(svg.querySelectorAll('.tl-arrow')).map(p => {
+      const d = p.getAttribute('d');
+      const m = /^M([-\d.]+),([-\d.]+) C.* ([-\d.]+),([-\d.]+)$/.exec(d);
+      const from = document.querySelector('.tl-bar[data-line="' + p.dataset.from + '"]');
+      const to = document.querySelector('.tl-bar[data-line="' + p.dataset.to + '"]');
+      const fr = from.getBoundingClientRect(), tr = to.getBoundingClientRect();
+      return {
+        pair: [p.dataset.from, p.dataset.to],
+        blocked: p.classList.contains('tl-arrow-blocked'),
+        // 始点が先行バーの右端中央・終点が後続バーの左端中央に一致するか（±1px）
+        startOk: Math.abs((rows.left + Number(m[1])) - fr.right) <= 1
+          && Math.abs((rows.top + Number(m[2])) - (fr.top + fr.height / 2)) <= 1,
+        endOk: Math.abs((rows.left + Number(m[3])) - tr.left) <= 1
+          && Math.abs((rows.top + Number(m[4])) - (tr.top + tr.height / 2)) <= 1,
+      };
+    });
+    return {
+      n: paths.length, paths,
+      ns: svg.namespaceURI,
+      marker: !!svg.querySelector('marker#tl-arrowhead'),
+      pointerEvents: getComputedStyle(svg).pointerEvents,
+      note: document.getElementById('tl-note').hidden ? '' : document.getElementById('tl-note').textContent,
+    };
+  });
+
+  await plan(F13, { showDone: true });
+  const r10 = await arrows();
+  r.check('TB-R10（SVG が1枚・marker が解決・端点がバーの端と一致・ドラッグを奪わない）',
+    r10.n === 3 && r10.ns === 'http://www.w3.org/2000/svg' && r10.marker === true
+    && r10.pointerEvents === 'none'
+    && r10.paths.every(p => p.startOk && p.endOk)
+    && r10.paths.every(p => p.blocked === true),      // 先行が未完了なので全部 blocked
+    JSON.stringify(r10));
+
+  r.check('TB-R11（別セクションをまたぐ矢印も端点が一致する）',
+    r10.paths.some(p => eq(p.pair, ['5', '12'])) &&
+    r10.paths.find(p => eq(p.pair, ['5', '12'])).endOk === true,
+    JSON.stringify(r10.paths.map(p => p.pair)));
+
+  r.check('TB-R12（図に出ない依存先は矢印を描かず件数を出す）',
+    r10.n === 3 && r10.note.includes('1 本の依存は表示範囲外のタスクへ繋がっています'),
+    JSON.stringify([r10.n, r10.note]));
+
+  // 折り畳み・ソート変更・ズーム変更のあとでも端点が一致すること（座標計算が最も壊れやすい）
+  const afterCollapse = await page.evaluate(() => {
+    document.querySelectorAll('.tl-section-btn')[0].click();   // PEW を畳む
+    return true;
+  }) && await arrows();
+  await plan(F13, { showDone: true, sort: 'due' });
+  const afterSort = await arrows();
+  await plan(F13, { showDone: true, zoom: 'week' });
+  const afterZoom = await arrows();
+  r.check('TB-R12b（折り畳み・ソート変更・ズーム変更の後でも矢印の端点が一致する）',
+    // PEW を畳むと PEW 内の関係は描けない（UL への1本だけ残るが、先行も PEW なので0本）
+    afterCollapse.n === 0 && afterCollapse.note.includes('表示範囲外')
+    && afterSort.n === 3 && afterSort.paths.every(p => p.startOk && p.endOk)
+    && afterZoom.n === 3 && afterZoom.paths.every(p => p.startOk && p.endOk),
+    JSON.stringify([afterCollapse.n, afterSort.paths.map(p => p.startOk && p.endOk),
+      afterZoom.paths.map(p => p.startOk && p.endOk)]));
+
+  // 循環・重複・上限は矢印を1本も描かない（理由は #tl-note）
+  const cyc = ['# tasks', '', '## PEW', '',
+    '- [ ] A 🆔 a1 ⛔ b1 🛫 2026-08-01 📅 2026-08-03',
+    '- [ ] B 🆔 b1 ⛔ a1 🛫 2026-08-04 📅 2026-08-06', '', ''].join('\n');
+  await plan(cyc, { showDone: true });
+  const r13d = await arrows();
+  r.check('TB-R13b（循環しているときは矢印を1本も描かず経路を出す）',
+    r13d.n === 0 && r13d.note.includes('依存関係が循環しています')
+    && r13d.note.includes('→'), JSON.stringify(r13d.note));
+
+  await plan(F13, { showDone: true });   // 後続テストのために戻す
+
   /* --- ズームの可否（Phase T5・TB-P40〜P42） --- */
   const zoomOpts = (text) => page.evaluate(([t, today]) => {
     window.taskboard.test.setToday(today);
