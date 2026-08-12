@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Outline (doc2xl)</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🗂️%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../lib/ui.css">
+<style>
+  /* doc2xl 固有: なし（オプション行も ui.css の .toolbar / .opts を使う） */
+</style>
+</head>
+<body>
+<main class="app">
+  <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">入力は自動保存されます</span></p>
+  <h1>Outline</h1>
+  <p class="subtitle">Markdown 文書の見出し階層を Excel 用の階層表（大項目・中項目・小項目＋内容）に変換 — 正本は Markdown 側、Excel は納品時の生成物として運用します</p>
+
+  <div class="toolbar">
+    <span class="opts">
+      <label>階層列の見出し <select id="opt-names">
+        <option value="default">大項目・中項目・小項目</option>
+        <option value="level">レベル1・2・3</option>
+        <option value="custom">カスタム</option>
+      </select></label>
+      <input type="text" id="opt-names-custom" placeholder="カンマ区切り（例: カテゴリ,機能）"
+        spellcheck="false" aria-label="階層列の見出し名（カンマ区切り）" hidden>
+      <label class="toggle"><input type="checkbox" id="opt-fill"> 空セルを上の値で埋める</label>
+      <label>内容の単位 <select id="opt-split">
+        <option value="line">1行1セル</option>
+        <option value="block">見出し配下をまとめる</option>
+      </select></label>
+      <label class="toggle"><input type="radio" name="fmt" id="fmt-md" value="md" checked> Markdown表</label>
+      <label class="toggle"><input type="radio" name="fmt" id="fmt-tsv" value="tsv"> TSV</label>
+    </span>
+    <span class="spacer"></span>
+    <button id="copy-btn" title="出力をクリップボードへ（Cmd/Ctrl+Enter）">出力をコピー</button>
+  </div>
+
+  <div class="banner" id="banner" hidden></div>
+
+  <div class="panes">
+    <div class="pane">
+      <p class="pane-title">入力（Markdown）<button type="button" class="sample-btn" id="sample-btn" hidden>サンプルを入れる</button></p>
+      <textarea id="input" spellcheck="false" aria-label="入力（Markdown）" placeholder="# 機能一覧 のような見出し付きの Markdown を貼り付け"></textarea>
+    </div>
+    <div class="pane">
+      <p class="pane-title" id="out-title">出力（Markdown表）</p>
+      <textarea id="output" readonly aria-label="出力"></textarea>
+    </div>
+  </div>
+</main>
+
+<script src="../lib/ui.js"></script>
+<script src="../lib/storage.js"></script>
+<script>
+'use strict';
+
+/* ========== 変換エンジン（純関数・DOM も I/O も触らない） ==========
+   方針: 見出し階層 → 列は機械的に決まる変換だけを行う。意味判断（Excel→md）は
+   AI の仕事なので持ち込まない（docs/specs/doc2xl.md の3層アーキテクチャ）。
+   原則: **落とさない**。表現できない要素は原文のまま内容列に入れ、警告に種別×件数を出す。 */
+
+const MAX_INPUT_CHARS = 500000;  // 性能ガード①: 超過時は処理せず理由を表示
+const MAX_OUTPUT_ROWS = 5000;    // 性能ガード②: 同上（一部のみ処理はしない）
+
+const LEVEL_NAMES = ['大項目', '中項目', '小項目', '細項目', '項目5', '項目6'];
+
+// インライン記法を落として文字だけ残す。
+// **アンダースコア強調（_x_ / __x__）は落とさない** — user_id のような識別子と
+// 機械的に区別できないため（強調を消すつもりで識別子を壊す方が実害が大きい）
+function stripInline(s) {
+  return String(s)
+    .replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2')   // [[target|別名]] → 別名
+    .replace(/\[\[([^\]]+)\]\]/g, '$1')              // [[a]] → a
+    .replace(/`([^`]*)`/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/~~([^~]+)~~/g, '$1');
+}
+
+// 箇条書きのネスト深さ。インデント2スペースまたはタブ1個 = 1階層
+function indentDepth(ws) {
+  const tabs = (ws.match(/\t/g) || []).length;
+  return tabs + Math.floor((ws.length - tabs) / 2);
+}
+
+/* 行 → ブロック列。ブロックは
+   {type:'heading', level, text} / {type:'item', depth, text} / {type:'para', text} */
+function parseBlocks(text, counters) {
+  const lines = text.split('\n');
+  const blocks = [];
+  let i = 0;
+  // YAML front matter（**先頭行**が --- で、--- か ... で閉じる塊）は表に載らない
+  // メタデータなので落として警告。閉じが無ければ front matter ではない
+  if (lines[0] === '---') {
+    let j = 1;
+    while (j < lines.length && lines[j] !== '---' && lines[j] !== '...') j++;
+    if (j < lines.length) { counters.frontMatter = true; i = j + 1; }
+  }
+  let para = [];   // 段落の作りかけ（連続行はセル内改行で1セルに）
+  const flushPara = () => {
+    if (para.length) { blocks.push({ type: 'para', text: para.join('\n') }); para = []; }
+  };
+  for (; i < lines.length; i++) {
+    let line = lines[i];
+    if (line.trim() === '') { flushPara(); continue; }
+    // 見出しは H6 まで（7個以上の # は本文。CommonMark の上限 = DX-Q7）
+    const h = /^(#{1,6}) +(.*)$/.exec(line);
+    if (h) { flushPara(); blocks.push({ type: 'heading', level: h[1].length, text: h[2].trim() }); continue; }
+    const li = /^([ \t]*)[-*+] +(.*)$/.exec(line);
+    if (li) { flushPara(); blocks.push({ type: 'item', depth: indentDepth(li[1]), text: li[2] }); continue; }
+    // 番号は 1. 形式に揃えて残す（設計書では番号自体が意味を持つ）
+    const ni = /^([ \t]*)(\d+)[.)] +(.*)$/.exec(line);
+    if (ni) { flushPara(); blocks.push({ type: 'item', depth: indentDepth(ni[1]), text: ni[2] + '. ' + ni[3] }); continue; }
+    // 引用は記号を落として本文へ（段落の一部として続く）
+    line = line.replace(/^ {0,3}(> ?)+/, '');
+    para.push(line);
+  }
+  flushPara();
+  return blocks;
+}
+
+/* ブロック列 → 行データ。行は {levels: [6], content, table: cells|null}。
+   階層セルの規則: 前回出力した行より後に設定された階層だけを書く（Excel の空セル慣習）。
+   fill オプションで常に現在値を書く */
+function assemble(blocks, opts) {
+  const rows = [];
+  const levels = ['', '', '', '', '', ''];
+  const fresh = [false, false, false, false, false, false];
+  let maxLevel = 0;
+  let curDepth = 0;        // 直近に設定した見出しレベル
+  let unemitted = false;   // 見出しを設定してからまだ1行も出していない
+  let pending = [];        // split='block' 用（見出し配下の内容の作りかけ）
+  let overflow = false;
+
+  const emit = (content, table) => {
+    if (rows.length >= MAX_OUTPUT_ROWS) { overflow = true; return; }
+    const lv = levels.map((v, k) => (opts.fill ? v : (fresh[k] ? v : '')));
+    fresh.fill(false);
+    unemitted = false;
+    rows.push({ levels: lv, content: content, table: table || null });
+  };
+  const flushPending = () => {
+    if (pending.length) { const c = pending.join('\n'); pending = []; emit(c, null); }
+  };
+  const content = (text) => {
+    if (opts.split === 'block') pending.push(text);
+    else emit(text, null);
+  };
+
+  for (const b of blocks) {
+    if (overflow) break;
+    if (b.type === 'heading') {
+      flushPending();
+      // **内容の無い見出しも1行として出す**（無言で消さない）。
+      // 同じ深さ以浅の見出しが来る＝その枝が閉じるのに1行も出ていないなら、素の行を出す
+      if (unemitted && b.level <= curDepth) emit('', null);
+      levels[b.level - 1] = stripInline(b.text);
+      fresh[b.level - 1] = true;
+      for (let k = b.level; k < 6; k++) { levels[k] = ''; fresh[k] = false; }
+      curDepth = b.level;
+      maxLevel = Math.max(maxLevel, b.level);
+      unemitted = true;
+      continue;
+    }
+    if (b.type === 'item') { content('　'.repeat(b.depth) + stripInline(b.text)); continue; }
+    if (b.type === 'para') { content(stripInline(b.text)); continue; }
+  }
+  flushPending();
+  if (unemitted && !overflow) emit('', null);
+  return { rows: rows, depth: maxLevel, overflow: overflow };
+}
+
+function levelNamesOf(opts, depth) {
+  let names;
+  if (opts.names === 'level') {
+    names = ['レベル1', 'レベル2', 'レベル3', 'レベル4', 'レベル5', 'レベル6'];
+  } else if (opts.names === 'custom') {
+    names = String(opts.custom || '').split(',').map(s => s.trim()).filter(Boolean);
+    for (let k = names.length; k < 6; k++) names[k] = 'レベル' + (k + 1);  // 不足分は補う
+  } else {
+    names = LEVEL_NAMES;
+  }
+  return names.slice(0, depth);
+}
+
+function warningsOf(c) {
+  const w = [];
+  if (c.frontMatter) w.push('front matter（先頭の --- ブロック）は表に載らないため落としました');
+  return w;
+}
+
+// Markdown 表: セル内改行は <br>、| は \| に（md の表は生の改行を持てない）
+const mdCell = v => v.replace(/\|/g, '\\|').replace(/\n/g, '<br>');
+function toMd(value) {
+  if (!value.rows.length) return '';
+  const line = cells => '| ' + cells.map(mdCell).join(' | ') + ' |';
+  return [line(value.header), '|' + value.header.map(() => '---').join('|') + '|']
+    .concat(value.rows.map(line)).join('\n');
+}
+// TSV: タブ・改行・" を含むセルは " で囲む（Tables と同じ規約）。ヘッダー行を含む
+const tsvCell = v => /[\t\n"]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+function toTsv(value) {
+  if (!value.rows.length) return '';
+  return [value.header].concat(value.rows)
+    .map(cells => cells.map(tsvCell).join('\t')).join('\n');
+}
+
+function padTable(table, cols) {
+  const out = (table || []).slice(0, cols);
+  while (out.length < cols) out.push('');
+  return out;
+}
+
+function convert(text, opts) {
+  const o = Object.assign({ names: 'default', custom: '', fill: false, split: 'line' }, opts || {});
+  const src = String(text == null ? '' : text);
+  if (src.length > MAX_INPUT_CHARS) {
+    return { ok: false, error: '入力が上限（50万文字）を超えたため処理を中止しました' };
+  }
+  const counters = { frontMatter: false, link: 0, image: 0, hr: 0, html: 0, foot: 0, def: 0, wideTable: 0 };
+  const a = assemble(parseBlocks(src, counters), o);
+  if (a.overflow) {
+    return { ok: false, error: '出力が上限（5,000行）を超えたため処理を中止しました' };
+  }
+  let tableCols = 0;
+  for (const r of a.rows) if (r.table && r.table.length > tableCols) tableCols = r.table.length;
+  const header = levelNamesOf(o, a.depth).concat(['内容']).concat(new Array(tableCols).fill(''));
+  const grid = a.rows.map(r =>
+    r.levels.slice(0, a.depth).concat([r.content]).concat(padTable(r.table, tableCols)));
+  const value = { header: header, rows: grid, depth: a.depth, tableCols: tableCols };
+  return { ok: true, value: value, warnings: warningsOf(counters), md: toMd(value), tsv: toTsv(value) };
+}
+
+/* ========== UI ========== */
+
+const el = id => document.getElementById(id);
+const TOOL = 'doc2xl';
+
+// 引数順は全ツール共通の (kind, text)。class と role の決定は共通核が持つ
+function showBanner(kind, text) { ToolUI.banner(el('banner'), kind, text); }
+
+function currentOpts() {
+  return {
+    names: el('opt-names').value,
+    custom: el('opt-names-custom').value,
+    fill: el('opt-fill').checked,
+    split: el('opt-split').value,
+  };
+}
+
+let lastResult = null;
+function run() {
+  const r = convert(el('input').value, currentOpts());
+  lastResult = r;
+  if (!r.ok) {
+    el('output').value = '';
+    showBanner('warn', r.error);
+    return;
+  }
+  const tsv = el('fmt-tsv').checked;
+  el('output').value = tsv ? r.tsv : r.md;
+  el('out-title').textContent = tsv ? '出力（TSV — Excel に貼り付け）' : '出力（Markdown表）';
+  showBanner('info', r.warnings.join(' / '));   // 空なら hidden になる
+}
+
+let debounceTimer = null;
+el('input').addEventListener('input', () => {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(run, 250);
+});
+
+// テストフック（spec 検証用）
+window.doc2xl = { convert: convert };
+
+run();
+</script>
+</body>
+</html>
