@@ -67,13 +67,15 @@ const MAX_TABLE_COLS = 30;       // これを超える表だけ内容列へ連�
 
 const LEVEL_NAMES = ['大項目', '中項目', '小項目', '細項目', '項目5', '項目6'];
 
-// インライン記法を落として文字だけ残す。
+// インライン記法を落として文字だけ残す。リンクの URL と画像は**情報が減るので件数を数える**。
 // **アンダースコア強調（_x_ / __x__）は落とさない** — user_id のような識別子と
 // 機械的に区別できないため（強調を消すつもりで識別子を壊す方が実害が大きい）
-function stripInline(s) {
+function stripInline(s, c) {
   return String(s)
+    .replace(/!\[([^\]]*)\]\(([^)]*)\)/g, (m, alt) => { c.image++; return alt; })  // 画像 → alt
     .replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2')   // [[target|別名]] → 別名
     .replace(/\[\[([^\]]+)\]\]/g, '$1')              // [[a]] → a
+    .replace(/\[([^\]]+)\]\(([^)]*)\)/g, (m, t) => { c.link++; return t; })       // リンク → 表示テキスト
     .replace(/`([^`]*)`/g, '$1')
     .replace(/\*\*([^*]+)\*\*/g, '$1')
     .replace(/\*([^*]+)\*/g, '$1')
@@ -159,6 +161,22 @@ function parseBlocks(text, counters) {
       i = j - 1;
       continue;
     }
+    // 水平線は表に載せられないので落として件数を出す（setext 見出しは解釈しない →
+    // 仕様の限界。--- が本文の直後でも水平線として警告に出るので無言では消えない）
+    if (/^ {0,3}(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) { flushPara(); counters.hr++; continue; }
+    // 脚注定義・定義リスト・HTML ブロックは**原文のまま1セル**＋警告（落とさない原則）
+    if (/^\[\^[^\]]+\]:/.test(line)) { flushPara(); blocks.push({ type: 'raw', text: line }); counters.foot++; continue; }
+    if (/^: /.test(line)) { flushPara(); blocks.push({ type: 'raw', text: line }); counters.def++; continue; }
+    if (/^<[a-zA-Z!\/]/.test(line.trim())) {
+      flushPara();
+      const buf = [];
+      let j = i;
+      while (j < lines.length && lines[j].trim() !== '') { buf.push(lines[j]); j++; }
+      blocks.push({ type: 'raw', text: buf.join('\n') });
+      counters.html++;
+      i = j - 1;
+      continue;
+    }
     // 見出しは H6 まで（7個以上の # は本文。CommonMark の上限 = DX-Q7）
     const h = /^(#{1,6}) +(.*)$/.exec(line);
     if (h) { flushPara(); blocks.push({ type: 'heading', level: h[1].length, text: h[2].trim() }); continue; }
@@ -178,7 +196,7 @@ function parseBlocks(text, counters) {
 /* ブロック列 → 行データ。行は {levels: [6], content, table: cells|null}。
    階層セルの規則: 前回出力した行より後に設定された階層だけを書く（Excel の空セル慣習）。
    fill オプションで常に現在値を書く */
-function assemble(blocks, opts) {
+function assemble(blocks, opts, counters) {
   const rows = [];
   const levels = ['', '', '', '', '', ''];
   const fresh = [false, false, false, false, false, false];
@@ -210,7 +228,7 @@ function assemble(blocks, opts) {
       // **内容の無い見出しも1行として出す**（無言で消さない）。
       // 同じ深さ以浅の見出しが来る＝その枝が閉じるのに1行も出ていないなら、素の行を出す
       if (unemitted && b.level <= curDepth) emit('', null);
-      levels[b.level - 1] = stripInline(b.text);
+      levels[b.level - 1] = stripInline(b.text, counters);
       fresh[b.level - 1] = true;
       for (let k = b.level; k < 6; k++) { levels[k] = ''; fresh[k] = false; }
       curDepth = b.level;
@@ -218,15 +236,16 @@ function assemble(blocks, opts) {
       unemitted = true;
       continue;
     }
-    if (b.type === 'item') { content('　'.repeat(b.depth) + stripInline(b.text)); continue; }
-    if (b.type === 'para') { content(stripInline(b.text)); continue; }
+    if (b.type === 'item') { content('　'.repeat(b.depth) + stripInline(b.text, counters)); continue; }
+    if (b.type === 'para') { content(stripInline(b.text, counters)); continue; }
     if (b.type === 'code') { content(b.text); continue; }   // コードは原文のまま（strip しない）
+    if (b.type === 'raw') { content(b.text); continue; }    // HTML・脚注等も原文のまま
     if (b.type === 'table') {
       // 表は split='block' でも**常に独立した行**（セルにすると列の構造が消える）
       flushPending();
       for (const cells of b.rows) {
         if (overflow) break;
-        emit('', cells.map(stripInline));
+        emit('', cells.map(c => stripInline(c, counters)));
       }
       continue;
     }
@@ -252,6 +271,12 @@ function levelNamesOf(opts, depth) {
 function warningsOf(c) {
   const w = [];
   if (c.frontMatter) w.push('front matter（先頭の --- ブロック）は表に載らないため落としました');
+  if (c.link) w.push('リンクの URL を' + c.link + '件落としました（表示テキストのみ残しています）');
+  if (c.image) w.push('画像を' + c.image + '件 alt テキストにしました');
+  if (c.hr) w.push('水平線を' + c.hr + '件落としました');
+  if (c.html) w.push('HTML ブロックを' + c.html + '件そのまま1セルに入れました');
+  if (c.foot) w.push('脚注定義を' + c.foot + '件そのまま1セルに入れました');
+  if (c.def) w.push('定義リストを' + c.def + '件そのまま1セルに入れました');
   if (c.wideTable) w.push('30列を超える表を' + c.wideTable + '件、内容列へ連結しました');
   return w;
 }
@@ -285,7 +310,7 @@ function convert(text, opts) {
     return { ok: false, error: '入力が上限（50万文字）を超えたため処理を中止しました' };
   }
   const counters = { frontMatter: false, link: 0, image: 0, hr: 0, html: 0, foot: 0, def: 0, wideTable: 0 };
-  const a = assemble(parseBlocks(src, counters), o);
+  const a = assemble(parseBlocks(src, counters), o, counters);
   if (a.overflow) {
     return { ok: false, error: '出力が上限（5,000行）を超えたため処理を中止しました' };
   }

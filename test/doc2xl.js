@@ -159,6 +159,33 @@ const { launch, fileUrl, createRunner, eq, bannerIs } = require('./helpers');
     && s13.warnings.length === 1 && s13.warnings[0].includes('front matter'),
     JSON.stringify([s13.md, s13.warnings]));
 
+  /* ========== DX-11: インライン記法の落としと警告 ========== */
+  const s11 = await conv([
+    '# A',
+    '[仕様書](https://example.com) と ![構成図](img.png) と **強調** と `code` と user_id を含む。',
+    '- [[ノート|別名]] を参照', '',
+  ].join('\n'));
+  r.check('DX-11（リンク・画像は件数を警告・強調とコードは記法だけ落ちる・user_id の _ は残る）',
+    s11.ok && eq(s11.md.split('\n').slice(2), [
+      '| A | 仕様書 と 構成図 と 強調 と code と user_id を含む。 |',
+      '|  | 別名 を参照 |'])
+    && s11.warnings.some(w => w.includes('リンクの URL を1件'))
+    && s11.warnings.some(w => w.includes('画像を1件')),
+    JSON.stringify([s11.md, s11.warnings]));
+
+  /* ========== DX-12: 水平線・HTML ブロック・脚注定義 ========== */
+  const s12 = await conv([
+    '# A', '---', '<div>', '生HTML', '</div>', '', '[^1]: 脚注です', '',
+  ].join('\n'));
+  r.check('DX-12（水平線は落として警告・HTML と脚注は原文のまま1セル＋警告）',
+    s12.ok && eq(s12.md.split('\n').slice(2), [
+      '| A | <div><br>生HTML<br></div> |',
+      '|  | [^1]: 脚注です |'])
+    && s12.warnings.some(w => w.includes('水平線を1件'))
+    && s12.warnings.some(w => w.includes('HTML ブロックを1件'))
+    && s12.warnings.some(w => w.includes('脚注定義を1件')),
+    JSON.stringify([s12.md, s12.warnings]));
+
   /* ========== DX-16: 空入力 ========== */
   const s16a = await conv('');
   const s16b = await conv('  \n\n  ');
