@@ -103,6 +103,55 @@ const { launch, fileUrl, createRunner, eq, bannerIs } = require('./helpers');
       ['| A | 1. 一つ目 |', '|  | 2. 二つ目 |', '|  | 3. 括弧の番号 |']),
     JSON.stringify(s08.md));
 
+  /* ========== DX-09: 文書中の md 表 ========== */
+  const s09 = await conv([
+    '# 機能一覧', '## 商品管理', '### 商品検索', '',
+    '| 項目 | 型 |', '|---|---|', '| コード | varchar |', '| a\\|b | x |', '',
+  ].join('\n'));
+  r.check('DX-09（表は内容列の右に展開・区切り行は消え・\\| エスケープは戻して再エスケープ）',
+    s09.ok && s09.md === [
+      '| 大項目 | 中項目 | 小項目 | 内容 |  |  |',
+      '|---|---|---|---|---|---|',
+      '| 機能一覧 | 商品管理 | 商品検索 |  | 項目 | 型 |',
+      '|  |  |  |  | コード | varchar |',
+      '|  |  |  |  | a\\|b | x |'].join('\n')
+    && s09.tsv.split('\n')[2] === '\t\t\t\tコード\tvarchar'
+    && s09.value.tableCols === 2,
+    JSON.stringify(s09.md));
+
+  /* ========== DX-10: コードブロック ========== */
+  const s10 = await conv('# A\n```sql\nSELECT *\nFROM t\n```\n');
+  r.check('DX-10（コードは1セルに改行込み・言語名は落ちる・TSV は " で囲む）',
+    s10.ok && s10.md.split('\n')[2] === '| A | SELECT *<br>FROM t |'
+    && s10.tsv === '大項目\t内容\nA\t"SELECT *\nFROM t"',
+    JSON.stringify([s10.md, s10.tsv]));
+
+  /* ========== DX-14: 見出し配下をまとめて1セル ========== */
+  const s14 = await conv([
+    '# 機能一覧', '## 商品管理', '### 商品検索',
+    '- 検索条件を入力できる', '- 結果を一覧表示する', '',
+    '| 項目 | 型 |', '|---|---|', '| コード | varchar |', '',
+    '検索後の説明文。', '',
+  ].join('\n'), { split: 'block' });
+  r.check('DX-14（block: 内容が1セルに。表は独立した行のまま・表の後の内容は別セル）',
+    s14.ok && eq(s14.md.split('\n').slice(2), [
+      '| 機能一覧 | 商品管理 | 商品検索 | 検索条件を入力できる<br>結果を一覧表示する |  |  |',
+      '|  |  |  |  | 項目 | 型 |',
+      '|  |  |  |  | コード | varchar |',
+      '|  |  |  | 検索後の説明文。 |  |  |']),
+    JSON.stringify(s14.md));
+
+  /* ========== DX-17b: 30列を超える表 ========== */
+  const wideHeader = '| ' + Array.from({ length: 31 }, (_, k) => 'c' + (k + 1)).join(' | ') + ' |';
+  const wideDelim = '|' + Array.from({ length: 31 }, () => '---').join('|') + '|';
+  const s17b = await conv('# A\n' + wideHeader + '\n' + wideDelim + '\n- 普通の内容\n');
+  r.check('DX-17b（31列の表はその表だけ内容列へ連結＋警告。他は普通に変換）',
+    s17b.ok && s17b.value.tableCols === 0
+    && s17b.md.split('\n')[2] === '| A | ' + Array.from({ length: 31 }, (_, k) => 'c' + (k + 1)).join(' \\| ') + ' |'
+    && s17b.md.split('\n')[3] === '|  | 普通の内容 |'
+    && s17b.warnings.some(w => w.includes('30列を超える表を1件')),
+    JSON.stringify([s17b.warnings, s17b.md.split('\n')[3]]));
+
   /* ========== DX-13: YAML front matter ========== */
   const s13 = await conv('---\ntitle: 設計書\ntags: [a]\n---\n# A\n- x\n');
   r.check('DX-13（front matter を落として警告する）',

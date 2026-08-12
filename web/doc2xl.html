@@ -63,6 +63,7 @@
 
 const MAX_INPUT_CHARS = 500000;  // 性能ガード①: 超過時は処理せず理由を表示
 const MAX_OUTPUT_ROWS = 5000;    // 性能ガード②: 同上（一部のみ処理はしない）
+const MAX_TABLE_COLS = 30;       // これを超える表だけ内容列へ連結する（全体は止めない。DX-Q5）
 
 const LEVEL_NAMES = ['大項目', '中項目', '小項目', '細項目', '項目5', '項目6'];
 
@@ -78,6 +79,22 @@ function stripInline(s) {
     .replace(/\*([^*]+)\*/g, '$1')
     .replace(/~~([^~]+)~~/g, '$1');
 }
+
+// md 表の1行をセルに分割（\| エスケープを | に戻す。Tables と同じ考え方）
+function splitTableRow(line) {
+  let s = line.trim().replace(/^\|/, '').replace(/\|$/, '');
+  const cells = [];
+  let cur = '';
+  for (let k = 0; k < s.length; k++) {
+    const ch = s[k];
+    if (ch === '\\' && s[k + 1] === '|') { cur += '|'; k++; continue; }
+    if (ch === '|') { cells.push(cur.trim()); cur = ''; continue; }
+    cur += ch;
+  }
+  cells.push(cur.trim());
+  return cells;
+}
+const isDelimRow = cells => cells.length > 0 && cells.every(c => /^:?-+:?$/.test(c));
 
 // 箇条書きのネスト深さ。インデント2スペースまたはタブ1個 = 1階層
 function indentDepth(ws) {
@@ -105,6 +122,43 @@ function parseBlocks(text, counters) {
   for (; i < lines.length; i++) {
     let line = lines[i];
     if (line.trim() === '') { flushPara(); continue; }
+    // コードブロック: フェンスを除いた中身を1セルに（言語名は落とす）。
+    // 閉じフェンスが無ければ末尾まで（原文は失わない）
+    const fence = /^(```+|~~~+)/.exec(line);
+    if (fence) {
+      flushPara();
+      const marker = fence[1][0] === '`' ? '```' : '~~~';
+      let j = i + 1;
+      const buf = [];
+      while (j < lines.length && !lines[j].startsWith(marker)) { buf.push(lines[j]); j++; }
+      blocks.push({ type: 'code', text: buf.join('\n') });
+      i = j;   // 閉じフェンス行を消費（for の i++ で次の行へ）
+      continue;
+    }
+    // md 表: | で始まる連続行。区切り行（|---|）は記法なので落とす。
+    // 30列を超える表は、その表だけ各行を ' | ' 連結で内容列へ（DX-Q5）
+    if (/^\s*\|/.test(line)) {
+      flushPara();
+      const tbl = [];
+      let j = i;
+      while (j < lines.length && /^\s*\|/.test(lines[j])) {
+        const cells = splitTableRow(lines[j]);
+        if (!isDelimRow(cells)) tbl.push(cells);
+        j++;
+      }
+      if (tbl.length) {
+        let width = 0;
+        for (const cells of tbl) width = Math.max(width, cells.length);
+        if (width > MAX_TABLE_COLS) {
+          counters.wideTable++;
+          for (const cells of tbl) blocks.push({ type: 'para', text: cells.join(' | ') });
+        } else {
+          blocks.push({ type: 'table', rows: tbl });
+        }
+      }
+      i = j - 1;
+      continue;
+    }
     // 見出しは H6 まで（7個以上の # は本文。CommonMark の上限 = DX-Q7）
     const h = /^(#{1,6}) +(.*)$/.exec(line);
     if (h) { flushPara(); blocks.push({ type: 'heading', level: h[1].length, text: h[2].trim() }); continue; }
@@ -166,6 +220,16 @@ function assemble(blocks, opts) {
     }
     if (b.type === 'item') { content('　'.repeat(b.depth) + stripInline(b.text)); continue; }
     if (b.type === 'para') { content(stripInline(b.text)); continue; }
+    if (b.type === 'code') { content(b.text); continue; }   // コードは原文のまま（strip しない）
+    if (b.type === 'table') {
+      // 表は split='block' でも**常に独立した行**（セルにすると列の構造が消える）
+      flushPending();
+      for (const cells of b.rows) {
+        if (overflow) break;
+        emit('', cells.map(stripInline));
+      }
+      continue;
+    }
   }
   flushPending();
   if (unemitted && !overflow) emit('', null);
@@ -188,6 +252,7 @@ function levelNamesOf(opts, depth) {
 function warningsOf(c) {
   const w = [];
   if (c.frontMatter) w.push('front matter（先頭の --- ブロック）は表に載らないため落としました');
+  if (c.wideTable) w.push('30列を超える表を' + c.wideTable + '件、内容列へ連結しました');
   return w;
 }
 
