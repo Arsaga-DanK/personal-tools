@@ -315,6 +315,18 @@ const { launch, fileUrl, createRunner, eq, bannerIs } = require('./helpers');
   r.check('DX-U5（幅390pxで横スクロールなし）', u5 === true, String(u5));
   await page.setViewportSize({ width: 1280, height: 900 });
 
+  /* ========== DX-18: ハブ導線 ========== */
+  await page.goto(fileUrl('index.html'));
+  const hubCats = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('.category-title')).map(e => e.textContent));
+  await page.click('ul.tool-list a:text-is("Outline")');
+  await page.waitForLoadState('load');
+  const hubTitle = await page.title();
+  const hubH1 = await page.evaluate(() => document.querySelector('h1').textContent);
+  r.check('DX-18（ハブの設計カテゴリから遷移でき title と h1 が命名規約どおり）',
+    hubCats.includes('設計') && hubTitle === 'Outline (doc2xl)' && hubH1 === 'Outline',
+    JSON.stringify([hubCats, hubTitle, hubH1]));
+
   await browser.close();
   r.report('doc2xl（docs/specs/doc2xl.md）');
 })().catch(e => {

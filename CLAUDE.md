@@ -22,7 +22,7 @@ CLI（`bin/`）は形態として認めているが、まだ1本も無い（→�
 
 ```
 index.html   ハブ。web/ツール一覧（内部のTOOLS配列に1行足すと追加される）
-web/         ブラウザツール6本。1ツール=1HTML完結
+web/         ブラウザツール7本。1ツール=1HTML完結
 lib/         web ツールの共通コード。ui.css / ui.js / storage.js / sql.js
 docs/        verification-notes.md（検証の罠）/ ux-backlog.md / tool-backlog.md
 docs/specs/  ツールごとの仕様書兼テストケース（6本）
@@ -49,7 +49,8 @@ test/        検証ハーネス（`./test/run [ツール名]`。書き方は tes
   **表示名と英名が同じなら表示名のみ**（`Diff`。`Diff (diff)` は冗長）
 - 英名は TOOLS の `alias` にも書く（画面には出さず検索にだけ効く。
   過去のメモやファイル名が英名で書かれているため）
-- 現在の対応: Tasks=taskboard / Tables=excel2md / Convert=devpad / Text=norm / Diff=diff
+- 現在の対応: Tasks=taskboard / Tables=excel2md / Convert=devpad / Text=norm / Diff=diff /
+  Schema=ddl2spec / Outline=doc2xl
 - カテゴリ名は日本語のまま（英語にすると Convert ツールと同名になる。
   日本語=分類 / 英語=ツール名 の対比で階層が読みやすくなる）
 

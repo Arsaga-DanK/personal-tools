@@ -33,6 +33,7 @@
 |---|---|---|
 | **ddl2spec**（表示名 `Schema`） | DDL ⇔ テーブル定義書（Markdown表）の双方向変換 | 2026-08-06。spec は `docs/specs/ddl2spec.md`。字句解析は `lib/sql.js` を Convert と共有 |
 | devpad への追加タブ（SQL整形 / 正規表現 / 基数 / XML） | 既存タブと同じ「その場で1回変換したい」用途 | 2026-08-06。**タブは11個で打ち止め**（これ以上増やすなら検索または分割が必要） |
+| **doc2xl**（表示名 `Outline`） | Markdown 文書の見出し階層 → Excel 用の階層表（MD→Excel の一方向のみ。Excel→MD は表現モデルが違うため AI ＋ `_prompts/` の担当） | 2026-08-12。spec は `docs/specs/doc2xl.md`。着手ルールの「1回目でも着手」の初適用 |
 
 ### 候補（トリガー待ち）
 

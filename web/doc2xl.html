@@ -30,8 +30,10 @@
         <option value="line">1行1セル</option>
         <option value="block">見出し配下をまとめる</option>
       </select></label>
-      <label class="toggle"><input type="radio" name="fmt" id="fmt-md" value="md" checked> Markdown表</label>
-      <label class="toggle"><input type="radio" name="fmt" id="fmt-tsv" value="tsv"> TSV</label>
+      <span style="white-space: nowrap" role="radiogroup" aria-label="出力形式">
+        <label class="toggle"><input type="radio" name="fmt" id="fmt-md" value="md" checked> Markdown表</label>
+        <label class="toggle"><input type="radio" name="fmt" id="fmt-tsv" value="tsv"> TSV</label>
+      </span>
     </span>
     <span class="spacer"></span>
     <button id="copy-btn" title="出力をクリップボードへ（Cmd/Ctrl+Enter）">出力をコピー</button>
