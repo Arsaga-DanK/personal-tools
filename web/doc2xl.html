@@ -340,10 +340,35 @@ function currentOpts() {
   };
 }
 
-let lastResult = null;
+// サンプル（空状態の学習用。入力が空のときだけ表示。見出し3階層・ネスト箇条書き・
+// 番号付き・md 表・リンク警告が1回の投入で全部見える）
+const SAMPLE = [
+  '# 機能一覧',
+  '## 商品管理',
+  '### 商品検索',
+  '- 検索条件を入力できる',
+  '- 結果を一覧表示する',
+  '  - 0件のときは案内を出す',
+  '### 商品登録',
+  '1. 基本情報を入力する',
+  '2. 確認画面で登録する',
+  '',
+  '| 項目 | 型 | 必須 |',
+  '|---|---|---|',
+  '| 商品コード | varchar(20) | ○ |',
+  '| 商品名 | varchar(100) | ○ |',
+  '',
+  '## 在庫管理',
+  '在庫の照会と引当を行う。',
+  '[詳細設計](https://example.com/stock) を参照。',
+  '',
+].join('\n');
+
+function updateSampleBtn() { el('sample-btn').hidden = el('input').value !== ''; }
+
 function run() {
+  updateSampleBtn();
   const r = convert(el('input').value, currentOpts());
-  lastResult = r;
   if (!r.ok) {
     el('output').value = '';
     showBanner('warn', r.error);
@@ -355,15 +380,77 @@ function run() {
   showBanner('info', r.warnings.join(' / '));   // 空なら hidden になる
 }
 
+/* ---------- 保存（UI 状態と入力。10万文字超の入力は保存しない） ---------- */
+
+const SAVE_INPUT_MAX = 100000;  // localStorage の容量目安（devpad の 100KB/フィールドと同じ考え方）
+function persist() {
+  const v = el('input').value;
+  ToolStorage.save(TOOL, {
+    input: v.length <= SAVE_INPUT_MAX ? v : '',
+    names: el('opt-names').value,
+    custom: el('opt-names-custom').value,
+    fill: el('opt-fill').checked,
+    split: el('opt-split').value,
+    fmt: el('fmt-tsv').checked ? 'tsv' : 'md',
+  });
+}
+// 既知値だけ受け入れる（未知値が入ると select が空になる。taskboard TB-Q17 と同じ方針）
+function restore() {
+  const s = ToolStorage.load(TOOL);
+  if (!s || typeof s !== 'object') return;
+  if (typeof s.input === 'string') el('input').value = s.input;
+  if (['default', 'level', 'custom'].includes(s.names)) el('opt-names').value = s.names;
+  if (typeof s.custom === 'string') el('opt-names-custom').value = s.custom;
+  if (typeof s.fill === 'boolean') el('opt-fill').checked = s.fill;
+  if (['line', 'block'].includes(s.split)) el('opt-split').value = s.split;
+  if (s.fmt === 'tsv') el('fmt-tsv').checked = true;
+}
+
+/* ---------- イベント ---------- */
+
 let debounceTimer = null;
 el('input').addEventListener('input', () => {
+  updateSampleBtn();
   clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(run, 250);
+  debounceTimer = setTimeout(() => { persist(); run(); }, 250);
+});
+
+function syncCustomVisibility() { el('opt-names-custom').hidden = el('opt-names').value !== 'custom'; }
+for (const id of ['opt-names', 'opt-fill', 'opt-split', 'fmt-md', 'fmt-tsv']) {
+  el(id).addEventListener('change', () => { syncCustomVisibility(); persist(); run(); });
+}
+el('opt-names-custom').addEventListener('input', () => {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(() => { persist(); run(); }, 250);
+});
+
+el('sample-btn').addEventListener('click', () => {
+  el('input').value = SAMPLE;
+  persist();
+  run();
+});
+
+function doCopy() {
+  const text = el('output').value;
+  if (text === '') { showBanner('info', 'コピーする内容がありません'); return; }
+  // 失敗時は出力欄そのものを選択させる（一時 textarea だと実行後に消えて案内が嘘になる）
+  ToolUI.copy(text, { selectEl: el('output') }).then(ok => {
+    if (ok) ToolUI.feedback(el('copy-btn'), '✓ コピーしました');
+    else showBanner('info', '出力を選択済みです。Cmd+C でコピーしてください');
+  });
+}
+el('copy-btn').addEventListener('click', doCopy);
+document.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); doCopy(); }
 });
 
 // テストフック（spec 検証用）
 window.doc2xl = { convert: convert };
 
+/* ---------- 起動 ---------- */
+ToolStorage.mountWarning();
+restore();
+syncCustomVisibility();
 run();
 </script>
 </body>

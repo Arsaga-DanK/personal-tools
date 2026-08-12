@@ -194,6 +194,127 @@ const { launch, fileUrl, createRunner, eq, bannerIs } = require('./helpers');
     && s16b.ok && s16b.md === '' && s16b.tsv === '',
     JSON.stringify([s16a, s16b]));
 
+  /* ========== DX-15: 階層列の見出し名 ========== */
+  const s15a = await conv('# A\n## B\n### C\n- x\n', { names: 'level' });
+  const s15b = await conv('# A\n## B\n### C\n- x\n', { names: 'custom', custom: 'カテゴリ, 機能' });
+  r.check('DX-15（見出し名: レベル1〜3／カスタムの不足分はレベルNで補う）',
+    s15a.ok && eq(s15a.value.header, ['レベル1', 'レベル2', 'レベル3', '内容'])
+    && s15b.ok && eq(s15b.value.header, ['カテゴリ', '機能', 'レベル3', '内容']),
+    JSON.stringify([s15a.value.header, s15b.value.header]));
+
+  /* ========== DX-17: 性能ガード ========== */
+  const s17in = await page.evaluate(() => window.doc2xl.convert('a'.repeat(500001), {}));
+  const s17rows = await page.evaluate(() =>
+    window.doc2xl.convert(Array.from({ length: 5001 }, (_, k) => '- r' + k).join('\n'), {}));
+  r.check('DX-17（50万文字超・出力5,001行はどちらも処理せず理由を返す）',
+    s17in.ok === false && s17in.error.includes('50万文字')
+    && s17rows.ok === false && s17rows.error.includes('5,000行'),
+    JSON.stringify([s17in.error, s17rows.error]));
+
+  /* ========== DX-U1: リアルタイム変換とオプションの即反映 ========== */
+  const setInput = async (text) => {
+    await page.evaluate((t) => {
+      const inp = document.getElementById('input');
+      inp.value = t;
+      inp.dispatchEvent(new InputEvent('input', { bubbles: true }));
+    }, text);
+    await page.waitForTimeout(400);
+  };
+  await setInput(DOC1);
+  const u1md = await page.inputValue('#output');
+  await page.check('#fmt-tsv');
+  const u1tsv = await page.inputValue('#output');
+  const u1title = await page.textContent('#out-title');
+  await page.check('#fmt-md');
+  await page.check('#opt-fill');
+  const u1fill = await page.inputValue('#output');
+  await page.uncheck('#opt-fill');
+  r.check('DX-U1（リアルタイム変換・TSV 切替とタイトル・fill が即反映）',
+    u1md === MD1 && u1tsv === TSV1 && u1title.includes('TSV')
+    && u1fill.split('\n')[3] === '| 機能一覧 | 商品管理 | 商品検索 | 結果を一覧表示する |',
+    JSON.stringify([u1md === MD1, u1tsv === TSV1, u1title]));
+
+  /* ========== DX-U2: コピー（実クリップボードに書かない） ========== */
+  const u2 = await page.evaluate(async () => {
+    const captured = [];
+    navigator.clipboard.writeText = (t) => { captured.push(t); return Promise.resolve(); };
+    document.getElementById('copy-btn').click();
+    await new Promise(d => setTimeout(d, 30));
+    const label = document.getElementById('copy-btn').textContent;
+    return { captured, label };
+  });
+  await setInput('');
+  const u2empty = await page.evaluate(async () => {
+    document.getElementById('copy-btn').click();
+    await new Promise(d => setTimeout(d, 30));
+    const b = document.getElementById('banner');
+    return b.hidden ? '' : b.textContent;
+  });
+  r.check('DX-U2（コピーは現在の出力を渡す・空出力は案内だけ）',
+    u2.captured.length === 1 && u2.captured[0] === MD1 && u2.label === '✓ コピーしました'
+    && u2empty === 'コピーする内容がありません',
+    JSON.stringify([u2.captured.length, u2.label, u2empty]));
+
+  /* ========== DX-U3: サンプル投入 ========== */
+  const u3 = await page.evaluate(async () => {
+    const btn = document.getElementById('sample-btn');
+    const visibleWhenEmpty = !btn.hidden;
+    btn.click();
+    await new Promise(d => setTimeout(d, 30));
+    const b = document.getElementById('banner');
+    return {
+      visibleWhenEmpty,
+      hiddenAfter: btn.hidden,
+      banner: b.hidden ? '' : b.textContent,
+      out: document.getElementById('output').value.split('\n')[0],
+    };
+  });
+  r.check('DX-U3（サンプルは空のときだけ見え、投入でリンク警告と表が出る）',
+    u3.visibleWhenEmpty === true && u3.hiddenAfter === true
+    && u3.banner.includes('リンクの URL を1件')
+    && u3.out === '| 大項目 | 中項目 | 小項目 | 内容 |  |  |  |',   // サンプルの表は3列
+    JSON.stringify(u3));
+
+  /* ========== DX-17（UI）: ガード発動時は warn バナー＋出力空 ========== */
+  await setInput(Array.from({ length: 5001 }, (_, k) => '- r' + k).join('\n'));
+  const u17 = await bannerIs(page, '#banner', 'warn', '5,000行');
+  const u17out = await page.inputValue('#output');
+  r.check('DX-17-UI（ガード発動時は warn バナーが出て出力は空）',
+    u17.ok && u17out === '', JSON.stringify([u17.detail, u17out.length]));
+
+  /* ========== DX-U4: 保存と復元（10万文字超は復元されない） ========== */
+  await setInput('# 保存テスト\n- x\n');
+  await page.evaluate(() => {
+    document.getElementById('opt-names').value = 'custom';
+    document.getElementById('opt-names').dispatchEvent(new Event('change', { bubbles: true }));
+    document.getElementById('opt-names-custom').value = '工程,作業';
+    document.getElementById('opt-names-custom').dispatchEvent(new InputEvent('input', { bubbles: true }));
+  });
+  await page.waitForTimeout(400);
+  await page.reload();
+  const u4 = await page.evaluate(() => ({
+    input: document.getElementById('input').value,
+    names: document.getElementById('opt-names').value,
+    custom: document.getElementById('opt-names-custom').value,
+    customVisible: !document.getElementById('opt-names-custom').hidden,
+    out: document.getElementById('output').value.split('\n')[0],
+  }));
+  await setInput('a'.repeat(100001));
+  await page.reload();
+  const u4big = await page.evaluate(() => document.getElementById('input').value);
+  r.check('DX-U4（入力とオプションが復元される・10万文字超の入力は復元されない）',
+    u4.input === '# 保存テスト\n- x\n' && u4.names === 'custom' && u4.custom === '工程,作業'
+    && u4.customVisible === true && u4.out === '| 工程 | 内容 |'
+    && u4big === '',
+    JSON.stringify(u4));
+
+  /* ========== DX-U5: 幅390px ========== */
+  await page.setViewportSize({ width: 390, height: 800 });
+  const u5 = await page.evaluate(() =>
+    document.documentElement.scrollWidth <= document.documentElement.clientWidth);
+  r.check('DX-U5（幅390pxで横スクロールなし）', u5 === true, String(u5));
+  await page.setViewportSize({ width: 1280, height: 900 });
+
   await browser.close();
   r.report('doc2xl（docs/specs/doc2xl.md）');
 })().catch(e => {
