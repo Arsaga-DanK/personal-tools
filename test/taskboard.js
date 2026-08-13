@@ -2259,6 +2259,26 @@ const F5 = [
     r16b.split('\n')[7] === '- [ ] 詳細設計'
     && onlyChanged(r16b, F14, [8]), JSON.stringify(r16b.split('\n')[7]));
 
+  // TB-R20: 依存欄は新規モーダルに出さない（新規保存は deps を op に載せない仕様のため、
+  // 出したままだと「入力できるのに保存で黙って捨てられる」口になる）
+  const r20 = await page.evaluate(([f14, today]) => {
+    window.taskboard.test.setToday(today);
+    const s = window.taskboard.test.newSession(f14);
+    s.setView('list');
+    const field = () => document.getElementById('modal-dep-field');
+    document.getElementById('btn-add-form').click();
+    const newHidden = field() ? field().hidden : 'no-field';
+    document.getElementById('modal-cancel').click();
+    window.__h.openEdit('詳細設計');   // ⛔ aa1 を持ち、他の詳細項目は空
+    const editHidden = field() ? field().hidden : 'no-field';
+    const moreOpen = document.getElementById('modal-more').open;
+    document.getElementById('modal-cancel').click();
+    return { newHidden, editHidden, moreOpen };
+  }, [F14, TODAY]);
+  r.check('TB-R20（依存欄は新規で非表示・編集で表示・依存ありの編集は詳細が自動で開く）',
+    r20.newHidden === true && r20.editHidden === false && r20.moreOpen === true,
+    JSON.stringify(r20));
+
   /* ========== TB-R1〜R8: 依存関係の記法とバイト保全（Phase T6・2026-08-12） ==========
      記法は Obsidian Tasks の標準。トークン順は 本文 → 🆔 → ⛔ → 優先度 → 🛫 → 📅 → ✅ */
   const F12 = [

@@ -309,7 +309,7 @@
           <label>期限 <input type="date" id="modal-due"></label>
         </div>
       </div>
-      <div class="mf"><span>依存（先行タスク）</span>
+      <div class="mf" id="modal-dep-field"><span>依存（先行タスク）</span>
         <div class="mf-body">
           <div class="row-btns" id="modal-dep-list"></div>
           <div class="row-btns">
@@ -3399,13 +3399,16 @@ function openTaskModal(mode, t, opts) {
   el('modal-due').value = mode === 'edit' ? (t.due || '') : a.due;
   el('modal-pri').value = mode === 'edit' ? (t.priority || '') : a.priority;
   refreshModalTags();
-  refreshModalDeps();
+  // 依存欄は編集モーダル限定。新規は addTask に deps を載せない仕様（spec「設定UI」）のため、
+  // 欄を出すと「入力できるのに保存で黙って捨てられる」口になる（TB-R20）
+  el('modal-dep-field').hidden = mode !== 'edit';
+  if (mode === 'edit') refreshModalDeps();
   refreshModalLinks();
   el('modal-tag-input').value = '';
   el('modal-link-input').value = '';
   // 値が入っている項目が1つでもあれば詳細を開く（隠れた値に気づかないのを防ぐ）
   const v = readModal();
-  el('modal-more').open = !!(v.tags.length || v.links.length || v.start || v.due || v.priority);
+  el('modal-more').open = !!(v.tags.length || v.deps.length || v.links.length || v.start || v.due || v.priority);
   modalState.initial = v;
   el('modal').hidden = false;
   const focusTarget = o.focus === 'memo' ? el('modal-memo') : el('modal-content');
