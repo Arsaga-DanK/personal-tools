@@ -2279,6 +2279,28 @@ const F5 = [
     r20.newHidden === true && r20.editHidden === false && r20.moreOpen === true,
     JSON.stringify(r20));
 
+  // TB-R21: 関連ノートの obsidian:// リンク（リスト列は TB-Q1 既存挙動の回帰固定・モーダルは 2026-08-13 拡張）
+  const r21 = await page.evaluate((today) => {
+    window.taskboard.test.setToday(today);
+    const f = ['# tasks', '', '## PEW', '', '- [ ] 設計する #design [[設計 メモ]]', '', ''].join('\n');
+    const s = window.taskboard.test.newSession(f);
+    s.setView('list');
+    const listA = document.querySelector('td a.chip');
+    const listHref = listA ? listA.getAttribute('href') : null;
+    window.__h.openEdit('設計する');
+    const modalA = document.querySelector('#modal-link-list a');
+    const modalHref = modalA ? modalA.getAttribute('href') : null;
+    const tagHasA = !!document.querySelector('#modal-tag-list a');
+    const depHasA = !!document.querySelector('#modal-dep-field a');
+    document.getElementById('modal-cancel').click();
+    return { listHref, modalHref, tagHasA, depHasA };
+  }, TODAY);
+  const wantHref = 'obsidian://open?vault=vault&file=' + encodeURIComponent('設計 メモ');
+  r.check('TB-R21（関連ノートのチップが obsidian:// リンク・タグ/依存はリンクにしない）',
+    r21.listHref === wantHref && r21.modalHref === wantHref
+    && r21.tagHasA === false && r21.depHasA === false,
+    JSON.stringify([r21, wantHref]));
+
   /* ========== TB-R1〜R8: 依存関係の記法とバイト保全（Phase T6・2026-08-12） ==========
      記法は Obsidian Tasks の標準。トークン順は 本文 → 🆔 → ⛔ → 優先度 → 🛫 → 📅 → ✅ */
   const F12 = [

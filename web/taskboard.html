@@ -348,7 +348,10 @@
 'use strict';
 
 const TOOL = 'taskboard';
-const VAULT_NAME = 'vault';        // obsidian:// リンク用（TB-Q1 決定）
+const VAULT_NAME = 'vault';        // obsidian:// リンク用（TB-Q1 決定。vault のフォルダ名を変えたら更新）
+// 関連ノートを Obsidian で開くリンク（リスト列とモーダルのチップで共用 — TB-R21）
+const obsidianHref = name =>
+  'obsidian://open?vault=' + encodeURIComponent(VAULT_NAME) + '&file=' + encodeURIComponent(name);
 const MAX_CHARS = 2000000;         // 読込上限
 const IDB_NAME = 'tools-taskboard';// file:// は全ページ同一オリジンのため db 名で衝突防止
 const IDB_STORE = 'handles';
@@ -2982,7 +2985,7 @@ function renderRow(t, today) {
     const a = document.createElement('a');
     a.className = 'chip';
     a.textContent = name;
-    a.href = 'obsidian://open?vault=' + encodeURIComponent(VAULT_NAME) + '&file=' + encodeURIComponent(name);
+    a.href = obsidianHref(name);
     a.title = 'Obsidian で開く';
     tdLinks.appendChild(a);
   }
@@ -3260,7 +3263,8 @@ function modalFocusables() {
     .filter(x => x.getClientRects().length > 0);
 }
 
-function renderModalChips(hostId, values, onDelete) {
+// hrefOf を渡すとチップ本体が <a>（Obsidian で開く — TB-R21。関連ノートのみ。タグ・依存はリンクにしない）
+function renderModalChips(hostId, values, onDelete, hrefOf) {
   const host = el(hostId);
   host.textContent = '';
   if (!values.length) {
@@ -3273,7 +3277,15 @@ function renderModalChips(hostId, values, onDelete) {
   values.forEach((v, i) => {
     const wrap = document.createElement('span');
     wrap.className = 'chip';
-    wrap.textContent = v;
+    if (hrefOf) {
+      const a = document.createElement('a');
+      a.textContent = v;
+      a.href = hrefOf(v, i);
+      a.title = 'Obsidian で開く';
+      wrap.appendChild(a);
+    } else {
+      wrap.textContent = v;
+    }
     const del = document.createElement('button');
     del.type = 'button';
     del.className = 'chip-del';
@@ -3342,7 +3354,7 @@ function refreshModalLinks() {
   renderModalChips('modal-link-list', modalState.links.map(l => '[[' + l + ']]'), (i) => {
     modalState.links.splice(i, 1);
     refreshModalLinks();
-  });
+  }, (v, i) => obsidianHref(modalState.links[i]));   // 表示は [[名前]]・href は素の名前から
 }
 
 function readModal() {
