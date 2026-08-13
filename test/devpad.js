@@ -853,6 +853,50 @@ const TAB_IDS = ['json', 'xml', 'sql', 'escape', 'url', 'base64', 'regex', 'base
   r.check('ToolStorage 不可時に mountWarning のバナーが出る',
     warn.exists && warn.text.includes('保存できません') && warn.role === 'alert', JSON.stringify(warn));
 
+  /* ========== DEV-48: JSON タブの init 失敗が後続の配線を止めない ========== */
+  // getElementById('json-format') だけ throw させ、json の init を確実に失敗させる。
+  // init が this に生やすメソッド（updateSampleBtn）を後続処理が裸で呼ぶと、
+  // ここで TypeError になり Cmd+Enter・コピー・自動保存の配線が全部止まる（spec DEV-48）。
+  // window.devpad はこの経路では未定義になりうるため、フックに依存せず素の DOM だけで検査する
+  const p48 = r.watch(await browser.newPage());
+  await p48.addInitScript(() => {
+    localStorage.clear(); // file:// は全ページで localStorage 共有。ここまでの保存を持ち込まない
+    const orig = Document.prototype.getElementById;
+    Document.prototype.getElementById = function (id) {
+      if (id === 'json-format') throw new Error('DEV-48: injected init failure');
+      return orig.call(this, id);
+    };
+  });
+  await p48.goto(fileUrl('web/devpad.html'));
+  await p48.waitForTimeout(150);
+  const d48 = await p48.evaluate(async () => {
+    navigator.clipboard.writeText = t => { window.__copied = t; return Promise.resolve(); };
+    const jsonErr = document.querySelector('#tab-json [data-tab-error]');
+    const out = {
+      jsonBanner: !jsonErr.hidden && jsonErr.textContent.includes('初期化に失敗'),
+      jsonMark: document.querySelector('#tabbar button[data-tab="json"]').classList.contains('tab-error'),
+      // 後続配線①: 各 primary への title 付与（init ループより後）
+      xmlTitle: document.querySelector('#tab-xml button.primary').title,
+    };
+    // 後続配線②: コピー（wireCopy）。パネルが hidden でも click() でハンドラは届く
+    document.getElementById('xml-out').value = '<r/>';
+    document.getElementById('xml-copy').click();
+    await new Promise(d => setTimeout(d, 100));
+    out.copied = window.__copied;
+    // 後続配線③: 自動保存（main の input リスナ → 500ms デバウンス）
+    const cin = document.getElementById('count-in');
+    cin.value = 'DEV-48';
+    cin.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise(d => setTimeout(d, 700));
+    out.saved = !!localStorage.getItem('tools:devpad');
+    return out;
+  });
+  await p48.close();
+  r.check('DEV-48（JSON init 失敗でもエラーバナー＋後続の配線が完了する）',
+    d48.jsonBanner && d48.jsonMark && d48.xmlTitle === 'Cmd/Ctrl+Enter'
+    && d48.copied === '<r/>' && d48.saved === true,
+    JSON.stringify(d48));
+
   /* ========== ハブからの導線 ========== */
   await page.goto(fileUrl('index.html'));
   await page.click('ul.tool-list a:text-is("Convert")');

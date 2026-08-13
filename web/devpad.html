@@ -1495,7 +1495,12 @@ function restoreState() {
 
   restoreState();
   switchTab(activeTab, false);
-  TABS.find(t => t.id === 'json').updateSampleBtn(); // 復元で入力が入っていたら隠す
+  // 復元で入力が入っていたらサンプルボタンを隠す。updateSampleBtn は json の init が
+  // this に生やすため、init 失敗時は undefined（裸で呼ぶと以降の配線が全部止まる — DEV-48）
+  try {
+    const json = TABS.find(t => t.id === 'json');
+    if (json.updateSampleBtn) json.updateSampleBtn();
+  } catch (_) { /* 1タブ分の失敗を他へ波及させない */ }
   // 基数タブは10進だけを復元しているので、残りの基数とビット表示をここで再計算する
   try {
     const base = TABS.find(t => t.id === 'base');
