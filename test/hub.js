@@ -90,6 +90,35 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     && eq(tabSearch.sql, ['Convert', 'Schema']) && eq(tabSearch.radix, ['Convert']),
     JSON.stringify(tabSearch));
 
+  /* ---------- 検索: カテゴリ名でも絞れる（HUB-12） ---------- */
+  const catSearch = await page.evaluate(() => ({
+    seiri: window.hub.filter('整理').map(t => t.name),
+    // 「設計」はカテゴリ（Schema・Outline）に加え、Tables・Diff の用途文にも含まれる。
+    // カテゴリ検索が無いと Schema（desc/when に「設計」の語が無い）だけが漏れる
+    sekkei: window.hub.filter('設計').map(t => t.name),
+  }));
+  r.check('HUB-12（カテゴリ名で絞れる）',
+    eq(catSearch.seiri, ['Lint']) && eq(catSearch.sekkei, ['Tables', 'Diff', 'Schema', 'Outline']),
+    JSON.stringify(catSearch));
+
+  /* ---------- `/` で検索へフォーカス（HUB-13） ---------- */
+  const slash = await page.evaluate(() => {
+    const search = document.getElementById('search');
+    search.blur();
+    document.body.focus();
+    const ev = new KeyboardEvent('keydown', { key: '/', bubbles: true, cancelable: true });
+    document.body.dispatchEvent(ev);
+    const focused = document.activeElement === search;
+    const prevented = ev.defaultPrevented;
+    // 入力欄の中で押した `/` は奪わない（文字として打てる）
+    const evIn = new KeyboardEvent('keydown', { key: '/', bubbles: true, cancelable: true });
+    search.dispatchEvent(evIn);
+    return { focused, prevented, inFieldPrevented: evIn.defaultPrevented };
+  });
+  r.check('HUB-13（`/` で検索にフォーカス・入力欄の中では奪わない）',
+    slash.focused && slash.prevented && slash.inFieldPrevented === false,
+    JSON.stringify(slash));
+
   const typeSearch = async q => {
     await page.fill('#search', q);
     await page.waitForTimeout(80);

@@ -29,7 +29,7 @@
 <main class="app">
   <h1>Personal Tools</h1>
   <p class="subtitle">業務効率化ツール一覧 — ツール名・説明・用途でインクリメンタル検索</p>
-  <input type="text" id="search" placeholder="検索（ツール名・説明・用途）" autocomplete="off">
+  <input type="text" id="search" placeholder="検索（ツール名・説明・用途・カテゴリ。/ でフォーカス）" autocomplete="off">
   <div id="list"></div>
   <p id="empty-msg" hidden></p>
 </main>
@@ -59,19 +59,29 @@ const TOOLS = [
 // 「変換・比較」は Diff が変換ではなく比較のため（英語にすると Convert ツールと衝突する）
 const CATEGORY_ORDER = ['タスク', '変換・比較', '設計', '整理', 'PM'];
 
-// 検索: 表示名＋英名（alias）＋説明＋用途（when）の部分一致（大文字小文字無視）。
+// 検索: 表示名＋英名（alias）＋説明＋用途（when）＋カテゴリの部分一致（大文字小文字無視）。
 // 純関数（テストフック用）
 function filter(query) {
   const q = query.trim().toLowerCase();
   if (q === '') return TOOLS.slice();
   return TOOLS.filter(t =>
     t.name.toLowerCase().includes(q) || (t.alias || '').toLowerCase().includes(q) ||
-    t.desc.toLowerCase().includes(q) || (t.when || '').toLowerCase().includes(q));
+    t.desc.toLowerCase().includes(q) || (t.when || '').toLowerCase().includes(q) ||
+    (t.category || '').toLowerCase().includes(q));
 }
 
 const listEl = document.getElementById('list');
 const emptyEl = document.getElementById('empty-msg');
 const searchEl = document.getElementById('search');
+
+// `/` で検索へフォーカス（HUB-13）。入力欄の中で押した `/` は文字として通す
+document.addEventListener('keydown', e => {
+  if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey) return;
+  const t = e.target;
+  if (t === searchEl || (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA'))) return;
+  e.preventDefault();
+  searchEl.focus();
+});
 
 function render(tools) {
   listEl.textContent = '';
