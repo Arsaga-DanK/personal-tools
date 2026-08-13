@@ -51,6 +51,13 @@ PostgreSQL の DDL（`CREATE TABLE` ＋ `COMMENT ON`）と Markdown のテーブ
   左ペインタイトル横に **［サンプルを入れる］**（**入力が空のときだけ表示**。投入と同時に変換）
 - ツールバー: ［DDL → 定義書］（primary）［定義書 → DDL］［出力をコピー］
   ［Excel用コピー（TSV）］。**Cmd/Ctrl+Enter で出力をコピー**（excel2md・diff と同じ作法）
+- **Excel用コピーは二重フレーバー（2026-08-13）**: `text/plain` に TSV（従来どおり）、
+  `text/html` に書式付き `<table>`（罫線・ヘッダー背景・文字列化ガード）を同時に書く。
+  貼り付け先の Excel では罫線とヘッダー色が付き、既定値 `0.00`（末尾ゼロの小数）などが
+  数値化で化けない。書き込み機構とガードの正本は `lib/excel.js`（`ToolExcel.copy` /
+  `cellStyle`。ガード一覧は excel2md spec の 4b）。**セル値は TSV と同一**
+  （`clean` で タブ・改行を空白化）— 2フレーバーの差は書式だけにする。
+  失敗時は従来の TSV 平文コピーにフォールバック
 - **警告リスト領域**（`#warnings`）: 解釈できなかった構文・認識できない列などを箇条書きで出す。
   0件のときは非表示
 - バナー領域（`.banner`）: エラーと結果表示
@@ -230,7 +237,7 @@ comment on column public.customer.code is '顧客コード';
 | DS-13 | 真偽セル `○ ✓ Y 1` / 空 `-` `×` / 不明値 `要` | 前者 true・中者 false・**`要` は警告**（黙って false にしない） |
 | DS-14 | ヘッダーに `NULL許可` | **解釈せず警告**（反転して読まない） |
 | DS-15 | 定義書の物理名が `CustomerCode` | 警告「小文字に畳まれます」 |
-| DS-16 | Excel 用コピー（`writeText` をスタブ） | TSV のヘッダーが `論理名\t物理名\t型\t桁\tNOT NULL\t既定値\tPK\tUNIQUE\tFK\tCHECK`。**実クリップボードに書かない** |
+| DS-16 | Excel 用コピー（`execCommand` を false に固定し、`clipboard.write` の ClipboardItem を捕捉） | `text/plain` の TSV ヘッダーが `論理名\t物理名\t型\t桁\tNOT NULL\t既定値\tPK\tUNIQUE\tFK\tCHECK`・1行目が id 行・7行。**`text/html` も同時に書かれ**、`<th>` が10個・全セルに罫線・既定値 `0.00` のセルに `mso-number-format:'\@'`。**実クリップボードに書かない** |
 | DS-17 | UI: サンプル投入 → 変換 → Cmd/Ctrl+Enter | サンプルは空のときだけ表示・投入で消える・Cmd+Enter でコピーが走る |
 | DS-18 | `window.SqlLex.tokenize` がこのページで動く | ドル引用符と入れ子コメントが各1トークンになる（共有 lexer が読めている証拠） |
 | DS-19 | ハブ導線 | 「Schema」リンクで遷移し `<title>` が `Schema (ddl2spec)`。カテゴリ「設計」が出る |
@@ -270,7 +277,12 @@ comment on column public.customer.code is '顧客コード';
 
 - `ALTER TABLE` / `CREATE VIEW` / `CREATE INDEX` / `CREATE TRIGGER` の解析（警告に出すだけ）
 - 他方言（MySQL / Oracle）
-- Excel ファイルの直接読み書き（TSV コピーまで）
+- Excel ファイルの直接読み書き（クリップボード経由のコピーまで）
+
+## Excel 実機スモーク項目（書式付きコピー・2026-08-13）
+
+- ［Excel用コピー］→ Excel に貼り付けて**罫線とヘッダー背景（灰色）が付く**こと
+- `0.00`（既定値セル）が貼り付け後も `0.00` のままであること（`0` に化けない）
 - ER 図の生成 / DDL の実行 / DB への接続
 
 ## 決定事項（2026-08-06 承認）

@@ -44,6 +44,7 @@
 
 <script src="../lib/ui.js"></script>
 <script src="../lib/sql.js"></script>
+<script src="../lib/excel.js"></script>
 <script src="../lib/storage.js"></script>
 <script>
 'use strict';
@@ -616,16 +617,35 @@ function specToDdl(src) {
   return { ok: true, value, warnings };
 }
 
-// Excel 用 TSV（定義書の表を Excel の定義書シートへ貼る）
+// Excel 用 TSV（定義書の表を Excel の定義書シートへ貼る）。
+// セル値の clean は text/html 側（buildExcelHtml）と共有し、2フレーバーの内容差を書式だけにする
+const cleanCell = v => String(v == null ? '' : v).replace(/[\t\n\r]/g, ' ');
 function buildTsv(model) {
-  const clean = v => String(v == null ? '' : v).replace(/[\t\n\r]/g, ' ');
   const rows = [SPEC_COLUMNS.map(c => c[1]).join('\t')];
   for (const t of model.tables) {
     for (const col of t.columns) {
-      rows.push(SPEC_COLUMNS.map(c => clean(cellOf(col, c[0]))).join('\t'));
+      rows.push(SPEC_COLUMNS.map(c => cleanCell(cellOf(col, c[0]))).join('\t'));
     }
   }
   return rows.join('\n');
+}
+
+// Excel 用 text/html（罫線・ヘッダー背景・文字列化ガードは lib/excel.js の cellStyle が正本。
+// 既定値 0.00 の類が貼り付けで数値化して化けるのを防ぐ — DS-16）
+function buildExcelHtml(model) {
+  const esc = v => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const cell = (v, header) => {
+    const tag = header ? 'th' : 'td';
+    return '<' + tag + ' style="' + ToolExcel.cellStyle(v, { header }) + '">' + esc(v) + '</' + tag + '>';
+  };
+  const parts = ['<table>', '<tr>' + SPEC_COLUMNS.map(c => cell(c[1], true)).join('') + '</tr>'];
+  for (const t of model.tables) {
+    for (const col of t.columns) {
+      parts.push('<tr>' + SPEC_COLUMNS.map(c => cell(cleanCell(cellOf(col, c[0])), false)).join('') + '</tr>');
+    }
+  }
+  parts.push('</table>');
+  return parts.join('');
 }
 
 /* ========== UI ========== */
@@ -754,8 +774,13 @@ el('copy').addEventListener('click', () => {
 });
 el('copy-tsv').addEventListener('click', () => {
   if (outputStale()) { showBanner('warn', STALE_MSG); return; }
+  if (!lastModel.tables.length) { showBanner('info', '先に変換を実行してください'); return; }
   const tsv = buildTsv(lastModel);
-  copyText(lastModel.tables.length ? tsv : '', el('copy-tsv'), '先に変換を実行してください');
+  // Excel 用: text/html（書式付き）+ text/plain（TSV）の二重フレーバー（lib/excel.js）。
+  // 失敗時は従来どおり TSV の平文コピーへフォールバック
+  ToolExcel.copy(buildExcelHtml(lastModel), tsv).then(
+    () => showBanner('success', 'コピーしました'),
+    () => copyText(tsv, el('copy-tsv'), '先に変換を実行してください'));
 });
 el('sample').addEventListener('click', () => {
   el('input').value = SAMPLE;
@@ -777,7 +802,7 @@ document.addEventListener('visibilitychange', () => {
 /* ---------- テスト用フック ---------- */
 
 window.ddl2spec = {
-  ddlToSpec, specToDdl, parseDdl, parseSpec, buildSpec, buildDdl, buildTsv,
+  ddlToSpec, specToDdl, parseDdl, parseSpec, buildSpec, buildDdl, buildTsv, buildExcelHtml,
   run, getModel: () => lastModel,
 };
 

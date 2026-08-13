@@ -236,28 +236,39 @@ const GENERATED_DDL = [
     s15.ok && s15.warnings.some(w => w.includes('CustomerCode') && w.includes('小文字に畳まれます')),
     JSON.stringify(s15.warnings));
 
-  /* ========== DS-16: Excel 用コピー（TSV） ========== */
-  const s16 = await page.evaluate((ddl) => {
-    const captured = [];
-    // 実クリップボードを壊さないためスタブする
+  /* ========== DS-16: Excel 用コピー（text/plain の TSV + text/html の書式付き表） ==========
+     execCommand を false に固定して ClipboardItem 経路に落とし、両フレーバーを Blob から読む
+     （execCommand 経路は copy イベント任せで捕捉が不安定。実クリップボードには書かない） */
+  const s16 = await page.evaluate(async (ddl) => {
+    document.execCommand = () => false;
+    const out = { writes: 0, plain: null, html: null };
     Object.defineProperty(navigator, 'clipboard', {
-      configurable: true, value: { writeText: t => { captured.push(t); return Promise.resolve(); } },
+      configurable: true, value: {
+        writeText: () => Promise.resolve(),
+        write: async items => {
+          out.writes++;
+          out.plain = await (await items[0].getType('text/plain')).text();
+          out.html = await (await items[0].getType('text/html')).text();
+        },
+      },
     });
     const inp = document.getElementById('input');
     inp.value = ddl;
     inp.dispatchEvent(new Event('input', { bubbles: true }));
     document.getElementById('to-spec').click();
     document.getElementById('copy-tsv').click();
-    return new Promise(res => setTimeout(() => res({
-      captured, rows: captured[0] ? captured[0].split('\n') : [],
-    }), 60));
+    await new Promise(d => setTimeout(d, 60));
+    return { writes: out.writes, rows: out.plain ? out.plain.split('\n') : [], html: out.html || '' };
   }, DDL);
-  r.check('DS-16（TSV のヘッダーと1行目・実クリップボードには書かない）',
-    s16.captured.length === 1
+  r.check('DS-16（TSV のヘッダーと1行目・text/html に罫線と 0.00 のガード・実クリップボードには書かない）',
+    s16.writes === 1
     && s16.rows[0] === '論理名\t物理名\t型\t桁\tNOT NULL\t既定値\tPK\tUNIQUE\tFK\tCHECK'
     && s16.rows[1] === '顧客ID\tid\tbigserial\t\t○\t\t○\t\t\t'
-    && s16.rows.length === 7,
-    JSON.stringify(s16.rows));
+    && s16.rows.length === 7
+    && (s16.html.match(/<th /g) || []).length === 10
+    && (s16.html.match(/border:\.5pt solid #a6a6a6/g) || []).length === 70
+    && /<td[^>]*mso-number-format:'\\@'[^>]*>0\.00</.test(s16.html),
+    JSON.stringify([s16.writes, s16.rows[0], s16.rows.length, (s16.html.match(/<th /g) || []).length, s16.html.slice(0, 200)]));
 
   /* ========== DS-17: サンプル投入と Cmd+Enter コピー ========== */
   await page.goto(fileUrl('web/ddl2spec.html'));
