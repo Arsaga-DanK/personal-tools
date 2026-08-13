@@ -38,6 +38,7 @@ const ALL_OFF = {
     return {
       text: res.text,
       counts: res.counts,
+      attention: res.attention,
       // 全ケース共通の不変条件（spec）: tokens の cur 連結が出力と一致する
       joined: res.tokens.map(x => x.cur).join(''),
       tokenCount: res.tokens.length,
@@ -93,6 +94,56 @@ const ALL_OFF = {
   r.check('NORM-17b（サマリのラベルが方向に追随: 半角英数→全角）',
     !n17b.missing && n17b.summary === '適用: 半角英数→全角: 3件',
     JSON.stringify(n17b));
+
+  /* ========== NORM-19〜21: 要注意文字の検出 ========== */
+  const OFF = { nfkc: false, alnum: false, kana: false, hyphen: false, wave: false, space: false };
+  const n19 = await norm('①テスト﨑😀\u00A0', OFF);
+  r.check('NORM-19（要注意4クラスを検出・テキストは不変）',
+    n19.text === '①テスト﨑😀\u00A0' && allZero(n19.counts)
+    && n19.attention && n19.attention.total === 4
+    && n19.attention.byClass['囲み・組文字（機種依存）'] === 1
+    && n19.attention.byClass['異体字（機種依存）'] === 1
+    && n19.attention.byClass['BMP外（絵文字等 — CP932に無い）'] === 1
+    && n19.attention.byClass['不可視文字'] === 1,
+    JSON.stringify([n19.text === '①テスト﨑😀\u00A0', n19.attention]));
+
+  const n20 = await norm('①', Object.assign({}, OFF, { nfkc: true }));
+  r.check('NORM-20（判定は変換後の出力に対して — NFKC が ① を変換すると要注意0件）',
+    n20.text === '1' && n20.attention && n20.attention.total === 0 && eq(nonZero(n20.counts), { nfkc: 1 }),
+    JSON.stringify([n20.text, n20.attention]));
+
+  const n21 = await norm('①', Object.assign({ attention: false }, OFF));
+  r.check('NORM-21（attention OFF で検出しない）',
+    n21.text === '①' && n21.attention && n21.attention.total === 0,
+    JSON.stringify([n21.text, n21.attention]));
+
+  // NORM-22: .ng ハイライトと title・サマリ（UI 経由）
+  const n22 = await page.evaluate(async () => {
+    const ids = ['opt-nfkc', 'opt-alnum', 'opt-kana', 'opt-hyphen', 'opt-wave', 'opt-space'];
+    const before = {};
+    for (const id of ids) { const e = document.getElementById(id); before[id] = e.checked; e.checked = false; }
+    document.getElementById('opts').dispatchEvent(new Event('change', { bubbles: true }));
+    const ta = document.getElementById('input');
+    ta.value = '①';
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise(d => setTimeout(d, 300));
+    const ng = document.querySelectorAll('#output .ng');
+    const out = {
+      count: ng.length,
+      title: ng.length ? ng[0].title : '',
+      summary: document.getElementById('summary').textContent,
+    };
+    for (const id of ids) document.getElementById(id).checked = before[id];
+    document.getElementById('opts').dispatchEvent(new Event('change', { bubbles: true }));
+    ta.value = '';
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise(d => setTimeout(d, 250));
+    return out;
+  });
+  r.check('NORM-22（.ng ハイライトと title・サマリに要注意件数）',
+    n22.count === 1 && n22.title === '要注意: 囲み・組文字（機種依存）'
+    && n22.summary.includes('要注意文字: 1件'),
+    JSON.stringify(n22));
 
   const n03 = await norm('a  b   c');
   r.check('NORM-03（連続空白の圧縮）',

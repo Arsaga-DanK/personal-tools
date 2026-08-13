@@ -64,6 +64,31 @@
 
 変換ごとに「触れたトークン数」を表示（例: `全角英数→半角: 6件`）。0件の変換は表示しない。1トークンが複数変換で変更された場合は各変換のカウントに1ずつ計上。
 
+## 要注意文字の検出（2026-08-13）
+
+Excel 納品・レガシー DB 投入の前に「環境で化けやすい文字」を可視化する。**検出のみで変換はしない**。
+判定は**変換後の出力**（`t.cur`）に対して行う — 納品するテキストの検査だから
+（例: NFKC ON なら ① は 1 に変換され、要注意から消える）。
+トグル「要注意文字を検出」（`attention`・既定 ON）。
+
+クラス（この列挙が正本。**完全な CP932 収録判定はしない** — 変換表が必要。
+必要になったら tool-backlog の enc 候補を再検討する）:
+
+| クラス | ラベル | 範囲 |
+|---|---|---|
+| 囲み・組文字 | `囲み・組文字（機種依存）` | U+2460-24FF（丸数字等）/ U+2160-217F（ローマ数字）/ U+3220-32FF / U+3300-33FF（㈱・㌔・㎡ 等）。CP932 には NEC/IBM 拡張で載るが JIS X 0208 外で環境により化ける |
+| 異体字 | `異体字（機種依存）` | 代表6字を列挙: 﨑(U+FA11) 髙(U+9AD9) 德(U+5FB7) 濵(U+6FF5) 栁(U+6801) 瀨(U+7028)。増減はテスト更新とセット |
+| BMP外 | `BMP外（絵文字等 — CP932に無い）` | U+10000 以上（サロゲートペア） |
+| 不可視 | `不可視文字` | NBSP(U+00A0)・ゼロ幅(U+200B-200F)・行/段落区切り(U+2028/2029)・BOM(U+FEFF) |
+
+- `normalize` の戻り値に `attention: { total, byClass: {ラベル: 件数} }` を追加
+  （既存キー text/tokens/counts は不変。件数はトークン単位・最初に一致したクラス1つに計上）
+- ハイライト: 該当トークンを `.ng` クラス（赤系）で描画し、title に `要注意: <ラベル>`。
+  変換と重なったトークンは `.chg.ng`（title に両方）
+- サマリ: 末尾に ` ／ 要注意文字: N件（ラベル: n …）` を追記（0件なら出さない。
+  変換が0件でも要注意があれば「変更はありません ／ 要注意文字: …」）
+- 保存: options に `attention`（boolean）を追加
+
 ## エラー・警告仕様
 
 - どの入力でも落ちない。**空入力は出力空・サマリなし**（`summary` は空文字。0件時の
@@ -75,7 +100,7 @@
 
 ## 保存仕様
 
-キー `tools:norm`、payload `{options: {nfkc, alnum, alnumTarget, kana, kanaTarget, hyphen, hyphenTarget, hyphenIncludeChoon, wave, waveTarget, space}}`。
+キー `tools:norm`、payload `{options: {nfkc, alnum, alnumTarget, kana, kanaTarget, hyphen, hyphenTarget, hyphenIncludeChoon, wave, waveTarget, space, attention}}`。
 `alnumTarget` は `'half'|'full'`（既定 half）、`kanaTarget` は `'full'|'half'`（既定 full）。
 **旧 payload（Target キーなし）は既定方向で復元**（後方互換）。
 エクスポート/インポートは ToolStorage 標準（インポートは全置換 →devpad spec DEV-Q4）。
@@ -99,6 +124,9 @@
 | NORM-13 | 全変換OFF | `'ウ゛'` | `'ヴ'`（前処理の NFC 合成。counts は全0、ハイライト1箇所・tooltip「前処理（濁点合成）」） | すべて0 |
 | NORM-17 | alnumTarget: 'full' | `'ABC123'` | `'ＡＢＣ１２３'` | alnum: 6 |
 | NORM-18 | kanaTarget: 'half' | `'ガギグ。'` | `'ｶﾞｷﾞｸﾞ｡'`（濁点は ｶ+ﾞ の2文字へ展開・1トークン1件。句読点も対象） | kana: 4 |
+| NORM-19 | 全変換OFF（attention は既定 ON） | `'①テスト﨑😀'＋NBSP(U+00A0)` | テキスト不変。`attention.total === 4`、byClass = 囲み・組文字1／異体字1／BMP外1／不可視1 | すべて0 |
+| NORM-20 | nfkc: true | `'①'` | `'1'`（NFKC が変換するため**要注意 0件** — 判定は変換後の出力に対して行う証拠） | nfkc: 1・attention.total: 0 |
+| NORM-21 | attention: false | `'①'` | `'①'`・`attention.total === 0`（検出そのものが止まる） | すべて0 |
 | NORM-14 | nfkc のみON | `'゛'`（先頭単独） | `'゛'`（スペース展開しない — 常時除外） | nfkc: 0 |
 
 UI 手順ケース:
@@ -109,6 +137,9 @@ UI 手順ケース:
 - **NORM-16（コピー時の確定）**: 入力直後（150ms のデバウンス確定前）にコピー →
   **最新の入力に対応する出力**がコピーされる（デバウンス中の古い `lastResult` を渡さない。
   excel2md / diff と同じ「コピー時に確定」の規約）
+- **NORM-22（要注意ハイライト）**: `'①'` 入力（全変換OFF）→ 出力ペインに `.ng` span が1つ・
+  title が `要注意: 囲み・組文字（機種依存）`・サマリに `要注意文字: 1件` を含む。
+  コピーされるテキストに影響しない
 
 ## 検証手順
 

@@ -26,6 +26,13 @@
     border-radius: 3px;
     cursor: help;
   }
+  /* 要注意文字（検出のみ・変換しない）。変換と重なったら .chg.ng で両方の見た目 */
+  #output .ng {
+    background: color-mix(in srgb, #e5484d 20%, transparent);
+    border-radius: 3px;
+    cursor: help;
+    text-decoration: underline wavy #e5484d 1px;
+  }
   #output ruby rt { color: var(--muted); font-size: 9px; }
 </style>
 </head>
@@ -61,6 +68,7 @@
       <option value="～">～ (U+FF5E)</option>
     </select></label>
     <label class="toggle" title="半角スペースの連続を1個に圧縮。全角スペースは字下げ保護のため対象外"><input type="checkbox" id="opt-space" checked> 連続空白の圧縮</label>
+    <label class="toggle" title="環境で化けやすい文字（丸数字・㈱等の組文字・﨑髙等の異体字・絵文字・NBSP等の不可視文字）を検出して赤でハイライト。変換はしません"><input type="checkbox" id="opt-attention" checked> 要注意文字を検出</label>
     <span class="spacer"></span>
     <label class="toggle" title="変更文字の上に変更前をルビ表示（タッチ環境向け。コピーには混入しません）"><input type="checkbox" id="opt-ruby"> 変更前を注記表示</label>
   </div>
@@ -265,10 +273,20 @@ const DEFAULT_OPTS = {
   nfkc: false, alnum: true, alnumTarget: 'half', kana: true, kanaTarget: 'full',
   hyphen: true, hyphenTarget: '-', hyphenIncludeChoon: false,
   wave: true, waveTarget: '〜',
-  space: true,
+  space: true, attention: true,
 };
 
-// 変換の入口。戻り値: { text, tokens, counts }
+// 要注意文字（環境で化けやすい）の検出クラス。この列挙が正本（spec「要注意文字の検出」）。
+// 完全な CP932 収録判定はしない — 変換表が要る（必要になったら tool-backlog の enc を再検討）
+const ATTENTION_CLASSES = [
+  // 不可視・紛らわしい文字はコードポイントで組む（ソースへの実文字混入を防ぐ — test/norm.js と同じ作法）
+  { label: '囲み・組文字（機種依存）', re: /[\u2460-\u24FF\u2160-\u217F\u3220-\u32FF\u3300-\u33FF]/ },
+  { label: '異体字（機種依存）', re: /[\uFA11\u9AD9\u5FB7\u6FF5\u6801\u7028]/ },  // 﨑髙德濵栁瀨
+  { label: 'BMP外（絵文字等 — CP932に無い）', re: /[\u{10000}-\u{10FFFF}]/u },
+  { label: '不可視文字', re: /[\u00A0\u200B-\u200F\u2028\u2029\uFEFF]/ },
+];
+
+// 変換の入口。戻り値: { text, tokens, counts, attention }
 function normalize(text, opts) {
   const options = Object.assign({}, DEFAULT_OPTS, opts);
   const tokens = tokenize(text);
@@ -276,7 +294,21 @@ function normalize(text, opts) {
   for (const tr of TRANSFORMS) {
     counts[tr.id] = options[tr.id] ? tr.apply(tokens, options) : 0;
   }
-  return { text: tokens.map(t => t.cur).join(''), tokens, counts };
+  // 要注意文字は「変換後の出力」に対して検出する（納品するテキストの検査 — NORM-20）
+  const attention = { total: 0, byClass: {} };
+  if (options.attention) {
+    for (const t of tokens) {
+      for (const cls of ATTENTION_CLASSES) {
+        if (cls.re.test(t.cur)) {
+          t.attention = cls.label;
+          attention.total++;
+          attention.byClass[cls.label] = (attention.byClass[cls.label] || 0) + 1;
+          break;
+        }
+      }
+    }
+  }
+  return { text: tokens.map(t => t.cur).join(''), tokens, counts, attention };
 }
 
 /* ========== テスト用フック ========== */
@@ -303,6 +335,7 @@ const el = {
 function uiOpts() {
   return {
     nfkc: $('opt-nfkc').checked,
+    attention: $('opt-attention').checked,
     alnum: $('opt-alnum').checked,
     alnumTarget: $('opt-alnum-target').value,
     kana: $('opt-kana').checked,
@@ -320,6 +353,7 @@ function uiOpts() {
 function applyOpts(o) {
   if (!o || typeof o !== 'object') return;
   if (typeof o.nfkc === 'boolean') $('opt-nfkc').checked = o.nfkc;
+  if (typeof o.attention === 'boolean') $('opt-attention').checked = o.attention;
   if (typeof o.alnum === 'boolean') $('opt-alnum').checked = o.alnum;
   if (o.alnumTarget === 'half' || o.alnumTarget === 'full') $('opt-alnum-target').value = o.alnumTarget;
   if (typeof o.kana === 'boolean') $('opt-kana').checked = o.kana;
@@ -333,18 +367,23 @@ function applyOpts(o) {
   if (typeof o.ruby === 'boolean') $('opt-ruby').checked = o.ruby;
 }
 
-let lastResult = { text: '', tokens: [], counts: {} };
+let lastResult = { text: '', tokens: [], counts: {}, attention: { total: 0, byClass: {} } };
 
 // 「変更はありません」は入力があるときだけ意味を持つフィードバックなので、
 // 空入力ではサマリを出さない（spec エラー・警告仕様）。
 // 性能ガード経路が summary を明示的に空にしているのと扱いを揃える。
-function renderSummary(counts, hasInput, labels) {
+function renderSummary(counts, hasInput, labels, attention) {
   const parts = [];
   for (const tr of TRANSFORMS) {
     if (counts[tr.id] > 0) parts.push(labels[tr.id] + ': ' + counts[tr.id] + '件');
   }
-  if (parts.length > 0) el.summary.textContent = '適用: ' + parts.join(' / ');
-  else el.summary.textContent = hasInput ? '変更はありません' : '';
+  let text = parts.length > 0 ? '適用: ' + parts.join(' / ') : (hasInput ? '変更はありません' : '');
+  // 要注意文字は検出のみ（変換件数ではない）ので「適用:」とは別建てで追記する
+  if (attention && attention.total > 0) {
+    const det = Object.entries(attention.byClass).map(([k, v]) => k + ': ' + v).join('・');
+    text = (text ? text + ' ／ ' : '') + '要注意文字: ' + attention.total + '件（' + det + '）';
+  }
+  el.summary.textContent = text;
 }
 
 // 引数順は全ツール共通の (kind, text)。kind は 'error' / 'warn' / それ以外=info の3値
@@ -374,13 +413,15 @@ function renderOutput(result, useRuby, labels) {
   const isChanged = t => t.orig !== t.cur;
   while (i < tokens.length) {
     const changed = isChanged(tokens[i]);
-    const sig = tokens[i].changedBy.join(',');
+    // 要注意（.ng）はハイライトの独立した軸なのでグループ判定に含める
+    const att = tokens[i].attention || '';
+    const sig = tokens[i].changedBy.join(',') + '|' + att;
     let j = i + 1;
     while (j < tokens.length &&
       isChanged(tokens[j]) === changed &&
-      tokens[j].changedBy.join(',') === sig) j++;
+      (tokens[j].changedBy.join(',') + '|' + (tokens[j].attention || '')) === sig) j++;
     const curText = tokens.slice(i, j).map(t => t.cur).join('');
-    if (!changed) {
+    if (!changed && !att) {
       frag.appendChild(document.createTextNode(curText));
     } else {
       spanCount++;
@@ -391,11 +432,16 @@ function renderOutput(result, useRuby, labels) {
       }
       const origText = tokens.slice(i, j).map(t => t.orig).join('');
       const span = document.createElement('span');
-      span.className = 'chg';
-      const names = tokens[i].changedBy.length > 0
-        ? tokens[i].changedBy.map(id => labels[id] || id).join('・')
-        : '前処理（濁点合成）';
-      span.title = '変更前: ' + origText + ' [' + names + ']';
+      span.className = changed && att ? 'chg ng' : changed ? 'chg' : 'ng';
+      const titleParts = [];
+      if (changed) {
+        const names = tokens[i].changedBy.length > 0
+          ? tokens[i].changedBy.map(id => labels[id] || id).join('・')
+          : '前処理（濁点合成）';
+        titleParts.push('変更前: ' + origText + ' [' + names + ']');
+      }
+      if (att) titleParts.push('要注意: ' + att);
+      span.title = titleParts.join(' / ');
       if (useRuby) {
         const ruby = document.createElement('ruby');
         ruby.appendChild(document.createTextNode(curText));
@@ -426,7 +472,7 @@ function run() {
   const labels = labelsOf(opts);
   lastResult = normalize(el.input.value, opts);
   renderOutput(lastResult, opts.ruby, labels);
-  renderSummary(lastResult.counts, el.input.value.length > 0, labels);
+  renderSummary(lastResult.counts, el.input.value.length > 0, labels, lastResult.attention);
 }
 
 let debounceTimer = null;
