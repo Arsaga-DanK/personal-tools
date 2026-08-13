@@ -96,6 +96,26 @@ const shotPath = name => path.join(REPO, '.playwright-mcp', name); // .gitignore
     JSON.stringify([rev.r07tsv, rev.r07al, rev.r07back]));
   r.check('E2M-R08', rev.r08a === 1 && rev.r08b === 0, JSON.stringify([rev.r08a, rev.r08b]));
 
+  /* ===== E2M-F01〜F03: 書式付き Excel コピー（罫線・ヘッダー背景・文字列化ガード） ===== */
+  const fmt = await page.evaluate(() => {
+    const g = window.excel2md.gridToHtmlTable;
+    return {
+      f01: g([['H', 'K'], ['a', 'b']], true, []),
+      f02: g([['1-2', '2026/8/13', '1:30', '0123', '123456789012', '=SUM(A1)']], false, []),
+      f03: g([['abc', '123', '-1', '1.5', '2026年8月']], false, []),
+    };
+  });
+  const countMso = s => (s.match(/mso-number-format/g) || []).length;
+  r.check('E2M-F01（全セルに罫線・th だけヘッダー背景）',
+    (fmt.f01.match(/border:\.5pt solid #a6a6a6/g) || []).length === 4
+    && (fmt.f01.match(/background:#d9d9d9/g) || []).length === 2
+    && !/<td[^>]*background/.test(fmt.f01),
+    fmt.f01);
+  r.check('E2M-F02（Excel が値を変えるパターンのセルは文字列書式で守る）',
+    countMso(fmt.f02) === 6, fmt.f02);
+  r.check('E2M-F03（通常テキスト・整数・負数・小数には文字列書式を付けない）',
+    countMso(fmt.f03) === 0, fmt.f03);
+
   /* ===== E2M-R09〜R12: 2つ目以降の表（XL-2） ===== */
   const multi = await page.evaluate(() => {
     const f = window.excel2md.convertFromMd;

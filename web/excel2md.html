@@ -320,16 +320,32 @@ function escapeHtml(value) {
 
 // Excel 貼り付け用の <table>。セル内改行は mso-data-placement:same-cell 付き <br> で
 // 同一セル内改行として維持される（Excel/MSO 独自CSS）
+// Excel が貼り付け時に値を変えてしまうパターン。該当セルだけ文字列書式で守る（E2M-F02。
+// 該当しない数値は数値のまま貼る — 全セル文字列化は Excel 側の集計を壊すためしない）
+const EXCEL_MANGLE_RES = [
+  /^\d{1,4}[-/]\d{1,2}([-/]\d{1,4})?$/,  // 日付化（1-2 → 2月1日）
+  /^\d{1,2}:\d{2}(:\d{2})?$/,            // 時刻化（1:30 → 0.0625）
+  /^0\d+$/,                              // 先頭ゼロ落ち（0123 → 123）
+  /^\d{12,}$/,                           // 指数表記（12桁〜。15桁超は精度も落ちる）
+  /^[=+@]/,                              // 数式として解釈（=SUM(A1) 等。負数 -1 は対象外）
+];
 function gridToHtmlTable(grid, hasHeader, alignments) {
   const cellHtml = v => escapeHtml(v).replace(/\n/g, '<br style="mso-data-placement:same-cell">');
-  const attrs = i => {
+  const attrs = (v, i, isHeader) => {
     const a = alignments[i];
-    return (a && a !== 'none') ? ' align="' + a + '" style="text-align:' + a + '"' : '';
+    let style = 'border:.5pt solid #a6a6a6';           // 貼り付けで罫線になる（E2M-F01）
+    if (isHeader) style += ';background:#d9d9d9';
+    if (a && a !== 'none') style += ';text-align:' + a;
+    if (EXCEL_MANGLE_RES.some(re => re.test(v))) style += ";mso-number-format:'\\@'";
+    return ((a && a !== 'none') ? ' align="' + a + '"' : '') + ' style="' + style + '"';
   };
-  const rowHtml = (row, tag) =>
-    '<tr>' + row.map((v, i) => '<' + tag + attrs(i) + '>' + cellHtml(v) + '</' + tag + '>').join('') + '</tr>';
+  const rowHtml = (row, tag, isHeader) =>
+    '<tr>' + row.map((v, i) => '<' + tag + attrs(v, i, isHeader) + '>' + cellHtml(v) + '</' + tag + '>').join('') + '</tr>';
   const parts = ['<table>'];
-  grid.forEach((row, r) => parts.push(rowHtml(row, hasHeader && r === 0 ? 'th' : 'td')));
+  grid.forEach((row, r) => {
+    const isHeader = hasHeader && r === 0;
+    parts.push(rowHtml(row, isHeader ? 'th' : 'td', isHeader));
+  });
   parts.push('</table>');
   return parts.join('');
 }
