@@ -289,6 +289,20 @@ const ALL_OFF = {
   r.check('コピー（出力テキストのみをコピー・ルビの rt は混入しない）',
     copied.text === 'ABC' && copied.label.includes('コピーしました'), JSON.stringify(copied));
 
+  // NORM-16: デバウンス確定前のコピーでも最新入力の結果が渡る（コピー時に確定）
+  const raced = await page.evaluate(async () => {
+    window.__copied = null;
+    navigator.clipboard.writeText = (t) => { window.__copied = t; return Promise.resolve(); };
+    const ta = document.getElementById('input');
+    ta.value = 'ＸＹＺ';
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    document.getElementById('copy-btn').click();   // 150ms のデバウンスを待たずに押す
+    await new Promise(done => setTimeout(done, 200));
+    return window.__copied;
+  });
+  r.check('NORM-16（デバウンス確定前のコピーで最新入力の結果が渡る）',
+    raced === 'XYZ', JSON.stringify(raced));
+
   // ルビ表示 ON でも rt がコピーに混入しないこと（spec の一時 textarea 方式の理由）
   await toggle('opt-ruby', true);
   await setInput('ＡＢＣ');

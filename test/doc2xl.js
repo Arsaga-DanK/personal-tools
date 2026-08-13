@@ -255,6 +255,23 @@ const { launch, fileUrl, createRunner, eq, bannerIs } = require('./helpers');
     && u2empty === 'コピーする内容がありません',
     JSON.stringify([u2.captured.length, u2.label, u2empty]));
 
+  /* ========== DX-U6: デバウンス確定前のコピーでも最新の出力が渡る ========== */
+  await setInput('# 新しい見出し');
+  const u6 = await page.evaluate(async () => {
+    const captured = [];
+    navigator.clipboard.writeText = (t) => { captured.push(t); return Promise.resolve(); };
+    const inp = document.getElementById('input');
+    inp.value = '# 差し替え後';
+    inp.dispatchEvent(new InputEvent('input', { bubbles: true }));
+    document.getElementById('copy-btn').click();   // 250ms のデバウンスを待たずに押す
+    await new Promise(d => setTimeout(d, 50));
+    return captured;
+  });
+  r.check('DX-U6（デバウンス確定前のコピーで最新入力の出力が渡る）',
+    u6.length === 1 && u6[0].includes('差し替え後') && !u6[0].includes('新しい見出し'),
+    JSON.stringify(u6));
+  await setInput('');   // DX-U3 はサンプルボタン（入力が空のとき表示）を前提にする
+
   /* ========== DX-U3: サンプル投入 ========== */
   const u3 = await page.evaluate(async () => {
     const btn = document.getElementById('sample-btn');

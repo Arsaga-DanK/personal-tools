@@ -422,6 +422,9 @@ $('opts').addEventListener('change', () => {
 // フォールバックは ToolUI.copy が持つ一時 textarea 方式。**出力 div の選択は使わない**
 // （ルビ注記 ON 時に <rt> の変更前テキストが混入した壊れたコピーになるため、selectEl を渡さない）
 el.copyBtn.addEventListener('click', () => {
+  // デバウンス確定前のコピーで古い lastResult を渡さない（コピー時に確定 — NORM-16）
+  clearTimeout(debounceTimer);
+  run();
   const text = lastResult.text;
   if (text === '') { showBanner('info', 'コピーする内容がありません'); return; }
   ToolUI.copy(text).then(ok => {

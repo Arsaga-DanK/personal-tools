@@ -433,6 +433,10 @@ el('sample-btn').addEventListener('click', () => {
 });
 
 function doCopy() {
+  // デバウンス確定前のコピーで古い出力を渡さない（コピー時に確定 — DX-U6）
+  clearTimeout(debounceTimer);
+  persist();
+  run();
   const text = el('output').value;
   if (text === '') { showBanner('info', 'コピーする内容がありません'); return; }
   // 失敗時は出力欄そのものを選択させる（一時 textarea だと実行後に消えて案内が嘘になる）
