@@ -24,7 +24,8 @@ CLI（`bin/`）は形態として認めているが、まだ1本も無い（→�
 index.html   ハブ。web/ツール一覧（内部のTOOLS配列に1行足すと追加される）
 web/         ブラウザツール8本。1ツール=1HTML完結
 lib/         web ツールの共通コード。ui.css / ui.js / storage.js / sql.js / excel.js
-docs/        verification-notes.md（検証の罠）/ ux-backlog.md / tool-backlog.md
+docs/        coding-rules.md（実装規約の正本）/ verification-notes.md（検証の罠）/
+             ux-backlog.md / tool-backlog.md
 docs/specs/  ツールごとの仕様書兼テストケース（8本）
 test/        検証ハーネス（`./test/run [ツール名]`。書き方は test/README.md）
 ```
@@ -56,6 +57,9 @@ test/        検証ハーネス（`./test/run [ツール名]`。書き方は tes
   日本語=分類 / 英語=ツール名 の対比で階層が読みやすくなる）
 
 ## ブラウザツールの制約（web/）
+
+**実装の横断規約（DOM・lib の使い分け・保存・文字・テスト作法）は `docs/coding-rules.md` が正本。**
+ここには最重要の制約だけを残す:
 
 - `file://` で開いて動作すること。これが全ての前提
 - ES モジュール禁止（file:// で CORS エラーになる）。共有は `<script src>` か1枚完結

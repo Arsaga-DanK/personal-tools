@@ -9,12 +9,14 @@ alwaysApply: true
 ## 読む順序（この順に読むと前提を踏み外さない）
 
 1. **`CLAUDE.md`** — 作業原則・命名規約・ブラウザツールの制約・完了の定義。**必ず最初**
-2. **`docs/verification-notes.md`** — 環境・道具・**実際に踏んだ罠**（file:// で使える API、
+2. **`docs/coding-rules.md`** — 実装の横断規約（DOM・lib/ の使い分け・保存・文字の扱い・
+   テスト作法）。**コードを書く前に必ず**
+3. **`docs/verification-notes.md`** — 環境・道具・**実際に踏んだ罠**（file:// で使える API、
    ブラウザ挙動の落とし穴、「テストが緑でも意味を失う3つの型」）。
    ここを読まずに検証すると同じ罠を踏み直す
-3. **`docs/specs/<tool>.md`** — そのツールの仕様とテストケース。**期待値の正本はここ**。
+4. **`docs/specs/<tool>.md`** — そのツールの仕様とテストケース。**期待値の正本はここ**。
    実装を変えるときは spec を先に直す
-4. **`test/README.md`** — ハーネスの実行方法（`./test/run [ツール名]`）と必要な環境
+5. **`test/README.md`** — ハーネスの実行方法（`./test/run [ツール名]`）と必要な環境
 
 作業の種類による追加:
 
@@ -25,7 +27,8 @@ alwaysApply: true
 ## 合否の判定
 
 - **`./test/run <tool>` が全 pass（コンソールエラー0件を含む）が唯一の合否**。
-  現在 391 チェック。**playwright-core を直接起動するので Playwright MCP には依存しない**
+  チェック数は増え続ける（2026-08-13 時点で493）ので数ではなく**「全 pass」**が条件。
+  **playwright-core を直接起動するので Playwright MCP には依存しない**
 - spec や verification-notes に出てくる `browser_evaluate` / `browser_navigate` は
   **Playwright MCP の道具名**（Claude Code 時代の手作業検証の記録）。
   MCP が無くても `./test/run` は動く
