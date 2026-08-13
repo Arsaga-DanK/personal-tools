@@ -876,7 +876,7 @@ const TABS = [
         scheduleSave();
       });
       $('json-in').addEventListener('input', updateSampleBtn);
-      this.updateSampleBtn = updateSampleBtn;
+      this._refresh = updateSampleBtn; // 復元後の再計算（サンプルボタンの表示）
     },
     getState() { return { in: $('json-in').value }; },
     setState(s) { if (typeof s.in === 'string') $('json-in').value = s.in; },
@@ -1389,6 +1389,7 @@ const TABS = [
         countTimer = setTimeout(render, 150);
       });
       render();
+      this._refresh = render; // 復元後の再計算（集計。復元は input を飛ばさないため）
     },
     getState() { return { in: $('count-in').value }; },
     setState(s) { if (typeof s.in === 'string') $('count-in').value = s.in; },
@@ -1495,17 +1496,12 @@ function restoreState() {
 
   restoreState();
   switchTab(activeTab, false);
-  // 復元で入力が入っていたらサンプルボタンを隠す。updateSampleBtn は json の init が
-  // this に生やすため、init 失敗時は undefined（裸で呼ぶと以降の配線が全部止まる — DEV-48）
-  try {
-    const json = TABS.find(t => t.id === 'json');
-    if (json.updateSampleBtn) json.updateSampleBtn();
-  } catch (_) { /* 1タブ分の失敗を他へ波及させない */ }
-  // 基数タブは10進だけを復元しているので、残りの基数とビット表示をここで再計算する
-  try {
-    const base = TABS.find(t => t.id === 'base');
-    if (base && base._refresh) base._refresh();
-  } catch (_) { /* 1タブ分の失敗を他へ波及させない */ }
+  // 復元した値に依存する表示をタブごとに再計算する（json=サンプルボタンの表示、
+  // 基数=10進からの再計算、カウント=集計）。_refresh は各タブの init が this に生やすため、
+  // init 失敗タブでは undefined（裸で呼ぶと以降の配線が全部止まる — DEV-48/49）
+  for (const t of TABS) {
+    try { if (t._refresh) t._refresh(); } catch (_) { /* 1タブ分の失敗を他へ波及させない */ }
+  }
 
   // 各タブの主要ボタンは Cmd/Ctrl+Enter で実行できる
   for (const t of TABS) {

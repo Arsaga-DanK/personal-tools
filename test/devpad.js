@@ -853,6 +853,30 @@ const TAB_IDS = ['json', 'xml', 'sql', 'escape', 'url', 'base64', 'regex', 'base
   r.check('ToolStorage 不可時に mountWarning のバナーが出る',
     warn.exists && warn.text.includes('保存できません') && warn.role === 'alert', JSON.stringify(warn));
 
+  /* ========== DEV-49: カウントタブの復元後に集計が再計算される ========== */
+  await page.goto(fileUrl('web/devpad.html'));
+  await page.evaluate(() => {
+    window.ToolStorage.save = () => true; // pagehide のフラッシュ保存で注入値を上書きさせない
+    const payload = { v: 1, tool: 'devpad', savedAt: new Date().toISOString(),
+      data: { activeTab: 'count', tabs: { count: { in: 'あいう\nabc' } } } };
+    localStorage.setItem('tools:devpad', JSON.stringify(payload));
+  });
+  await page.reload();
+  await page.waitForTimeout(250);
+  const d49 = await page.evaluate(() => {
+    const rows = Array.from(document.querySelectorAll('#count-result p'))
+      .map(p => Array.from(p.querySelectorAll('span')).map(s => s.textContent));
+    return {
+      input: document.getElementById('count-in').value,
+      byLabel: Object.fromEntries(rows.filter(x => x.length === 2)),
+    };
+  });
+  r.check('DEV-49（カウントタブ復元後に集計が再計算される・0のままにならない）',
+    d49.input === 'あいう\nabc'
+    && d49.byLabel['文字数（コードポイント）'] === '7'
+    && d49.byLabel['行数'] === '2',
+    JSON.stringify(d49));
+
   /* ========== DEV-48: JSON タブの init 失敗が後続の配線を止めない ========== */
   // getElementById('json-format') だけ throw させ、json の init を確実に失敗させる。
   // init が this に生やすメソッド（updateSampleBtn）を後続処理が裸で呼ぶと、
