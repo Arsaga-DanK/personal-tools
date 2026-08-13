@@ -42,8 +42,8 @@
 | ID | 変換 | 既定 | 内容 |
 |---|---|---|---|
 | T1 nfkc | NFKC一括 | OFF（→NORM-Q1） | トークン単位で `normalize('NFKC')`。ただし**有効な他変換が所有する文字はスキップ**（除外集合方式）: T4 有効時はハイフン族（**長音は「長音ーも対象」設定時のみ** — OFF時に除外すると ｰ の正規化がどの変換にも属さず死蔵するため）、T5 有効時は 〜/～、U+309B/U+309C は常時。オプションの死蔵（例: NFKC が先に ～→~ にして波ダッシュ統一が無効化）を防ぐ |
-| T2 alnum | 全角英数→半角 | ON | U+FF10-FF19 / U+FF21-FF3A / U+FF41-FF5A を −0xFEE0。全角記号（！？（）等）を含めるかは →NORM-Q2 |
-| T3 kana | 半角カナ→全角 | ON | U+FF61-FF9F を全角へ（明示マップ）。濁点付きは前処理マージ済みのため ｶ+ﾞ→ガ（1トークン・件数1） |
+| T2 alnum | 英数字の全半角統一 | ON・統一先=半角 | **統一先セレクト（2026-08-13 で双方向化）**: 半角（既定。U+FF10-FF19 / U+FF21-FF3A / U+FF41-FF5A を −0xFEE0）／全角（A-Za-z0-9 を ＋0xFEE0）。全角記号（！？（）等）を含めるかは →NORM-Q2。**サマリ・tooltip のラベルは方向に追随**（半角=「全角英数→半角」／全角=「半角英数→全角」— 既定方向では従来の文言と同一） |
+| T3 kana | カナの全半角統一 | ON・統一先=全角 | **統一先セレクト（同上）**: 全角（既定。半角カナだけのトークンに `normalize('NFKC')` を局所適用 — 2026-08-13 訂正: 旧記述「明示マップ」は実装と乖離していた）／半角（**NFKC の逆引きマップを実行時生成** — U+FF61-FF9F の各文字と ﾞﾟ 合成の NFKC 結果を反転。手書き表を持たない）。濁点付きは ｶ+ﾞ→ガ／ガ→ｶﾞ とも1トークン・件数1。半角カナ領域の句読点・括弧（｡｢｣･､）も両方向の対象（対称性）。ラベルは方向に追随（「半角カナ→全角」／「全角カナ→半角」） |
 | T4 hyphen | ハイフン・マイナス統一 | ON | 対象: ‐(U+2010) ‑(U+2011) ‒(U+2012) –(U+2013) —(U+2014) ―(U+2015) −(U+2212) ﹣ －(U+FF0D)。統一先セレクト: `-`(U+002D) / `−`(U+2212) / `ー`(U+30FC) / `–`(U+2013)、既定 `-`。**長音 ー(U+30FC)/ｰ(U+FF70) は既定で対象外**（カタカナ語破壊防止）、含めるチェックを別途用意 |
 | T5 wave | 波ダッシュ統一 | ON | 〜(U+301C) ⇄ ～(U+FF5E)。方向セレクト、既定方向 →NORM-Q3 |
 | T6 space | 連続空白の圧縮 | ON | 半角スペース2連以上→1個。全角スペース・タブを対象に含めるかは →NORM-Q4 |
@@ -75,7 +75,10 @@
 
 ## 保存仕様
 
-キー `tools:norm`、payload `{options: {nfkc, alnum, kana, hyphen, hyphenTarget, hyphenIncludeChoon, wave, waveTarget, space}}`。エクスポート/インポートは ToolStorage 標準（インポートは全置換 →devpad spec DEV-Q4）。
+キー `tools:norm`、payload `{options: {nfkc, alnum, alnumTarget, kana, kanaTarget, hyphen, hyphenTarget, hyphenIncludeChoon, wave, waveTarget, space}}`。
+`alnumTarget` は `'half'|'full'`（既定 half）、`kanaTarget` は `'full'|'half'`（既定 full）。
+**旧 payload（Target キーなし）は既定方向で復元**（後方互換）。
+エクスポート/インポートは ToolStorage 標準（インポートは全置換 →devpad spec DEV-Q4）。
 
 ## テストケース
 
@@ -94,6 +97,8 @@
 | NORM-09 | nfkc のみON、他OFF | 単独の U+309B/U+309C を含まない任意の入力 | `input.normalize('NFKC')` と完全一致（除外集合が空になるため。U+309B/309C は本ツールが raw NFKC から意図的に逸脱する唯一の文字） | — |
 
 | NORM-13 | 全変換OFF | `'ウ゛'` | `'ヴ'`（前処理の NFC 合成。counts は全0、ハイライト1箇所・tooltip「前処理（濁点合成）」） | すべて0 |
+| NORM-17 | alnumTarget: 'full' | `'ABC123'` | `'ＡＢＣ１２３'` | alnum: 6 |
+| NORM-18 | kanaTarget: 'half' | `'ガギグ。'` | `'ｶﾞｷﾞｸﾞ｡'`（濁点は ｶ+ﾞ の2文字へ展開・1トークン1件。句読点も対象） | kana: 4 |
 | NORM-14 | nfkc のみON | `'゛'`（先頭単独） | `'゛'`（スペース展開しない — 常時除外） | nfkc: 0 |
 
 UI 手順ケース:

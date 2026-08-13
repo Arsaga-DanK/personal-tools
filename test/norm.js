@@ -60,6 +60,40 @@ const ALL_OFF = {
     && eq(nonZero(n02.counts), { kana: 3 }) && n02.tokenCount === 3,
     JSON.stringify([n02.text, nonZero(n02.counts), n02.tokenCount]));
 
+  /* ========== NORM-17/18: 逆方向（統一先の切替） ========== */
+  const n17 = await norm('ABC123', { alnumTarget: 'full' });
+  r.check('NORM-17（英数字統一・統一先=全角）',
+    n17.text === 'ＡＢＣ１２３' && n17.joined === 'ＡＢＣ１２３' && eq(nonZero(n17.counts), { alnum: 6 }),
+    JSON.stringify([n17.text, nonZero(n17.counts)]));
+
+  const n18 = await norm('ガギグ。', { kanaTarget: 'half' });
+  r.check('NORM-18（カナ統一・統一先=半角。濁点は2文字へ展開・句読点も対象）',
+    n18.text === 'ｶﾞｷﾞｸﾞ｡' && n18.joined === 'ｶﾞｷﾞｸﾞ｡' && eq(nonZero(n18.counts), { kana: 4 }),
+    JSON.stringify([n18.text, nonZero(n18.counts)]));
+
+  // ラベルの方向追随（spec T2）: UI で統一先を全角にすると summary の文言が反転する
+  const n17b = await page.evaluate(async () => {
+    const t = document.getElementById('opt-alnum-target');
+    if (!t) return { missing: true };
+    t.value = 'full';
+    t.dispatchEvent(new Event('change', { bubbles: true }));
+    const ta = document.getElementById('input');
+    ta.value = 'abc';
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise(d => setTimeout(d, 300));
+    const summary = document.getElementById('summary').textContent;
+    // 後続テストへ方向・入力を持ち込まない
+    t.value = 'half';
+    t.dispatchEvent(new Event('change', { bubbles: true }));
+    ta.value = '';
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise(d => setTimeout(d, 250));
+    return { summary };
+  });
+  r.check('NORM-17b（サマリのラベルが方向に追随: 半角英数→全角）',
+    !n17b.missing && n17b.summary === '適用: 半角英数→全角: 3件',
+    JSON.stringify(n17b));
+
   const n03 = await norm('a  b   c');
   r.check('NORM-03（連続空白の圧縮）',
     n03.text === 'a b c' && n03.joined === 'a b c' && eq(nonZero(n03.counts), { space: 2 }),

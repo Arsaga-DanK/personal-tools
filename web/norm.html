@@ -37,8 +37,16 @@
 
   <div class="toolbar opts" id="opts">
     <label class="toggle" title="互換文字を一括変換（①→1、㈱→(株)、：→:、！→! など）。破壊的なので既定OFF。ONにしても有効な他の変換が優先されます"><input type="checkbox" id="opt-nfkc"> NFKC一括</label>
-    <label class="toggle" title="Ａ→A、１→1（英数字のみ。：や（）等の全角記号は対象外 — 記号も変換するには「NFKC一括」をON）"><input type="checkbox" id="opt-alnum" checked> 全角英数→半角</label>
-    <label class="toggle" title="ｶﾞ→ガ、ｱ→ア"><input type="checkbox" id="opt-kana" checked> 半角カナ→全角</label>
+    <label class="toggle" title="Ａ⇄A、１⇄1（英数字のみ。：や（）等の全角記号は対象外 — 記号も変換するには「NFKC一括」をON）"><input type="checkbox" id="opt-alnum" checked> 英数字統一</label>
+    <label title="英数字の統一先">統一先: <select id="opt-alnum-target">
+      <option value="half" selected>半角 (A1)</option>
+      <option value="full">全角 (Ａ１)</option>
+    </select></label>
+    <label class="toggle" title="ｶﾞ⇄ガ、ｱ⇄ア（半角カナ領域の句読点 ｡｢｣･､ も対象）"><input type="checkbox" id="opt-kana" checked> カナ統一</label>
+    <label title="カナの統一先">統一先: <select id="opt-kana-target">
+      <option value="full" selected>全角 (ア)</option>
+      <option value="half">半角 (ｱ)</option>
+    </select></label>
     <label class="toggle" title="‐ ‑ ‒ – — ― − ﹣ － を「統一先」の文字に揃える"><input type="checkbox" id="opt-hyphen" checked> ハイフン統一</label>
     <label title="ハイフン類の統一先">統一先: <select id="opt-hyphen-target">
       <option value="-" selected>- (半角ハイフン)</option>
@@ -124,6 +132,22 @@ function markChanged(token, id) {
 
 const HALF_KANA_TOKEN_RE = /^[｡-ﾟ゙゚]+$/;
 
+// 全角→半角カナの逆引きマップ。手書き表は持たず、半角カナ各文字（＋ﾞﾟ合成）の
+// NFKC 結果を反転して実行時に生成する（spec T3。ガ→ｶﾞ、。→｡ など既存方向と対称）
+const KANA_F2H = (() => {
+  const m = {};
+  for (let c = 0xFF61; c <= 0xFF9F; c++) {
+    const h = String.fromCharCode(c);
+    const f = h.normalize('NFKC');
+    if (f !== h && f.length === 1) m[f] = h;
+    for (const mark of ['ﾞ', 'ﾟ']) {
+      const fd = (h + mark).normalize('NFKC');
+      if (fd.length === 1) m[fd] = h + mark;
+    }
+  }
+  return m;
+})();
+
 // 適用順に列挙。apply は「触れたトークン数」を返す。
 const TRANSFORMS = [
   {
@@ -150,12 +174,16 @@ const TRANSFORMS = [
   },
   {
     id: 'alnum', label: '全角英数→半角', defaultOn: true,
-    apply(tokens) {
-      // 英数字のみ対象（全角記号は含めない — NORM-Q2 決定）
+    // サマリ・tooltip のラベルは統一先に追随する（spec T2）
+    labelOf: o => o.alnumTarget === 'full' ? '半角英数→全角' : '全角英数→半角',
+    apply(tokens, opts) {
+      // 英数字のみ対象（全角記号は含めない — NORM-Q2 決定）。統一先で双方向（NORM-17）
+      const toFull = opts.alnumTarget === 'full';
+      const re = toFull ? /[0-9A-Za-z]/g : /[０-９Ａ-Ｚａ-ｚ]/g;
+      const delta = toFull ? 0xFEE0 : -0xFEE0;
       let n = 0;
       for (const t of tokens) {
-        const next = t.cur.replace(/[０-９Ａ-Ｚａ-ｚ]/g,
-          c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+        const next = t.cur.replace(re, c => String.fromCharCode(c.charCodeAt(0) + delta));
         if (next !== t.cur) { t.cur = next; markChanged(t, 'alnum'); n++; }
       }
       return n;
@@ -163,9 +191,18 @@ const TRANSFORMS = [
   },
   {
     id: 'kana', label: '半角カナ→全角', defaultOn: true,
-    apply(tokens) {
-      // 半角カナ（結合済み濁点含む）だけのトークンに NFKC を局所適用 → 全角へ合成
+    labelOf: o => o.kanaTarget === 'half' ? '全角カナ→半角' : '半角カナ→全角',
+    apply(tokens, opts) {
       let n = 0;
+      if (opts.kanaTarget === 'half') {
+        // 全角→半角: NFKC の逆引きマップ（実行時生成・KANA_F2H）で 1:N 展開（NORM-18）
+        for (const t of tokens) {
+          const next = [...t.cur].map(c => KANA_F2H[c] || c).join('');
+          if (next !== t.cur) { t.cur = next; markChanged(t, 'kana'); n++; }
+        }
+        return n;
+      }
+      // 半角カナ（結合済み濁点含む）だけのトークンに NFKC を局所適用 → 全角へ合成
       for (const t of tokens) {
         if (!HALF_KANA_TOKEN_RE.test(t.cur)) continue;
         const next = t.cur.normalize('NFKC');
@@ -225,7 +262,7 @@ const TRANSFORMS = [
 ];
 
 const DEFAULT_OPTS = {
-  nfkc: false, alnum: true, kana: true,
+  nfkc: false, alnum: true, alnumTarget: 'half', kana: true, kanaTarget: 'full',
   hyphen: true, hyphenTarget: '-', hyphenIncludeChoon: false,
   wave: true, waveTarget: '〜',
   space: true,
@@ -252,7 +289,9 @@ const $ = id => document.getElementById(id);
 const TOOL = 'norm';
 const MAX_HIGHLIGHT_INPUT = 64 * 1024;
 const MAX_HIGHLIGHT_SPANS = 10000;
-const LABELS = Object.fromEntries(TRANSFORMS.map(t => [t.id, t.label]));
+// ラベルは統一先に追随するため毎 run で導出する（spec T2/T3。labelOf を持たない変換は固定）
+const labelsOf = opts => Object.fromEntries(
+  TRANSFORMS.map(t => [t.id, t.labelOf ? t.labelOf(opts) : t.label]));
 
 const el = {
   input: $('input'), output: $('output'), banner: $('banner'), summary: $('summary'),
@@ -265,7 +304,9 @@ function uiOpts() {
   return {
     nfkc: $('opt-nfkc').checked,
     alnum: $('opt-alnum').checked,
+    alnumTarget: $('opt-alnum-target').value,
     kana: $('opt-kana').checked,
+    kanaTarget: $('opt-kana-target').value,
     hyphen: $('opt-hyphen').checked,
     hyphenTarget: $('opt-hyphen-target').value,
     hyphenIncludeChoon: $('opt-hyphen-choon').checked,
@@ -280,7 +321,9 @@ function applyOpts(o) {
   if (!o || typeof o !== 'object') return;
   if (typeof o.nfkc === 'boolean') $('opt-nfkc').checked = o.nfkc;
   if (typeof o.alnum === 'boolean') $('opt-alnum').checked = o.alnum;
+  if (o.alnumTarget === 'half' || o.alnumTarget === 'full') $('opt-alnum-target').value = o.alnumTarget;
   if (typeof o.kana === 'boolean') $('opt-kana').checked = o.kana;
+  if (o.kanaTarget === 'full' || o.kanaTarget === 'half') $('opt-kana-target').value = o.kanaTarget;
   if (typeof o.hyphen === 'boolean') $('opt-hyphen').checked = o.hyphen;
   if (HYPHEN_TARGETS.includes(o.hyphenTarget)) $('opt-hyphen-target').value = o.hyphenTarget;
   if (typeof o.hyphenIncludeChoon === 'boolean') $('opt-hyphen-choon').checked = o.hyphenIncludeChoon;
@@ -295,10 +338,10 @@ let lastResult = { text: '', tokens: [], counts: {} };
 // 「変更はありません」は入力があるときだけ意味を持つフィードバックなので、
 // 空入力ではサマリを出さない（spec エラー・警告仕様）。
 // 性能ガード経路が summary を明示的に空にしているのと扱いを揃える。
-function renderSummary(counts, hasInput) {
+function renderSummary(counts, hasInput, labels) {
   const parts = [];
   for (const tr of TRANSFORMS) {
-    if (counts[tr.id] > 0) parts.push(tr.label + ': ' + counts[tr.id] + '件');
+    if (counts[tr.id] > 0) parts.push(labels[tr.id] + ': ' + counts[tr.id] + '件');
   }
   if (parts.length > 0) el.summary.textContent = '適用: ' + parts.join(' / ');
   else el.summary.textContent = hasInput ? '変更はありません' : '';
@@ -313,7 +356,7 @@ function showBanner(kind, text) {
 const MAX_INPUT_CHARS = 1000000; // 超過時は処理せず理由を表示（性能ガード）
 
 // 隣接する同種トークンを結合して DOM 数を抑えつつハイライト描画
-function renderOutput(result, useRuby) {
+function renderOutput(result, useRuby, labels) {
   const host = el.output;
   host.textContent = '';
 
@@ -349,10 +392,10 @@ function renderOutput(result, useRuby) {
       const origText = tokens.slice(i, j).map(t => t.orig).join('');
       const span = document.createElement('span');
       span.className = 'chg';
-      const labels = tokens[i].changedBy.length > 0
-        ? tokens[i].changedBy.map(id => LABELS[id] || id).join('・')
+      const names = tokens[i].changedBy.length > 0
+        ? tokens[i].changedBy.map(id => labels[id] || id).join('・')
         : '前処理（濁点合成）';
-      span.title = '変更前: ' + origText + ' [' + labels + ']';
+      span.title = '変更前: ' + origText + ' [' + names + ']';
       if (useRuby) {
         const ruby = document.createElement('ruby');
         ruby.appendChild(document.createTextNode(curText));
@@ -380,9 +423,10 @@ function run() {
     return;
   }
   const opts = uiOpts();
+  const labels = labelsOf(opts);
   lastResult = normalize(el.input.value, opts);
-  renderOutput(lastResult, opts.ruby);
-  renderSummary(lastResult.counts, el.input.value.length > 0);
+  renderOutput(lastResult, opts.ruby, labels);
+  renderSummary(lastResult.counts, el.input.value.length > 0, labels);
 }
 
 let debounceTimer = null;
