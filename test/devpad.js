@@ -877,6 +877,28 @@ const TAB_IDS = ['json', 'xml', 'sql', 'escape', 'url', 'base64', 'regex', 'base
     && d49.byLabel['行数'] === '2',
     JSON.stringify(d49));
 
+  /* ========== DEV-50: 保存失敗の可視化（storage 共通） ========== */
+  // quota 超過相当（setItem が throw）で error バナーが出て、保存が復旧したら消える。
+  // どのツールも save() の戻り値を見ていないため、可視化は lib/storage.js の共通核が担う
+  const d50fail = await page.evaluate(() => {
+    const proto = Object.getPrototypeOf(localStorage);
+    window.__origSetItem = proto.setItem;
+    proto.setItem = function () { throw new DOMException('quota', 'QuotaExceededError'); };
+    return { okFail: window.ToolStorage.save('devpad', { probe: 1 }) };
+  });
+  const d50banner = await bannerIs(page, '#toolstorage-save-error', 'error',
+    '自動保存に失敗しました');
+  const d50recover = await page.evaluate(() => {
+    Object.getPrototypeOf(localStorage).setItem = window.__origSetItem;
+    const okAfter = window.ToolStorage.save('devpad', { probe: 2 });
+    const el = document.getElementById('toolstorage-save-error');
+    return { okAfter, hiddenAfter: el ? el.hidden : null };
+  });
+  r.check('DEV-50（保存失敗で error バナー・保存の復旧で消える）',
+    d50fail.okFail === false && d50banner.ok
+    && d50recover.okAfter === true && d50recover.hiddenAfter === true,
+    JSON.stringify([d50fail, JSON.parse(d50banner.detail), d50recover]));
+
   /* ========== DEV-48: JSON タブの init 失敗が後続の配線を止めない ========== */
   // getElementById('json-format') だけ throw させ、json の init を確実に失敗させる。
   // init が this に生やすメソッド（updateSampleBtn）を後続処理が裸で呼ぶと、
