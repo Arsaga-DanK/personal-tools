@@ -2301,6 +2301,68 @@ const F5 = [
     && r21.tagHasA === false && r21.depHasA === false,
     JSON.stringify([r21, wantHref]));
 
+  // TB-R22: 🏁（On Completion）付きタスクの完了は警告するが止めない（TB-Q55 と同じ扱い）
+  const r22 = await page.evaluate((today) => {
+    window.taskboard.test.setToday(today);
+    const f = ['# tasks', '', '## PEW', '',
+      '- [ ] 完了で消える 🏁 delete', '- [ ] ふつうのタスク', '', ''].join('\n');
+    const s = window.taskboard.test.newSession(f);
+    s.setView('list');
+    const rowOf = name => Array.from(document.querySelectorAll('tbody tr'))
+      .find(tr => tr.textContent.includes(name));
+    rowOf('完了で消える').querySelector('input[type="checkbox"]').click();
+    const b = document.getElementById('banner');
+    const withFlag = { warn: !b.hidden && b.className.includes('banner-warn'), text: b.textContent };
+    rowOf('ふつうのタスク').querySelector('input[type="checkbox"]').click();
+    const without = { warn: !b.hidden && b.className.includes('banner-warn') };
+    return { withFlag, without, completed: s.getText().includes('- [x] 完了で消える 🏁 delete') };
+  }, TODAY);
+  r.check('TB-R22（🏁 付き完了で警告・完了はされる・🏁 なしでは出ない）',
+    r22.withFlag.warn && r22.withFlag.text.includes('🏁')
+    && r22.withFlag.text.includes('実行されません')
+    && r22.completed && !r22.without.warn,
+    JSON.stringify(r22));
+
+  // TB-R23/R24: タイムラインの dblclick 編集と、初回表示の「今日へスクロール」
+  const r2324 = await page.evaluate((today) => {
+    window.taskboard.test.setToday(today);
+    const f = ['# tasks', '', '## PEW', '',
+      '- [ ] 昔から続く仕事 🛫 2026-05-06 📅 ' + today,   // 90日前開始 → 今日が右の方に来る
+      '- [ ] 設計する 🛫 2026-08-01 📅 ' + today, '', ''].join('\n');
+    const s = window.taskboard.test.newSession(f);
+    s.setView('timeline');
+    const sc = document.getElementById('tl-scroll');
+    const todayEl = document.querySelector('.tl-today');
+    const todayX = todayEl ? parseFloat(todayEl.style.left) : null;
+    // 範囲の右端に今日があるときはブラウザが最大値へクランプする — 期待値も同じ式にする
+    const maxScroll = sc.scrollWidth - sc.clientWidth;
+    const want = todayX === null ? null
+      : Math.min(maxScroll, Math.max(0, todayX - sc.clientWidth / 3));
+    const initial = sc.scrollLeft;
+    // ビュー切替を挟まない再描画（setToday → render）ではスクロール位置を動かさない
+    sc.scrollLeft = 5;
+    window.taskboard.test.setToday(today);
+    const afterRerender = document.getElementById('tl-scroll').scrollLeft;
+    const bar = document.querySelector('.tl-bar');
+    bar.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    const modalOpen = !document.getElementById('modal').hidden;
+    const content = document.getElementById('modal-content').value;
+    const popoverHidden = document.getElementById('popover').hidden;
+    // 後始末: 開いた UI を残すと後続テスト（TB-P19 等）の実測を汚す
+    document.getElementById('popover').hidden = true;
+    if (!document.getElementById('modal').hidden) document.getElementById('modal-cancel').click();
+    return { todayX, want, initial, afterRerender, modalOpen, content, popoverHidden };
+  }, TODAY);
+  r.check('TB-R24（初回表示で今日が見える位置へスクロール・再描画では動かさない）',
+    r2324.todayX !== null && Math.abs(r2324.initial - r2324.want) <= 2
+    && Math.abs(r2324.afterRerender - 5) <= 2,
+    JSON.stringify([r2324.todayX, r2324.want, r2324.initial, r2324.afterRerender]));
+  r.check('TB-R23（バーの dblclick で編集モーダル・ポップオーバーは残らない）',
+    r2324.modalOpen
+    && (r2324.content === '昔から続く仕事' || r2324.content === '設計する')
+    && r2324.popoverHidden,
+    JSON.stringify([r2324.modalOpen, r2324.content, r2324.popoverHidden]));
+
   /* ========== TB-R1〜R8: 依存関係の記法とバイト保全（Phase T6・2026-08-12） ==========
      記法は Obsidian Tasks の標準。トークン順は 本文 → 🆔 → ⛔ → 優先度 → 🛫 → 📅 → ✅ */
   const F12 = [
@@ -2782,6 +2844,7 @@ const F5 = [
     const scroll = document.getElementById('tl-scroll');
     const label = document.querySelector('.tl-rows .tl-label');
     const bar = document.querySelector('.tl-rows .tl-bar');
+    scroll.scrollLeft = 0;   // 初回表示の「今日へスクロール」（TB-R24）を打ち消して 0 起点で測る
     const before = { label: label.getBoundingClientRect().left, bar: bar.getBoundingClientRect().left };
     scroll.scrollLeft = 200;
     const after = { label: label.getBoundingClientRect().left, bar: bar.getBoundingClientRect().left };

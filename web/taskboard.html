@@ -1329,6 +1329,7 @@ function loadText(text, adapter) {
   state.memoAutoOpen.clear();
   state.boardKidsOpen.clear();
   state.tlClosed.clear();
+  tlAutoScrolled = false;   // 読み込み直後の初回描画は今日へスクロール（TB-R24）
   hideBanner();
   if (state.hasCRFile) {
     showBanner('warn', 'CR 改行（Windows形式）のファイルです。表示のみ可能で、該当行の編集・タスク追加・アーカイブはできません（Obsidian 標準は LF）');
@@ -2213,6 +2214,15 @@ function renderTimeline() {
     tlFocusLine = null;
     if (b) b.focus();
   }
+  // 初回表示だけ「今日」が見える位置（左から1/3）までスクロールする（TB-R24）。
+  // 以後の再描画（ドラッグ・編集）では利用者のスクロール位置を動かさない
+  if (!tlAutoScrolled) {
+    tlAutoScrolled = true;
+    if (model.todayIn) {
+      const todayX = TL_LABEL_W + diffDays(model.from, today) * px;
+      scroll.scrollLeft = Math.max(0, todayX - scroll.clientWidth / 3);
+    }
+  }
 }
 
 // 目盛り。day/week は日付、month は月初に「N月」
@@ -2400,6 +2410,7 @@ const TL_MIN_ONE_EDGE = TL_EDGE_PX * 2;     // 14px
 let tlDrag = null;         // ドラッグ中の状態
 let tlJustDragged = false; // 直後の click を捨てるための印
 let tlFocusLine = null;    // キーボード操作後にフォーカスを戻す行
+let tlAutoScrolled = true; // 初回表示の「今日へスクロール」を1回に制限（ビュー切替・読込でリセット）
 
 function attachBarDrag(bar, it, model, z, barW) {
   const edges = [];
@@ -2616,8 +2627,8 @@ function renderTlRow(it, model, z, today) {
     (it.section ? '・' + it.section : '') +
     (it.progress ? '・子タスク ' + it.progress.done + '/' + it.progress.total + ' 完了' : '') +
     (it.inverted ? '・期限（' + it.due + '）が開始日より前です' : '');
-  bar.title = tip + '（ドラッグで日付変更・←→ でも移動）';
-  label.title = it.body + ' — ' + tip;
+  bar.title = tip + '（ドラッグで日付変更・←→ でも移動・ダブルクリックで編集）';
+  label.title = it.body + ' — ' + tip + '（ダブルクリックで編集）';
   // バーは 📅 が無いと1日分で小さいので、行ラベルからも同じ操作を開ける
   const openPlan = () => {
     const t = state.doc.tasks.find(x => x.line === it.line);
@@ -2628,6 +2639,16 @@ function renderTlRow(it, model, z, today) {
     openPlan();
   });
   label.addEventListener('click', openPlan);
+  // ダブルクリック → 編集モーダル（リストの内容セルと同じイディオム — TB-R23）。
+  // 直前の click 2回で開いた計画ポップオーバーは閉じてから
+  const openEdit = () => {
+    const t = state.doc.tasks.find(x => x.line === it.line);
+    if (!t) return;
+    closePopover();
+    openTaskModal('edit', t);
+  };
+  bar.addEventListener('dblclick', openEdit);
+  label.addEventListener('dblclick', openEdit);
   if (!it.hasCR) attachBarDrag(bar, it, model, z, barW);
   track.appendChild(bar);
   row.appendChild(label);
@@ -2857,10 +2878,18 @@ function renderRow(t, today) {
     // 判定は op を出す前に取る（適用後は状態が変わって blocked ではなくなる）
     const blockedNow = completing && !!(state.depGraph && state.depGraph.blocked.has(t.line));
     const pending = blockedNow ? unfinishedPredecessors(t) : [];
+    // 🏁（Obsidian Tasks の On Completion。delete 等の完了時動作）はこのツールでは実行できない。
+    // blocked と同じく**警告するが止めない**（TB-R22。記法は TB-Q40 どおり書き換えない）
+    const onCompletion = completing && /🏁/u.test(t.body || '');   // 未知トークンは body に残る（TB-Q40）
     applyUiOp({ type: completing ? 'complete' : 'uncomplete', line: t.line });
     if (pending.length) {
       showBanner('warn', '先行タスク' + pending.length + '件が終わっていないまま完了にしました（' +
         pending.slice(0, 2).join('・') + (pending.length > 2 ? ' ほか' : '') + '）');
+      return;
+    }
+    if (onCompletion) {
+      showBanner('warn', '🏁（完了時動作）が付いています — Obsidian Tasks 側の動作（削除・移動など）は' +
+        'このツールでは実行されません。必要なら Obsidian 側で完了にしてください');
       return;
     }
     // 「終了を含む」OFF では行が即座に消えるため、削除と誤解されない案内を出す
@@ -3773,6 +3802,7 @@ el('f-groupby').addEventListener('change', () => {
 el('view-tabs').addEventListener('click', (e) => {
   const v = e.target.dataset && e.target.dataset.view;
   if (!v || v === state.ui.view) return;
+  if (v === 'timeline') tlAutoScrolled = false;   // 開き直したら今日へスクロール（TB-R24）
   state.ui.view = v;
   persistUi();
   render();
@@ -3853,7 +3883,10 @@ window.taskboard = {
         archive: () => doArchive(),
         getText: () => joinLines(state.lines),
         getAdapterText: () => adapter._get(),
-        setView: (v) => { state.ui.view = v; persistUi(); render(); },
+        setView: (v) => {
+          if (v === 'timeline') tlAutoScrolled = false;   // 実 UI の view-tabs と同じ（TB-R24）
+          state.ui.view = v; persistUi(); render();
+        },
         getTimeline: () => state.timeline,
         getListTsv: () => buildTsv(state.visibleRows),
         getPlanTsv: () => (state.timeline ? buildPlanTsv(state.timeline.items) : null),
