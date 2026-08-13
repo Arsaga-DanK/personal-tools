@@ -31,6 +31,10 @@
   doc2xl の `main` 幅 900px（他は app-wide 1200px）・primary ボタン無し → ミニ監査とセットで判断
 - コピー失敗時の文言・挙動が5ツールで5通り → 統一するかは「引数の吸収は各ツールのラッパ」
   方針との整合判断が要る（正本: tool-backlog の lib/ui.js 共通化の項）
+- `ToolUI.copy` のフォールバック（`execCommand('copy')`）が `writeText` の **reject ハンドラ内＝
+  ユーザージェスチャ失効後**に走る構造（lib/ui.js）。excel2md の `copyForExcel` だけ同期で先行させている。
+  **実ブラウザで実際に失敗するかは未実測**（ハーネスは writeText をスタブするためこの経路を通らない）
+  → clipboard API が使えない環境（Safari の一部・許可拒否）で失敗報告が出たら実測して判断
 - diff に描画行数の上限が無い（D_MAX 超過フォールバックで最悪10万行の div）→ 大入力で実害が出たら
 - taskboard の小粒（ソース読解のみ・実害未実測）: 優先度 🔺/⏬ がモーダル・ポップオーバー・
   TSV で4値扱い／blocked 判定が絞り込みで消える（リスト・ボードでは無言）／
