@@ -8,7 +8,6 @@
 <link rel="stylesheet" href="../lib/ui.css">
 <style>
   /* ddl2spec 固有: 警告リストのみ（ui.css クラスは再定義しない） */
-  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
   #warnings { margin: 8px 0; font-size: 13px; }
   #warnings ul { margin: 4px 0 0; padding-left: 1.4em; }
   #warnings li { margin: 2px 0; }
@@ -20,27 +19,27 @@
   <h1>Schema</h1>
   <p class="subtitle">PostgreSQL の DDL（CREATE TABLE ＋ COMMENT ON）⇔ テーブル定義書（Markdown表）を双方向変換 — 正本は DDL 側、定義書は生成物として運用します</p>
 
+  <div class="toolbar">
+    <button id="to-spec">DDL → 定義書</button>
+    <button id="to-ddl">定義書 → DDL</button>
+    <button class="primary" id="copy" title="Cmd/Ctrl+Enter">出力をコピー</button>
+    <button id="copy-tsv">Excel用コピー（TSV）</button>
+    <span class="muted" style="font-size:12px">CREATE TABLE と COMMENT ON のみ解釈します。解釈できない構文は警告に出します</span>
+  </div>
+
   <div class="banner" id="banner" hidden></div>
 
   <div class="panes">
     <div class="pane"><p class="pane-title">入力<button type="button" class="sample-btn" id="sample">サンプルを入れる</button></p>
-      <textarea id="input" spellcheck="false"></textarea></div>
+      <textarea id="input" spellcheck="false" placeholder="CREATE TABLE …; COMMENT ON …; または定義書（Markdown表）を貼り付け"></textarea></div>
     <div class="pane"><p class="pane-title">出力</p>
       <textarea id="output" readonly spellcheck="false"></textarea></div>
-  </div>
-
-  <div class="row">
-    <button class="primary" id="to-spec">DDL → 定義書</button>
-    <button id="to-ddl">定義書 → DDL</button>
-    <button id="copy">出力をコピー</button>
-    <button id="copy-tsv">Excel用コピー（TSV）</button>
-    <span class="muted" style="font-size:12px">CREATE TABLE と COMMENT ON のみ解釈します。解釈できない構文は警告に出します（Cmd/Ctrl+Enter で出力をコピー）</span>
   </div>
 
   <div id="warnings" hidden></div>
 </main>
 
-<textarea id="copy-helper" class="offscreen" aria-hidden="true" tabindex="-1" style="position:fixed;left:-9999px;top:0;width:10px;height:10px"></textarea>
+<textarea id="copy-helper" aria-hidden="true" tabindex="-1" style="position:fixed;left:-9999px;top:0;width:10px;height:10px"></textarea>
 
 <script src="../lib/ui.js"></script>
 <script src="../lib/sql.js"></script>
@@ -676,8 +675,10 @@ function showWarnings(list) {
 
 let lastModel = { tables: [] };   // Excel 用コピーが参照する（直近の変換結果）
 let convertedFrom = null;         // 直近の変換に使った入力。コピーの鮮度ガードが参照（DS-21）
+let lastDir = null;               // 直近の変換方向 'spec'|'ddl'。保存してリロード後の自動変換に使う（DS-23）
 
 function run(kind) {
+  lastDir = kind;
   const src = el('input').value;
   if (src.length > MAX_CHARS) {
     showBanner('error', '入力が上限（20万文字）を超えたため処理を中止しました');
@@ -717,8 +718,9 @@ async function copyText(text, btn, emptyMsg) {
   const ta = el('copy-helper');
   ta.value = text;
   const ok = await ToolUI.copy(text, { selectEl: ta });
-  showBanner(ok ? 'success' : 'info',
-    ok ? 'コピーしました' : '選択済みです。Cmd+C でコピーしてください');
+  // 成功はボタンの ✓ フィードバック（全ツール標準 — DS-24）。バナーは失敗の案内のみ
+  if (ok) ToolUI.feedback(btn, '✓ コピーしました');
+  else showBanner('info', '選択済みです。Cmd+C でコピーしてください');
 }
 
 const SAMPLE = [
@@ -745,7 +747,7 @@ const FIELD_LIMIT = 100000;
 let saveTimer = null;
 function savePayload() {
   const v = el('input').value;
-  return { input: v.length > FIELD_LIMIT ? { omitted: true } : v };
+  return { input: v.length > FIELD_LIMIT ? { omitted: true } : v, dir: lastDir };
 }
 function save() {
   clearTimeout(saveTimer);
@@ -760,8 +762,12 @@ function flushSave() {
 function restore() {
   const s = ToolStorage.load(TOOL);
   if (!s || typeof s !== 'object') return;
-  if (typeof s.input === 'string') el('input').value = s.input;
-  else if (s.input && s.input.omitted) {
+  if (typeof s.input === 'string') {
+    el('input').value = s.input;
+    // 方向も復元できたら自動で再変換（出力だけ空で戻る DP-7 同型の解消 — DS-23）。
+    // 旧 payload（dir なし）は従来どおり入力のみ
+    if ((s.dir === 'spec' || s.dir === 'ddl') && s.input !== '') run(s.dir);
+  } else if (s.input && s.input.omitted) {
     showBanner('info', '前回の入力は大きすぎたため復元されませんでした（保存上限 100KB）');
   }
 }
@@ -779,7 +785,7 @@ el('copy-tsv').addEventListener('click', () => {
   // Excel 用: text/html（書式付き）+ text/plain（TSV）の二重フレーバー（lib/excel.js）。
   // 失敗時は従来どおり TSV の平文コピーへフォールバック
   ToolExcel.copy(buildExcelHtml(lastModel), tsv).then(
-    () => showBanner('success', 'コピーしました'),
+    () => ToolUI.feedback(el('copy-tsv'), '✓ コピーしました'),
     () => copyText(tsv, el('copy-tsv'), '先に変換を実行してください'));
 });
 el('sample').addEventListener('click', () => {

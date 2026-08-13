@@ -305,18 +305,15 @@ const GENERATED_DDL = [
     s18.hasSqlLex && eq(s18.dollar, ["$$ a 'b' $$"]) && eq(s18.block, ['/* x /* y */ z */']),
     JSON.stringify(s18));
 
-  /* ========== DS-20: 成功バナーが success の見た目になる ==========
+  /* ========== DS-20: banner-success の規約検査 ==========
      .banner-success の CSS 規則が無く、成功が中立の灰色で出ていた（2026-08-07 に発見）。
-     判定は helpers の bannerIs（クラス名だけでなく算出スタイルと role まで見る） */
-  await page.evaluate(async () => {
-    document.getElementById('input').value = 'create table t (a int);';
-    document.getElementById('to-spec').click();
-    navigator.clipboard.writeText = () => Promise.resolve();   // 実クリップボードに書かない
-    document.getElementById('copy').click();
-    await new Promise(r => setTimeout(r, 30));
+     コピー成功は 2026-08-13 から ✓ フィードバック方式のため、規約の検査として独立させた */
+  await page.evaluate(() => {
+    window.ToolUI.banner(document.getElementById('banner'), 'success', 'テスト');
   });
-  const s20 = await bannerIs(page, '#banner', 'success', 'コピーしました');
-  r.check('DS-20（コピー成功のバナーが success の見た目・role=status）', s20.ok, s20.detail);
+  const s20 = await bannerIs(page, '#banner', 'success', 'テスト');
+  r.check('DS-20（banner-success の CSS 規則と role=status が効いている）', s20.ok, s20.detail);
+  await page.evaluate(() => { document.getElementById('banner').hidden = true; });
 
   /* ========== DS-21: 変換後に入力を編集したら、古い出力をコピーさせない ========== */
   await page.evaluate(() => {
@@ -374,6 +371,69 @@ const GENERATED_DDL = [
   });
   r.check('DS-22（pagehide で入力がフラッシュ保存される）',
     s22.savedInput === 'create table flush_test (a int);', JSON.stringify(s22));
+
+  /* ========== DS-23: リロード後の自動変換（方向を記憶） ========== */
+  await page.goto(fileUrl('web/ddl2spec.html'));
+  await page.evaluate(() => { window.ToolStorage.save = () => true; localStorage.clear(); });
+  await page.reload();
+  await page.evaluate(() => {
+    const inp = document.getElementById('input');
+    inp.value = 'create table t (a int);';
+    inp.dispatchEvent(new Event('input', { bubbles: true }));
+    document.getElementById('to-spec').click();     // 方向を記憶させる
+    window.dispatchEvent(new Event('pagehide'));    // {input, dir} をフラッシュ保存
+  });
+  await page.reload();
+  await page.waitForTimeout(250);
+  const s23 = await page.evaluate(() => ({
+    input: document.getElementById('input').value,
+    output: document.getElementById('output').value,
+  }));
+  // 旧 payload（dir なし）は入力のみ復元・出力は空のまま（後方互換）
+  await page.evaluate(() => {
+    window.ToolStorage.save = () => true;
+    localStorage.setItem('tools:ddl2spec', JSON.stringify({
+      v: 1, tool: 'ddl2spec', savedAt: new Date().toISOString(),
+      data: { input: 'create table t (a int);' },
+    }));
+  });
+  await page.reload();
+  await page.waitForTimeout(250);
+  const s23b = await page.evaluate(() => ({
+    input: document.getElementById('input').value,
+    output: document.getElementById('output').value,
+  }));
+  r.check('DS-23（リロード後に入力・方向が復元され自動で再変換。旧 payload は入力のみ）',
+    s23.input === 'create table t (a int);' && s23.output.includes('| 論理名 |')
+    && s23b.input === 'create table t (a int);' && s23b.output === '',
+    JSON.stringify([s23, s23b]));
+
+  /* ========== DS-24: 体裁（placeholder・primary・ツールバー位置・✓ フィードバック） ========== */
+  const s24 = await page.evaluate(async () => {
+    navigator.clipboard.writeText = () => Promise.resolve();
+    const copy = document.getElementById('copy');
+    const toolbar = copy.closest('.toolbar');
+    const panes = document.querySelector('.panes');
+    const toolbarAbovePanes = !!(toolbar && panes
+      && (toolbar.compareDocumentPosition(panes) & Node.DOCUMENT_POSITION_FOLLOWING));
+    const inp = document.getElementById('input');
+    inp.value = 'create table t (a int);';
+    inp.dispatchEvent(new Event('input', { bubbles: true }));
+    document.getElementById('to-spec').click();
+    copy.click();
+    await new Promise(d => setTimeout(d, 60));
+    return {
+      placeholder: inp.placeholder !== '',
+      primary: copy.classList.contains('primary'),
+      title: copy.title,
+      toolbarAbovePanes,
+      label: copy.textContent,
+    };
+  });
+  r.check('DS-24（placeholder・copy が primary/title・ツールバーが上・✓ フィードバック）',
+    s24.placeholder && s24.primary && s24.title === 'Cmd/Ctrl+Enter'
+    && s24.toolbarAbovePanes && s24.label === '✓ コピーしました',
+    JSON.stringify(s24));
 
   /* ========== DS-19: ハブ導線 ========== */
   await page.goto(fileUrl('index.html'));

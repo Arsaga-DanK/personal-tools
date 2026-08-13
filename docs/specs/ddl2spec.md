@@ -47,10 +47,13 @@ PostgreSQL の DDL（`CREATE TABLE` ＋ `COMMENT ON`）と Markdown のテーブ
 ## 画面構成
 
 - `<main class="app-wide">` 直下: `.tool-header`（「← ツール一覧」＋「入力は自動保存されます」注記）
-- 2ペイン: 左=入力、右=出力（どちらも textarea）。
+- 2ペイン: 左=入力（placeholder あり）、右=出力（どちらも textarea）。
   左ペインタイトル横に **［サンプルを入れる］**（**入力が空のときだけ表示**。投入と同時に変換）
-- ツールバー: ［DDL → 定義書］（primary）［定義書 → DDL］［出力をコピー］
+- ツールバー（**ペインの上**・`.toolbar` — 2026-08-13 に他ツールと体裁統一）:
+  ［DDL → 定義書］［定義書 → DDL］［出力をコピー］（**primary・title=Cmd/Ctrl+Enter**）
   ［Excel用コピー（TSV）］。**Cmd/Ctrl+Enter で出力をコピー**（excel2md・diff と同じ作法）
+- **コピー成功はボタンの ✓ フィードバック**（`ToolUI.feedback` — 全ツール標準。
+  バナーは失敗・案内のみ。2026-08-13 に banner-success 方式から統一）
 - **Excel用コピーは二重フレーバー（2026-08-13）**: `text/plain` に TSV（従来どおり）、
   `text/html` に書式付き `<table>`（罫線・ヘッダー背景・文字列化ガード）を同時に書く。
   貼り付け先の Excel では罫線とヘッダー色が付き、既定値 `0.00`（末尾ゼロの小数）などが
@@ -195,10 +198,13 @@ DDL を生成しても DB 上は `customercode` になる。往復では文字�
 
 ## 状態保持
 
-キー `tools:ddl2spec`、payload `{ input }`（出力は再計算できるため保存しない）。
+キー `tools:ddl2spec`、payload `{ input, dir }`（出力は再計算できるため保存しない。
+`dir` は直近の変換方向 `'spec'|'ddl'` — リロード後の自動変換用。2026-08-13 追加）。
 500ms デバウンス＋`pagehide` / `visibilitychange(hidden)` でフラッシュ
 （デバウンス中に閉じても最後の入力が消えない — DS-22。devpad と同じ規約）。
 1フィールド 100KB 超は保存せず `{omitted:true}`（devpad と同じ規約）。
+**リロード後、入力と方向が復元できたら自動で再変換する**（出力だけ空で戻る
+DP-7 同型の解消 — DS-23。方向が未保存なら従来どおり入力のみ復元）。
 
 ## テストケース
 
@@ -241,7 +247,9 @@ comment on column public.customer.code is '顧客コード';
 | DS-17 | UI: サンプル投入 → 変換 → Cmd/Ctrl+Enter | サンプルは空のときだけ表示・投入で消える・Cmd+Enter でコピーが走る |
 | DS-18 | `window.SqlLex.tokenize` がこのページで動く | ドル引用符と入れ子コメントが各1トークンになる（共有 lexer が読めている証拠） |
 | DS-19 | ハブ導線 | 「Schema」リンクで遷移し `<title>` が `Schema (ddl2spec)`。カテゴリ「設計」が出る |
-| DS-20 | 変換 → ［出力をコピー］ | バナーが `banner-success`・`role="status"`・「コピーしました」。**算出背景色が `.banner` の既定と異なる**（`.banner-success` の規則が実際に効いていること。クラス名の一致だけでは 2026-08-07 に見つけた「規則が無い」状態を検出できない） |
+| DS-20 | `showBanner('success', 'テスト')` をフック経由で発火 | バナーが `banner-success`・`role="status"`・**算出背景色が `.banner` の既定と異なる**（`.banner-success` の CSS 規則が実際に効いていること — 2026-08-07 に見つけた「規則が無い」状態の再発防止。コピー成功は 2026-08-13 から ✓ フィードバック方式のため、この検査は規約の検査として独立させた） |
+| DS-23 | 入力＋変換 → リロード | **入力と方向が復元され、自動で再変換されて出力が埋まる**（saved.dir が無い旧 payload では入力のみ復元・出力は空のまま） |
+| DS-24 | 体裁 | 入力 textarea に placeholder・［出力をコピー］が `primary` かつ `title="Cmd/Ctrl+Enter"`・ツールバーがペインより**上**（DOM 順）・コピー成功でボタンが「✓ コピーしました」表示 |
 | DS-21 | 変換 → 入力を編集 → ［出力をコピー］／［Excel用コピー］ | **コピーせず warn**「入力が変更されています。再変換してからコピーしてください」・クリップボード不変。**再変換すればコピーできる**。変換失敗後の［Excel用コピー］は「先に変換を実行してください」 |
 | DS-22 | 入力 → 500ms のデバウンスを待たずに `pagehide` | 最後の入力が保存されている（フラッシュ） |
 
