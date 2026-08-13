@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lint (vaultlint)</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🧹%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../lib/ui.css">
+<style>
+  /* vaultlint 固有: 結果表のみ */
+  .issue-block { margin: 14px 0; }
+  .issue-block h2 { font-size: 14px; margin: 0 0 6px; }
+  .issue-ok { color: var(--muted); font-size: 13px; }
+  .table-wrap { overflow-x: auto; }
+  .issue-block table { border-collapse: collapse; font-size: 12.5px; width: 100%; }
+  .issue-block th, .issue-block td {
+    border: 1px solid var(--border); padding: 4px 8px; text-align: left;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  .issue-block th { background: var(--panel); font-family: inherit; }
+</style>
+</head>
+<body>
+<main class="app">
+  <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">このツールは何も保存・変更しません（読み取り専用）</span></p>
+  <h1>Lint</h1>
+  <p class="subtitle">vault の健全性チェック — リンク切れ・添付消失・ファイル名の罠・重複ベース名を検出して報告</p>
+
+  <div class="toolbar">
+    <button class="primary" id="pick">vault フォルダを選択</button>
+    <button id="rescan" hidden>再スキャン</button>
+    <button id="copy-btn" hidden>報告をコピー</button>
+    <span class="muted" id="env-note" hidden></span>
+  </div>
+
+  <div class="banner" id="banner" hidden></div>
+  <p class="summary" id="summary"></p>
+  <div id="results"></div>
+</main>
+
+<script src="../lib/ui.js"></script>
+<script>
+'use strict';
+
+/* ========== 純関数（フックと UI が同一コードパス） ========== */
+
+const MAX_FILES = 20000;        // 性能ガード: ファイル総数
+const MAX_MD_CHARS = 2000000;   // 性能ガード: 1ファイル。超過はその場で読み飛ばして警告
+// 読み込み自体しない除外（91_Private は vault の掟①。コードで強制）
+const EXCLUDE_DIRS = new Set(['91_Private', '.obsidian', '.git', '.trash']);
+
+const nfcLower = s => s.normalize('NFC').toLowerCase();
+const basenameOf = path => path.slice(path.lastIndexOf('/') + 1);
+
+// ファイル名の罠（badNames）。不可視文字はコードポイントで組む（実文字混入を防ぐ）
+function nameReasons(seg, isFile) {
+  const reasons = [];
+  if (isFile && /^\.md$/i.test(seg)) { reasons.push('空ベース名'); return reasons; }
+  if (seg.includes('  ')) reasons.push('連続半角スペース');
+  if (seg.includes('\u3000')) reasons.push('全角スペース');
+  if (seg.includes('\u00A0')) reasons.push('NBSP');
+  const stem = isFile ? seg.replace(/\.[^.]+$/, '') : seg;
+  if (seg.startsWith(' ') || stem.endsWith(' ')) reasons.push('先頭・末尾スペース');
+  return reasons;
+}
+
+// files = [{path, text?}]（text は md のみ）→ { ok, issues, stats, warnings } / { ok:false, error }
+function lint(files) {
+  if (files.length > MAX_FILES) {
+    return { ok: false, error: 'ファイル数が上限（20,000）を超えたため処理を中止しました' };
+  }
+  const warnings = [];
+  const issues = { brokenLinks: [], missingAttachments: [], badNames: [], dupBasenames: [] };
+
+  // インデックス（比較は NFC + 小文字化 — spec「リンク解決規則」）
+  const mdByBase = new Map();
+  const mdByPath = new Set();
+  const otherByBase = new Set();
+  let notes = 0;
+  for (const f of files) {
+    if (/\.md$/i.test(f.path)) {
+      notes++;
+      const base = nfcLower(basenameOf(f.path).replace(/\.md$/i, ''));
+      if (!mdByBase.has(base)) mdByBase.set(base, []);
+      mdByBase.get(base).push(f.path);
+      mdByPath.add(nfcLower(f.path.replace(/\.md$/i, '')));
+    } else {
+      otherByBase.add(nfcLower(basenameOf(f.path)));
+    }
+  }
+
+  // badNames: ファイル名とフォルダ名の両方（同じフォルダは1回だけ見る）
+  const seenSeg = new Set();
+  for (const f of files) {
+    const parts = f.path.split('/');
+    parts.forEach((seg, idx) => {
+      const segPath = parts.slice(0, idx + 1).join('/');
+      if (seenSeg.has(segPath)) return;
+      seenSeg.add(segPath);
+      for (const reason of nameReasons(seg, idx === parts.length - 1)) {
+        issues.badNames.push({ path: segPath, reason });
+      }
+    });
+  }
+
+  // dupBasenames: 同名 .md（パス修飾なしリンクが曖昧になる）
+  for (const paths of mdByBase.values()) {
+    if (paths.length > 1) {
+      issues.dupBasenames.push({
+        base: basenameOf(paths[0]).replace(/\.md$/i, ''),
+        paths: paths.slice(),
+      });
+    }
+  }
+
+  const resolveNote = target => {
+    const t = nfcLower(target.replace(/\.md$/i, ''));
+    return target.includes('/') ? mdByPath.has(t) : mdByBase.has(t);
+  };
+  // 添付はベース名で解決（spec: 厳密な最短パス選択はしない）
+  const resolveAttachment = target => otherByBase.has(nfcLower(basenameOf(target)));
+
+  // リンク走査（wiki リンクと md 画像/添付リンク）
+  let links = 0;
+  const WIKI_RE = /(!?)\[\[([^\[\]]+)\]\]/g;
+  const MDLINK_RE = /!\[[^\]]*\]\(([^)\s]+)\)/g;
+  for (const f of files) {
+    if (!/\.md$/i.test(f.path) || typeof f.text !== 'string') continue;
+    if (f.text.length > MAX_MD_CHARS) {
+      warnings.push(f.path + ' は上限（200万文字）を超えるためリンクを走査しませんでした');
+      continue;
+    }
+    const lines = f.text.split('\n');
+    for (let li = 0; li < lines.length; li++) {
+      let m;
+      WIKI_RE.lastIndex = 0;
+      while ((m = WIKI_RE.exec(lines[li]))) {
+        links++;
+        const embed = m[1] === '!';
+        let inner = m[2].split('|')[0];               // エイリアスを剥がす
+        const hashIdx = inner.indexOf('#');           // 見出し・ブロック（#^）を剥がす
+        const target = (hashIdx >= 0 ? inner.slice(0, hashIdx) : inner).trim();
+        if (target === '') continue;                  // [[#見出し]] = 自ファイル参照
+        const isAttachment = embed && /\.[A-Za-z0-9]{1,8}$/.test(target) && !/\.md$/i.test(target);
+        if (isAttachment) {
+          if (!resolveAttachment(target)) issues.missingAttachments.push({ file: f.path, line: li + 1, target });
+        } else if (!resolveNote(target)) {
+          issues.brokenLinks.push({ file: f.path, line: li + 1, target });
+        }
+      }
+      MDLINK_RE.lastIndex = 0;
+      while ((m = MDLINK_RE.exec(lines[li]))) {
+        const raw = m[1];
+        if (/^[a-z][a-z0-9+.-]*:/i.test(raw)) continue;   // http(s): data: obsidian: 等は対象外
+        links++;
+        let target;
+        try { target = decodeURIComponent(raw); } catch (_) { target = raw; }
+        if (!resolveAttachment(target)) issues.missingAttachments.push({ file: f.path, line: li + 1, target: raw });
+      }
+    }
+  }
+
+  return { ok: true, issues, stats: { files: files.length, notes, links }, warnings };
+}
+
+// アダプタ層の除外（UI/テスト経路の共通入口。FSA 走査は同じ集合をディレクトリ単位で飛ばす）
+function excludeFiles(files) {
+  let excluded = 0;
+  const kept = [];
+  for (const f of files) {
+    if (f.path.split('/').some(seg => EXCLUDE_DIRS.has(seg))) { excluded++; continue; }
+    kept.push(f);
+  }
+  return { kept, excluded };
+}
+
+/* ========== UI ========== */
+
+const el = id => document.getElementById(id);
+function showBanner(kind, text) { ToolUI.banner(el('banner'), kind, text); }
+
+const CLASS_DEFS = [
+  { key: 'brokenLinks', title: 'リンク切れ', cols: ['ファイル', '行', 'ターゲット'],
+    row: i => [i.file, String(i.line), i.target],
+    md: i => i.file + ':' + i.line + ' → ' + i.target },
+  { key: 'missingAttachments', title: '添付消失', cols: ['ファイル', '行', 'ターゲット'],
+    row: i => [i.file, String(i.line), i.target],
+    md: i => i.file + ':' + i.line + ' → ' + i.target },
+  { key: 'badNames', title: 'ファイル名の罠', cols: ['パス', '理由'],
+    row: i => [i.path, i.reason],
+    md: i => i.path + ' — ' + i.reason },
+  { key: 'dupBasenames', title: '重複ベース名', cols: ['ベース名', 'パス'],
+    row: i => [i.base, i.paths.join(' , ')],
+    md: i => i.base + ': ' + i.paths.join(', ') },
+];
+
+let lastReport = '';
+
+function buildReport(res) {
+  const out = ['# vault-lint 報告', ''];
+  for (const def of CLASS_DEFS) {
+    const list = res.issues[def.key];
+    out.push('## ' + def.title + '（' + list.length + '件）', '');
+    for (const i of list) out.push('- ' + def.md(i));
+    out.push('');
+  }
+  return out.join('\n');
+}
+
+function render(res, excluded) {
+  const host = el('results');
+  host.textContent = '';
+  if (!res.ok) {
+    showBanner('error', res.error);
+    el('summary').textContent = '';
+    el('copy-btn').hidden = true;
+    return;
+  }
+  const total = CLASS_DEFS.reduce((n, d) => n + res.issues[d.key].length, 0);
+  el('summary').textContent = 'ファイル ' + res.stats.files + '・ノート ' + res.stats.notes +
+    '・リンク ' + res.stats.links + '・除外 ' + excluded + ' ／ 問題 ' + total + ' 件';
+  showBanner('warn', res.warnings.join(' / '));   // 空なら hidden
+  for (const def of CLASS_DEFS) {
+    const list = res.issues[def.key];
+    const block = document.createElement('section');
+    block.className = 'issue-block';
+    const h = document.createElement('h2');
+    h.textContent = def.title + '（' + list.length + '件）';
+    block.appendChild(h);
+    if (!list.length) {
+      const ok = document.createElement('p');
+      ok.className = 'issue-ok';
+      ok.textContent = '問題なし ✅';
+      block.appendChild(ok);
+    } else {
+      const wrap = document.createElement('div');
+      wrap.className = 'table-wrap';
+      const table = document.createElement('table');
+      const thead = document.createElement('tr');
+      for (const c of def.cols) {
+        const th = document.createElement('th');
+        th.textContent = c;
+        thead.appendChild(th);
+      }
+      table.appendChild(thead);
+      for (const item of list) {
+        const tr = document.createElement('tr');
+        for (const v of def.row(item)) {
+          const td = document.createElement('td');
+          td.textContent = v;
+          tr.appendChild(td);
+        }
+        table.appendChild(tr);
+      }
+      wrap.appendChild(table);
+      block.appendChild(wrap);
+    }
+    host.appendChild(block);
+  }
+  lastReport = buildReport(res);
+  el('copy-btn').hidden = false;
+}
+
+/* ========== FSA 走査（Chrome 系限定・読み取り専用） ========== */
+
+let dirHandle = null;
+
+async function scanVault(handle) {
+  const files = [];
+  let excluded = 0;
+  async function walk(h, prefix) {
+    for await (const entry of h.values()) {
+      if (entry.kind === 'directory') {
+        if (EXCLUDE_DIRS.has(entry.name)) { excluded++; continue; }   // 読み込み自体しない
+        await walk(entry, prefix + entry.name + '/');
+      } else {
+        const path = prefix + entry.name;
+        if (/\.md$/i.test(entry.name)) {
+          const file = await entry.getFile();
+          files.push({ path, text: await file.text() });
+        } else {
+          files.push({ path });
+        }
+        if (files.length > MAX_FILES) return;   // lint 側のガードで理由を表示する
+      }
+    }
+  }
+  await walk(handle, '');
+  return { files, excluded };
+}
+
+async function runScan() {
+  showBanner('info', 'スキャン中…');
+  try {
+    const { files, excluded } = await scanVault(dirHandle);
+    showBanner('info', '');
+    render(lint(files), excluded);
+    el('rescan').hidden = false;
+  } catch (e) {
+    showBanner('error', 'スキャンに失敗しました: ' + (e && e.message ? e.message : String(e)));
+  }
+}
+
+el('pick').addEventListener('click', async () => {
+  try {
+    dirHandle = await window.showDirectoryPicker({ mode: 'read' });
+  } catch (_) {
+    return;   // キャンセル（AbortError）は無言でよい
+  }
+  await runScan();
+});
+el('rescan').addEventListener('click', () => { if (dirHandle) runScan(); });
+
+el('copy-btn').addEventListener('click', () => {
+  if (lastReport === '') { showBanner('info', 'コピーする内容がありません'); return; }
+  ToolUI.copy(lastReport).then(ok => {
+    if (ok) ToolUI.feedback(el('copy-btn'), '✓ コピーしました');
+    else showBanner('info', 'コピーできませんでした');
+  });
+});
+
+// showDirectoryPicker が無いブラウザ（Safari / Firefox）は理由を出して無効化
+if (!window.showDirectoryPicker) {
+  el('pick').disabled = true;
+  el('env-note').hidden = false;
+  el('env-note').textContent = 'このブラウザは対応していません（showDirectoryPicker が必要 — Chrome 系で開いてください）';
+}
+
+/* ========== テスト用フック ========== */
+
+window.vaultlint = {
+  lint,
+  excludeFiles,
+  test: {
+    // FSA を通さず、アダプタ層の除外 → lint → 描画まで通す（VL-U1〜U3）
+    run(files) {
+      const { kept, excluded } = excludeFiles(files);
+      const res = lint(kept);
+      render(res, excluded);
+      return res;
+    },
+  },
+};
+</script>
+</body>
+</html>
