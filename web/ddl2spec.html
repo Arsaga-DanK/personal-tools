@@ -655,6 +655,7 @@ function showWarnings(list) {
 }
 
 let lastModel = { tables: [] };   // Excel 用コピーが参照する（直近の変換結果）
+let convertedFrom = null;         // 直近の変換に使った入力。コピーの鮮度ガードが参照（DS-21）
 
 function run(kind) {
   const src = el('input').value;
@@ -669,9 +670,12 @@ function run(kind) {
       (parsed.line ? parsed.line + '行目: ' : '') + parsed.error);
     showWarnings([]);
     el('output').value = '';
+    lastModel = { tables: [] };   // 古いモデルを Excel 用コピーに黙って渡さない（DS-21）
+    convertedFrom = null;
     return;
   }
   lastModel = parsed.value;
+  convertedFrom = src;
   const warnings = parsed.warnings.slice();
   el('output').value = kind === 'spec' ? buildSpec(parsed.value) : buildDdl(parsed.value, warnings);
   showWarnings(warnings);
@@ -680,6 +684,11 @@ function run(kind) {
     'テーブル ' + n + ' 件を変換しました' + (warnings.length ? '（警告 ' + warnings.length + ' 件）' : ''));
   save();
 }
+
+// 変換はボタン実行のため、変換後に入力を編集すると出力は編集前の内容のまま残る。
+// その状態のコピーは黙って古い出力を渡すことになるので、コピーせず警告する（DS-21）
+function outputStale() { return convertedFrom !== null && el('input').value !== convertedFrom; }
+const STALE_MSG = '入力が変更されています。再変換してからコピーしてください';
 
 async function copyText(text, btn, emptyMsg) {
   if (text === '') { showBanner('info', emptyMsg); return; }
@@ -714,12 +723,19 @@ function updateSampleBtn() { el('sample').hidden = el('input').value !== ''; }
 
 const FIELD_LIMIT = 100000;
 let saveTimer = null;
+function savePayload() {
+  const v = el('input').value;
+  return { input: v.length > FIELD_LIMIT ? { omitted: true } : v };
+}
 function save() {
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    const v = el('input').value;
-    ToolStorage.save(TOOL, { input: v.length > FIELD_LIMIT ? { omitted: true } : v });
-  }, 500);
+  saveTimer = setTimeout(() => { saveTimer = null; ToolStorage.save(TOOL, savePayload()); }, 500);
+}
+// デバウンス中に閉じても最後の入力が消えないようフラッシュする（DS-22。devpad と同じ規約）
+function flushSave() {
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  ToolStorage.save(TOOL, savePayload());
 }
 function restore() {
   const s = ToolStorage.load(TOOL);
@@ -732,8 +748,12 @@ function restore() {
 
 el('to-spec').addEventListener('click', () => run('spec'));
 el('to-ddl').addEventListener('click', () => run('ddl'));
-el('copy').addEventListener('click', () => copyText(el('output').value, el('copy'), 'コピーする内容がありません'));
+el('copy').addEventListener('click', () => {
+  if (outputStale()) { showBanner('warn', STALE_MSG); return; }
+  copyText(el('output').value, el('copy'), 'コピーする内容がありません');
+});
 el('copy-tsv').addEventListener('click', () => {
+  if (outputStale()) { showBanner('warn', STALE_MSG); return; }
   const tsv = buildTsv(lastModel);
   copyText(lastModel.tables.length ? tsv : '', el('copy-tsv'), '先に変換を実行してください');
 });
@@ -748,6 +768,10 @@ document.addEventListener('keydown', e => {
     e.preventDefault();
     el('copy').click();
   }
+});
+window.addEventListener('pagehide', flushSave);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') flushSave();
 });
 
 /* ---------- テスト用フック ---------- */

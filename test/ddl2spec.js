@@ -66,8 +66,9 @@ const GENERATED_DDL = [
   const browser = await launch();
   const page = r.watch(await browser.newPage());
   await page.goto(fileUrl('web/ddl2spec.html'));
-  // 前回セッションの tools:ddl2spec が残っていると復元済み入力で偽 fail する
-  await page.evaluate(() => localStorage.clear());
+  // 前回セッションの tools:ddl2spec が残っていると復元済み入力で偽 fail する。
+  // reload 時の pagehide フラッシュが消した値を書き戻すので、保存を止めてから消す（verification-notes §4）
+  await page.evaluate(() => { window.ToolStorage.save = () => true; localStorage.clear(); });
   await page.reload();
 
   const call = (fn, arg) => page.evaluate(([f, a]) => window.ddl2spec[f](a), [fn, arg]);
@@ -260,7 +261,7 @@ const GENERATED_DDL = [
 
   /* ========== DS-17: サンプル投入と Cmd+Enter コピー ========== */
   await page.goto(fileUrl('web/ddl2spec.html'));
-  await page.evaluate(() => localStorage.clear());
+  await page.evaluate(() => { window.ToolStorage.save = () => true; localStorage.clear(); });
   await page.reload();
   const s17 = await page.evaluate(async () => {
     const captured = [];
@@ -305,6 +306,63 @@ const GENERATED_DDL = [
   });
   const s20 = await bannerIs(page, '#banner', 'success', 'コピーしました');
   r.check('DS-20（コピー成功のバナーが success の見た目・role=status）', s20.ok, s20.detail);
+
+  /* ========== DS-21: 変換後に入力を編集したら、古い出力をコピーさせない ========== */
+  await page.evaluate(() => {
+    window.__cap = [];
+    navigator.clipboard.writeText = t => { window.__cap.push(t); return Promise.resolve(); };
+    const inp = document.getElementById('input');
+    inp.value = 'create table t (a int);';
+    document.getElementById('to-spec').click();
+    // 入力を編集（再変換はしない）→ 出力は編集前の内容のまま
+    inp.value = 'create table t (a int, b text);';
+    inp.dispatchEvent(new Event('input', { bubbles: true }));
+    document.getElementById('copy').click();
+  });
+  await page.waitForTimeout(30);
+  const s21warn = await bannerIs(page, '#banner', 'warn',
+    '入力が変更されています。再変換してからコピーしてください');
+  const s21 = await page.evaluate(async () => {
+    document.getElementById('copy-tsv').click();
+    await new Promise(d => setTimeout(d, 30));
+    const tsvBlocked = document.getElementById('banner').textContent;
+    const blockedCount = window.__cap.length;              // 2経路とも書かれていない
+    // 再変換すればコピーできる
+    document.getElementById('to-spec').click();
+    document.getElementById('copy').click();
+    await new Promise(d => setTimeout(d, 30));
+    const afterRerun = window.__cap.length;
+    const sameAsOut = window.__cap[0] === document.getElementById('output').value;
+    // 変換失敗後は Excel用TSV も無効（古いモデルを黙って渡さない）
+    document.getElementById('input').value = "create table t (a text default 'x);"; // 未終端 → {ok:false}
+    document.getElementById('to-spec').click();
+    document.getElementById('copy-tsv').click();
+    await new Promise(d => setTimeout(d, 30));
+    const tsvAfterFail = document.getElementById('banner').textContent;
+    return { tsvBlocked, blockedCount, afterRerun, sameAsOut,
+      tsvAfterFail, finalCount: window.__cap.length };
+  });
+  r.check('DS-21（入力編集後はコピーせず警告・再変換でコピー可・変換失敗後は TSV も無効）',
+    s21warn.ok && s21.blockedCount === 0 && s21.tsvBlocked.includes('再変換')
+    && s21.afterRerun === 1 && s21.sameAsOut === true
+    && s21.tsvAfterFail.includes('先に変換を実行してください') && s21.finalCount === 1,
+    JSON.stringify([s21warn.detail, s21]));
+
+  /* ========== DS-22: pagehide でフラッシュ保存（500ms のデバウンスを待たない） ========== */
+  await page.goto(fileUrl('web/ddl2spec.html'));
+  await page.evaluate(() => { window.ToolStorage.save = () => true; localStorage.clear(); });
+  await page.reload();
+  const s22 = await page.evaluate(() => {
+    const inp = document.getElementById('input');
+    inp.value = 'create table flush_test (a int);';
+    inp.dispatchEvent(new Event('input', { bubbles: true }));
+    window.dispatchEvent(new Event('pagehide'));   // デバウンス中にページを閉じる相当
+    const raw = localStorage.getItem('tools:ddl2spec');
+    const saved = raw ? JSON.parse(raw) : null;
+    return { savedInput: saved && saved.data ? saved.data.input : null };
+  });
+  r.check('DS-22（pagehide で入力がフラッシュ保存される）',
+    s22.savedInput === 'create table flush_test (a int);', JSON.stringify(s22));
 
   /* ========== DS-19: ハブ導線 ========== */
   await page.goto(fileUrl('index.html'));

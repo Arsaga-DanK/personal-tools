@@ -164,9 +164,11 @@ osascript -e 'the clipboard as «class HTML»' # HTML フレーバーの退避
   → `browser_handle_dialog accept:true` で解除してから進める
 - **重い DOM 操作（千行描画・数 MB 入力）直後のデバウンス発火確認は 800ms 以上待つ**。
   400〜500ms ではイベントループ渋滞で偽 fail する（diff DIFF-11 / devpad DEV-16 で実測）
-- **`pagehide` で状態をフラッシュ保存するツール（devpad）への localStorage 注入テスト**は、
-  reload 前に `window.ToolStorage.save = () => true` で保存を止める。
-  止めないとフラッシュが注入値を上書きして偽 fail する（devpad DEV-17 で実測）
+- **`pagehide` で状態をフラッシュ保存するツール（devpad・ddl2spec）への localStorage
+  注入・クリアのテスト**は、reload 前に `window.ToolStorage.save = () => true` で保存を止める。
+  止めないとフラッシュが注入値を上書きして偽 fail する（devpad DEV-17 で実測。
+  2026-08-13 に ddl2spec へフラッシュを足した際、`localStorage.clear()` → `reload()` の
+  経路でも同じ罠を踏んだ — 消した値をフラッシュが書き戻し、復元でサンプルボタンが隠れて DS-17 が偽 fail）
 - **favicon 404 は解消済み**（2026-08-04 の UX 改善で全6ページに inline SVG data URI の favicon を追加）。
   「コンソールエラー0」判定に除外ルールは不要
 - **ドラッグ（pointer events）の実測3点**（2026-08-07・taskboard Phase T4。実装前に測って設計を決めた）:
