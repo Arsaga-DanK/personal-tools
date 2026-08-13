@@ -73,6 +73,23 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     && eq(search.aliasPartial, ['Tables']) && search.aliasHidden === false,
     JSON.stringify([search.alias, search.aliasUpper, search.aliasPartial, search.aliasHidden]));
 
+  /* ---------- 検索: Convert の説明が全11タブを網羅する ---------- */
+  // Phase C で足した4タブ（XML/SQL/正規表現/基数）が desc に無いと、
+  // タブ名で検索したとき Convert が「該当なし」になる（機能はあるのに辿れない）
+  const tabSearch = await page.evaluate(() => {
+    const f = window.hub.filter;
+    return {
+      regex: f('正規表現').map(t => t.name),
+      xml: f('xml').map(t => t.name),
+      sql: f('sql').map(t => t.name),      // 'sql' は Schema（PostgreSQL）にも当たる
+      radix: f('基数').map(t => t.name),
+    };
+  });
+  r.check('HUB-11（devpad の新4タブ（XML/SQL/正規表現/基数）が検索で辿れる）',
+    eq(tabSearch.regex, ['Convert']) && eq(tabSearch.xml, ['Convert'])
+    && eq(tabSearch.sql, ['Convert', 'Schema']) && eq(tabSearch.radix, ['Convert']),
+    JSON.stringify(tabSearch));
+
   const typeSearch = async q => {
     await page.fill('#search', q);
     await page.waitForTimeout(80);
