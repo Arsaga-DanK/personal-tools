@@ -91,7 +91,11 @@ Excel のセル範囲（TSV）⇔ Markdown テーブルを**双方向**に変換
    該当しない数値セルは数値のまま貼られる（Excel 側で集計可能なことを優先し、
    全セル文字列化はしない）。**Excel 実機での見た目は自動検証できない**ため、
    下の「Excel 実機スモーク項目」で手動確認する
-5. **Excel用コピー**（旧版 `copyForExcel`）: **execCommand 先行**で text/html＋text/plain を書く（Chrome の async clipboard は HTML をサニタイズし mso-data-placement が落ちるため）。失敗時 ClipboardItem、それも不可なら出力 textarea 選択フォールバック（TSVのみ）
+5. **Excel用コピー**（`lib/excel.js` の `ToolExcel.copy` — 2026-08-13 に共通核へ抽出）:
+   **execCommand 先行**で text/html＋text/plain を書く（Chrome の async clipboard は HTML を
+   サニタイズし mso-data-placement / mso-number-format が落ちるため）。失敗時 ClipboardItem、
+   それも不可なら出力 textarea 選択フォールバック（TSVのみ）。
+   **文字列化ガード（4b）のパターンと罫線・背景の style も `lib/excel.js`（`cellStyle`）が正本**
 6. **方向を MD→TSV に切り替えたとき**はヘッダートグルを自動 ON（Markdown 表は構文上ヘッダー確定 — 旧版挙動）。トグル OFF は Excel コピーの `<th>`/`<td>` にのみ影響（TSV 出力は不変）
 7. **揃え情報の喪失を明示**（Phase G）: 区切り行に none 以外の揃えが1列でもあれば情報バナー
    「揃え指定（:--- 等）はTSVでは失われます（「Excel用にコピー」のHTMLには反映されます）」を出す。

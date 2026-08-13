@@ -80,6 +80,7 @@
 </main>
 
 <script src="../lib/ui.js"></script>
+<script src="../lib/excel.js"></script>
 <script src="../lib/storage.js"></script>
 <script>
 'use strict';
@@ -319,24 +320,13 @@ function escapeHtml(value) {
 }
 
 // Excel 貼り付け用の <table>。セル内改行は mso-data-placement:same-cell 付き <br> で
-// 同一セル内改行として維持される（Excel/MSO 独自CSS）
-// Excel が貼り付け時に値を変えてしまうパターン。該当セルだけ文字列書式で守る（E2M-F02。
-// 該当しない数値は数値のまま貼る — 全セル文字列化は Excel 側の集計を壊すためしない）
-const EXCEL_MANGLE_RES = [
-  /^\d{1,4}[-/]\d{1,2}([-/]\d{1,4})?$/,  // 日付化（1-2 → 2月1日）
-  /^\d{1,2}:\d{2}(:\d{2})?$/,            // 時刻化（1:30 → 0.0625）
-  /^0\d+$/,                              // 先頭ゼロ落ち（0123 → 123）
-  /^\d{12,}$/,                           // 指数表記（12桁〜。15桁超は精度も落ちる）
-  /^[=+@]/,                              // 数式として解釈（=SUM(A1) 等。負数 -1 は対象外）
-];
+// 同一セル内改行として維持される（Excel/MSO 独自CSS）。
+// 罫線・ヘッダー背景・文字列化ガード（E2M-F01/F02）は lib/excel.js の cellStyle が正本
 function gridToHtmlTable(grid, hasHeader, alignments) {
   const cellHtml = v => escapeHtml(v).replace(/\n/g, '<br style="mso-data-placement:same-cell">');
   const attrs = (v, i, isHeader) => {
     const a = alignments[i];
-    let style = 'border:.5pt solid #a6a6a6';           // 貼り付けで罫線になる（E2M-F01）
-    if (isHeader) style += ';background:#d9d9d9';
-    if (a && a !== 'none') style += ';text-align:' + a;
-    if (EXCEL_MANGLE_RES.some(re => re.test(v))) style += ";mso-number-format:'\\@'";
+    const style = ToolExcel.cellStyle(v, { header: isHeader, align: a });
     return ((a && a !== 'none') ? ' align="' + a + '"' : '') + ' style="' + style + '"';
   };
   const rowHtml = (row, tag, isHeader) =>
@@ -837,35 +827,7 @@ for (const radio of document.querySelectorAll('input[name="direction"]')) {
 // 確実な保険は「選択状態にする」こと。
 function copyFeedback() { ToolUI.feedback(el.copyBtn, '✓ コピーしました'); }
 
-// copy イベントを横取りして任意 MIME を書き込む execCommand 方式（旧版から移植）。
-// Chrome の navigator.clipboard.write は HTML をサニタイズし
-// mso-data-placement（セル内改行の維持に必須）が落ちるため execCommand を先行させる。
-function execCopy(fill) {
-  const handler = e => {
-    e.preventDefault();
-    fill(e.clipboardData);
-  };
-  document.addEventListener('copy', handler, { capture: true });
-  let ok = false;
-  try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
-  document.removeEventListener('copy', handler, { capture: true });
-  return ok;
-}
-
-function copyForExcel(html, tsv) {
-  const ok = execCopy(dt => {
-    dt.setData('text/html', html);
-    dt.setData('text/plain', tsv);
-  });
-  if (ok) return Promise.resolve();
-  if (navigator.clipboard && window.ClipboardItem) {
-    return navigator.clipboard.write([new ClipboardItem({
-      'text/html': new Blob([html], { type: 'text/html' }),
-      'text/plain': new Blob([tsv], { type: 'text/plain' }),
-    })]);
-  }
-  return Promise.reject(new Error('clipboard unavailable'));
-}
+// 二重フレーバー書き込み（execCommand 先行・サニタイズ対策）は lib/excel.js の ToolExcel.copy が正本
 // 出力欄そのものを選択させる（一時 textarea だと実行後に消えて「選択済み」が嘘になる）。
 // 変換警告バナーを潰さないよう、コピー案内は専用表示に出す
 function copySelectFallback() {
@@ -884,7 +846,7 @@ el.copyBtn.addEventListener('click', () => {
   }
   if (direction === 'md2tsv') {
     // Excel用: text/html + text/plain を同時に書く（execCommand 先行はクリックハンドラ内で同期実行）
-    copyForExcel(lastHtml, el.output.value).then(copyFeedback).catch(copySelectFallback);
+    ToolExcel.copy(lastHtml, el.output.value).then(copyFeedback).catch(copySelectFallback);
   } else {
     // 平文（Markdown 出力）は共通核。失敗時は出力欄の選択にフォールバックする
     ToolUI.copy(el.output.value, { selectEl: el.output }).then(ok => {

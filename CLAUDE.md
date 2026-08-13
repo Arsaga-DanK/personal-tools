@@ -23,7 +23,7 @@ CLI（`bin/`）は形態として認めているが、まだ1本も無い（→�
 ```
 index.html   ハブ。web/ツール一覧（内部のTOOLS配列に1行足すと追加される）
 web/         ブラウザツール7本。1ツール=1HTML完結
-lib/         web ツールの共通コード。ui.css / ui.js / storage.js / sql.js
+lib/         web ツールの共通コード。ui.css / ui.js / storage.js / sql.js / excel.js
 docs/        verification-notes.md（検証の罠）/ ux-backlog.md / tool-backlog.md
 docs/specs/  ツールごとの仕様書兼テストケース（7本）
 test/        検証ハーネス（`./test/run [ツール名]`。書き方は test/README.md）
