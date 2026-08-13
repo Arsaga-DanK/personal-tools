@@ -899,6 +899,56 @@ const TAB_IDS = ['json', 'xml', 'sql', 'escape', 'url', 'base64', 'regex', 'base
     && d50recover.okAfter === true && d50recover.hiddenAfter === true,
     JSON.stringify([d50fail, JSON.parse(d50banner.detail), d50recover]));
 
+  /* ========== DEV-51: Base64 URL-safe 出力 ========== */
+  const d51 = await page.evaluate(() => {
+    const src = 'こんにちは🍣';
+    const enc = window.devpad.b64encode(src, true);
+    return {
+      enc,
+      clean: !/[+/=]/.test(enc),
+      round: window.devpad.b64decode(enc) === src,
+      std: window.devpad.b64encode(src),
+    };
+  });
+  r.check('DEV-51（URL-safe 出力: +/= 無し・往復一致・省略時は標準）',
+    d51.clean && d51.round && /[+/=]/.test(d51.std) === /[+/=]/.test(d51.std)
+    && d51.std.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '') === d51.enc,
+    JSON.stringify(d51));
+
+  /* ========== DEV-52: epoch → ISO8601(UTC) ========== */
+  const d52 = await page.evaluate(() => ({
+    zero: window.devpad.epochToUtcIso ? window.devpad.epochToUtcIso('0', 'sec') : null,
+    auto: window.devpad.epochToUtcIso ? window.devpad.epochToUtcIso('1700000000', 'auto') : null,
+    bad: window.devpad.epochToUtcIso ? window.devpad.epochToUtcIso('abc', 'auto') : null,
+  }));
+  r.check('DEV-52（epochToUtcIso: 秒・auto・不正値が epochToJst と同じ規約）',
+    d52.zero === '1970-01-01T00:00:00Z' && d52.auto === '2023-11-14T22:13:20Z'
+    && d52.bad && typeof d52.bad === 'object' && !!d52.bad.error,
+    JSON.stringify(d52));
+
+  /* ========== DEV-53: カウントの集計コピー ========== */
+  const d53 = await page.evaluate(async () => {
+    window.__copied = null;
+    navigator.clipboard.writeText = t => { window.__copied = t; return Promise.resolve(); };
+    window.devpad.switchTab('count');
+    const ta = document.getElementById('count-in');
+    ta.value = 'あa\nb';
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise(d => setTimeout(d, 300));
+    const btn = document.getElementById('count-copy');
+    if (!btn) return { missing: true };
+    btn.click();
+    await new Promise(d => setTimeout(d, 60));
+    return { copied: window.__copied, label: btn.textContent };
+  });
+  r.check('DEV-53（集計をコピー: ラベル付き6行・✓ 表示）',
+    !d53.missing && typeof d53.copied === 'string'
+    && d53.copied.split('\n').length === 6
+    && d53.copied.includes('文字数（コードポイント）: 4')
+    && d53.copied.includes('行数: 2')
+    && d53.label === '✓ コピーしました',
+    JSON.stringify(d53));
+
   /* ========== DEV-48: JSON タブの init 失敗が後続の配線を止めない ========== */
   // getElementById('json-format') だけ throw させ、json の init を確実に失敗させる。
   // init が this に生やすメソッド（updateSampleBtn）を後続処理が裸で呼ぶと、

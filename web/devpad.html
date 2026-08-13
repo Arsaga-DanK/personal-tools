@@ -139,6 +139,7 @@
     <div class="row">
       <button class="primary" id="b64-encode">エンコード →</button>
       <button id="b64-decode">← デコード</button>
+      <label class="toggle" title="出力を -_ の URL-safe アルファベット・パディング = 無しにする（入力は常に両対応）"><input type="checkbox" id="b64-urlsafe"> URL-safe 出力</label>
       <button id="b64-copy-raw">テキストをコピー</button>
       <button id="b64-copy-enc">Base64をコピー</button>
     </div>
@@ -189,8 +190,11 @@
       <label class="toggle"><input type="radio" name="epoch-unit" value="auto" checked> 自動</label>
       <label class="toggle"><input type="radio" name="epoch-unit" value="sec"> 秒</label>
       <label class="toggle"><input type="radio" name="epoch-unit" value="ms"> ミリ秒</label>
-      <button class="primary" id="time-to-jst">→ JST</button>
+      <button class="primary" id="time-to-jst">→ 日時</button>
+      <span class="muted" id="time-jst-label" style="font-size:12px" hidden>JST</span>
       <span class="mono click-copy" id="time-jst-out" title="クリックでコピー"></span>
+      <span class="muted" id="time-utc-label" style="font-size:12px" hidden>UTC</span>
+      <span class="mono click-copy" id="time-utc-out" title="クリックでコピー"></span>
     </div>
     <div class="row">
       <label>JST日時: <input type="text" id="time-dt" size="24" placeholder="2024/01/01 00:00:00"></label>
@@ -218,7 +222,7 @@
     <div class="panes">
       <div class="pane"><p class="pane-title">テキスト</p>
         <textarea id="count-in" spellcheck="false"></textarea></div>
-      <div class="pane"><p class="pane-title">集計（入力と同時に更新）</p>
+      <div class="pane"><p class="pane-title">集計（入力と同時に更新）<button type="button" class="sample-btn" id="count-copy">集計をコピー</button></p>
         <div id="count-result"></div>
         <p class="muted" style="font-size:12px">全角/半角は East Asian Width の近似判定です</p></div>
     </div>
@@ -274,13 +278,15 @@ function unescapeJsonStr(text) {
 function urlEncode(text) { return encodeURIComponent(text); }
 function urlDecode(text) { return decodeURIComponent(text); }
 
-function b64encode(text) {
+function b64encode(text, urlsafe) {
   const bytes = new TextEncoder().encode(text);
   let bin = '';
   for (let i = 0; i < bytes.length; i += 0x8000) {
     bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
   }
-  return btoa(bin);
+  const b64 = btoa(bin);
+  // URL-safe 出力（DEV-51）: -_ アルファベット・パディング無し。入力側（b64decode）は従来から両対応
+  return urlsafe ? b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '') : b64;
 }
 // 成功: 文字列 / 失敗: { error: メッセージ }（例外を投げない）
 function b64decode(b64) {
@@ -301,22 +307,42 @@ function b64decode(b64) {
 const JST_OFFSET_MS = 9 * 3600 * 1000;
 function pad(n, w) { return String(n).padStart(w || 2, '0'); }
 
-// 成功: 'YYYY/MM/DD HH:mm:ss[.SSS]' / 失敗: { error }
-function epochToJst(value, unit) {
+// epoch の数値判定と単位解釈の共通核（JST / UTC の2形式が同じ規約を共有する — DEV-52）。
+// 成功: { ms } / 失敗: { error }
+function epochToMs(value, unit) {
   const num = typeof value === 'number' ? value : Number(String(value).trim());
   if (!/^-?\d+(\.\d+)?$/.test(String(value).trim()) && typeof value !== 'number') {
     return { error: '数値として解釈できません' };
   }
   if (!isFinite(num)) return { error: '数値として解釈できません' };
   const mode = unit || 'auto';
-  const ms = (mode === 'ms' || (mode === 'auto' && Math.abs(num) >= 1e12)) ? num : num * 1000;
-  const d = new Date(ms + JST_OFFSET_MS);
+  return { ms: (mode === 'ms' || (mode === 'auto' && Math.abs(num) >= 1e12)) ? num : num * 1000 };
+}
+
+// 成功: 'YYYY/MM/DD HH:mm:ss[.SSS]' / 失敗: { error }
+function epochToJst(value, unit) {
+  const p = epochToMs(value, unit);
+  if (p.error) return p;
+  const d = new Date(p.ms + JST_OFFSET_MS);
   if (isNaN(d.getTime())) return { error: '表現できない時刻です' };
   let out = pad(d.getUTCFullYear(), 4) + '/' + pad(d.getUTCMonth() + 1) + '/' + pad(d.getUTCDate()) +
     ' ' + pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()) + ':' + pad(d.getUTCSeconds());
-  const frac = Math.abs(Math.round(ms)) % 1000;
+  const frac = Math.abs(Math.round(p.ms)) % 1000;
   if (frac !== 0) out += '.' + pad(frac, 3);
   return out;
+}
+
+// 成功: 'YYYY-MM-DDTHH:mm:ss[.SSS]Z' / 失敗: { error }（DEV-52）
+function epochToUtcIso(value, unit) {
+  const p = epochToMs(value, unit);
+  if (p.error) return p;
+  const d = new Date(p.ms);
+  if (isNaN(d.getTime())) return { error: '表現できない時刻です' };
+  let out = pad(d.getUTCFullYear(), 4) + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate()) +
+    'T' + pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()) + ':' + pad(d.getUTCSeconds());
+  const frac = Math.abs(Math.round(p.ms)) % 1000;
+  if (frac !== 0) out += '.' + pad(frac, 3);
+  return out + 'Z';
 }
 
 // 'YYYY/MM/DD HH:mm[:ss]'・'YYYY-MM-DD HH:mm[:ss]' は JST として解釈。
@@ -990,7 +1016,7 @@ const TABS = [
     init() {
       $('b64-encode').addEventListener('click', guard('base64', () => {
         if (tooLarge($('b64-raw').value, 'b64-result')) return;
-        $('b64-enc').value = b64encode($('b64-raw').value);
+        $('b64-enc').value = b64encode($('b64-raw').value, $('b64-urlsafe').checked);
         showBanner('b64-result', 'info', '');
       }));
       $('b64-decode').addEventListener('click', guard('base64', () => {
@@ -1004,10 +1030,11 @@ const TABS = [
         }
       }));
     },
-    getState() { return { raw: $('b64-raw').value, enc: $('b64-enc').value }; },
+    getState() { return { raw: $('b64-raw').value, enc: $('b64-enc').value, urlsafe: $('b64-urlsafe').checked }; },
     setState(s) {
       if (typeof s.raw === 'string') $('b64-raw').value = s.raw;
       if (typeof s.enc === 'string') $('b64-enc').value = s.enc;
+      if (typeof s.urlsafe === 'boolean') $('b64-urlsafe').checked = s.urlsafe;
     },
   },
   {
@@ -1269,11 +1296,21 @@ const TABS = [
       const unit = () => document.querySelector('input[name="epoch-unit"]:checked').value;
       $('time-to-jst').addEventListener('click', guard('time', () => {
         const r = epochToJst($('time-epoch').value, unit());
+        const setLabels = show => {
+          $('time-jst-label').hidden = !show;
+          $('time-utc-label').hidden = !show;
+        };
         if (typeof r === 'string') {
+          // JST と ISO8601(UTC) を併記（DEV-52）。ラベルはコピー対象の外に置く
+          // （値に埋めるとクリックコピーの中身が汚れる — DP-4 の回帰で実測）
           $('time-jst-out').textContent = r;
+          $('time-utc-out').textContent = epochToUtcIso($('time-epoch').value, unit());
+          setLabels(true);
           showBanner('time-result', 'info', '');
         } else {
           $('time-jst-out').textContent = '';
+          $('time-utc-out').textContent = '';
+          setLabels(false);
           showBanner('time-result', 'error', r.error);
         }
       }));
@@ -1320,6 +1357,7 @@ const TABS = [
         });
       };
       $('time-jst-out').addEventListener('click', () => clickCopy($('time-jst-out').textContent));
+      $('time-utc-out').addEventListener('click', () => clickCopy($('time-utc-out').textContent));
       $('time-epoch-out').addEventListener('click', () => clickCopy($('time-epoch-out').textContent));
       $('time-now-result').addEventListener('click', e => {
         if (e.target.classList.contains('click-copy')) clickCopy(e.target.textContent);
@@ -1351,6 +1389,15 @@ const TABS = [
     id: 'count', label: 'カウント',
     init() {
       const COUNT_INPUT_LIMIT = 2000000; // 性能ガード（リアルタイム集計のため低め）
+      // 表示とコピー（DEV-53）が同じ行定義を共有する
+      const countRows = c => [
+        ['文字数（コードポイント）', c.chars],
+        ['全角', c.full],
+        ['半角（改行・タブ含む）', c.half],
+        ['行数', c.lines],
+        ['UTF-8 バイト数', c.utf8],
+        ['CP932 バイト数（概算: 半角1・他2）', c.cp932approx],
+      ];
       const render = guard('count', () => {
         const host = $('count-result');
         const text = $('count-in').value;
@@ -1363,14 +1410,7 @@ const TABS = [
         }
         const c = countText(text);
         host.textContent = '';
-        const rows = [
-          ['文字数（コードポイント）', c.chars],
-          ['全角', c.full],
-          ['半角（改行・タブ含む）', c.half],
-          ['行数', c.lines],
-          ['UTF-8 バイト数', c.utf8],
-          ['CP932 バイト数（概算: 半角1・他2）', c.cp932approx],
-        ];
+        const rows = countRows(c);
         for (const [label, value] of rows) {
           const p = document.createElement('p');
           const s = document.createElement('span');
@@ -1388,6 +1428,15 @@ const TABS = [
         clearTimeout(countTimer);
         countTimer = setTimeout(render, 150);
       });
+      // 集計をコピー（DEV-53。ラベル: 値 の6行）
+      $('count-copy').addEventListener('click', guard('count', () => {
+        const text = $('count-in').value;
+        if (text.length > COUNT_INPUT_LIMIT) return;   // ガード発動中はコピーしない（表示と同じ扱い）
+        const lines = countRows(countText(text)).map(([l, v]) => l + ': ' + v).join('\n');
+        ToolUI.copy(lines).then(ok => {
+          if (ok) ToolUI.feedback($('count-copy'), '✓ コピーしました');
+        });
+      }));
       render();
       this._refresh = render; // 復元後の再計算（集計。復元は input を飛ばさないため）
     },
@@ -1551,7 +1600,7 @@ window.devpad = {
   escapeJsonStr, unescapeJsonStr,
   urlEncode, urlDecode,
   b64encode, b64decode,
-  epochToJst, jstToEpoch,
+  epochToJst, epochToUtcIso, jstToEpoch,
   uuidv4, countText,
   tokenizeSql, formatSql, minifySql,
   runRegexCore, riskyRegex,
