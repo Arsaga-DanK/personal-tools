@@ -332,6 +332,59 @@ const { launch, fileUrl, createRunner, eq, bannerIs } = require('./helpers');
   r.check('DX-U5（幅390pxで横スクロールなし）', u5 === true, String(u5));
   await page.setViewportSize({ width: 1280, height: 900 });
 
+  /* ========== DX-U7: Excel 用コピー（結合セル付き text/html。DS-16 と同じ捕捉技法） ========== */
+  await page.evaluate(() => {
+    // 前段のテスト（DX-U4 のカスタム見出し等）の状態を持ち込まない — 既定へ明示的に戻す
+    const set = (id, prop, v) => {
+      const e = document.getElementById(id);
+      e[prop] = v;
+      e.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    set('opt-names', 'value', 'default');
+    set('opt-split', 'value', 'line');
+    set('opt-fill', 'checked', false);
+    set('fmt-tsv', 'checked', true);
+  });
+  // 段落は空行区切り（連続行は1つの段落=1セルに畳まれるのが変換仕様）
+  await setInput('# A\n\n本文1\n\n本文2\n\n## B\n\n本文3');
+  const u7 = await page.evaluate(async () => {
+    document.execCommand = () => false;   // ClipboardItem 経路に落として両フレーバーを読む
+    const out = { html: null, plain: null };
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true, value: {
+        writeText: () => Promise.resolve(),
+        write: async items => {
+          out.plain = await (await items[0].getType('text/plain')).text();
+          out.html = await (await items[0].getType('text/html')).text();
+        },
+      },
+    });
+    document.getElementById('copy-btn').click();
+    await new Promise(d => setTimeout(d, 60));
+    return out;
+  });
+  const u7fill = await page.evaluate(async () => {
+    const f = document.getElementById('opt-fill');
+    f.checked = true;
+    f.dispatchEvent(new Event('change', { bubbles: true }));
+    await new Promise(d => setTimeout(d, 50));
+    const out = { html: null };
+    navigator.clipboard.write = async items => {
+      out.html = await (await items[0].getType('text/html')).text();
+    };
+    document.getElementById('copy-btn').click();
+    await new Promise(d => setTimeout(d, 60));
+    return out;
+  });
+  r.check('DX-U7（TSV コピーに結合セル付き text/html を併記・fill ON では結合しない）',
+    !!u7.html && !!u7.plain && u7.plain.split('\n').length === 4   // ヘッダー＋3行
+    && /<td rowspan="3"[^>]*>A</.test(u7.html)
+    && /<td rowspan="2"[^>]*><\/td>/.test(u7.html)
+    && (u7.html.match(/<th /g) || []).length === 3
+    && (u7.html.match(/border:\.5pt solid #a6a6a6/g) || []).length > 0
+    && !!u7fill.html && !/rowspan/.test(u7fill.html),
+    JSON.stringify([u7.plain, (u7.html || '').slice(0, 300), (u7fill.html || '').slice(0, 120)]));
+
   /* ========== DX-18: ハブ導線 ========== */
   await page.goto(fileUrl('index.html'));
   const hubCats = await page.evaluate(() =>

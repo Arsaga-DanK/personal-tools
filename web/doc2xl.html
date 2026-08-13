@@ -54,6 +54,7 @@
 </main>
 
 <script src="../lib/ui.js"></script>
+<script src="../lib/excel.js"></script>
 <script src="../lib/storage.js"></script>
 <script>
 'use strict';
@@ -368,18 +369,65 @@ const SAMPLE = [
 
 function updateSampleBtn() { el('sample-btn').hidden = el('input').value !== ''; }
 
+let lastConverted = null;   // Excel 用コピー（buildExcelHtml）が参照する直近の変換結果
+
 function run() {
   updateSampleBtn();
   const r = convert(el('input').value, currentOpts());
   if (!r.ok) {
+    lastConverted = null;
     el('output').value = '';
     showBanner('warn', r.error);
     return;
   }
+  lastConverted = r;
   const tsv = el('fmt-tsv').checked;
   el('output').value = tsv ? r.tsv : r.md;
   el('out-title').textContent = tsv ? '出力（TSV — Excel に貼り付け）' : '出力（Markdown表）';
   showBanner('info', r.warnings.join(' / '));   // 空なら hidden になる
+}
+
+// Excel 用 text/html（DX-U7）。fill OFF の空セル（＝直上の見出しの継続）を rowspan の
+// 結合セルにする。継続判定は「親列（左）も継続しているときだけ」— 大項目が変わった行の
+// 中項目の空欄は新しい空セル。fill ON は全行に値が入るため結合しない（オプションと 1:1）。
+// 罫線・ヘッダー背景・文字列化ガードは lib/excel.js の cellStyle が正本
+function buildExcelHtml(value) {
+  const esc = v => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const rows = value.rows, depth = value.depth, n = rows.length;
+  const isCont = [];   // isCont[r][c] = 行 r の階層列 c は直上セルに吸収（出力しない）
+  for (let r = 0; r < n; r++) {
+    isCont.push([]);
+    let parentCont = r > 0;
+    for (let c = 0; c < depth; c++) {
+      isCont[r][c] = parentCont && rows[r][c] === '';
+      parentCont = isCont[r][c];
+    }
+  }
+  const spanOf = (r, c) => {
+    let s = 1;
+    while (r + s < n && isCont[r + s][c]) s++;
+    return s;
+  };
+  const cell = (v, opts, extra) => {
+    const tag = opts.header ? 'th' : 'td';
+    return '<' + tag + (extra || '') + ' style="' + ToolExcel.cellStyle(v, opts) + '">' + esc(v) + '</' + tag + '>';
+  };
+  const parts = ['<table>', '<tr>' + value.header.map(h => cell(h, { header: true })).join('') + '</tr>'];
+  for (let r = 0; r < n; r++) {
+    const tds = [];
+    for (let c = 0; c < rows[r].length; c++) {
+      if (c < depth) {
+        if (isCont[r][c]) continue;
+        const s = spanOf(r, c);
+        tds.push(cell(rows[r][c], {}, s > 1 ? ' rowspan="' + s + '" valign="top"' : ''));
+      } else {
+        tds.push(cell(rows[r][c], {}));
+      }
+    }
+    parts.push('<tr>' + tds.join('') + '</tr>');
+  }
+  parts.push('</table>');
+  return parts.join('');
 }
 
 /* ---------- 保存（UI 状態と入力。10万文字超の入力は保存しない） ---------- */
@@ -432,6 +480,13 @@ el('sample-btn').addEventListener('click', () => {
   run();
 });
 
+// 平文コピー。失敗時は出力欄そのものを選択させる（一時 textarea だと実行後に消えて案内が嘘になる）
+function copyPlain(text) {
+  ToolUI.copy(text, { selectEl: el('output') }).then(ok => {
+    if (ok) ToolUI.feedback(el('copy-btn'), '✓ コピーしました');
+    else showBanner('info', '出力を選択済みです。Cmd+C でコピーしてください');
+  });
+}
 function doCopy() {
   // デバウンス確定前のコピーで古い出力を渡さない（コピー時に確定 — DX-U6）
   clearTimeout(debounceTimer);
@@ -439,11 +494,15 @@ function doCopy() {
   run();
   const text = el('output').value;
   if (text === '') { showBanner('info', 'コピーする内容がありません'); return; }
-  // 失敗時は出力欄そのものを選択させる（一時 textarea だと実行後に消えて案内が嘘になる）
-  ToolUI.copy(text, { selectEl: el('output') }).then(ok => {
-    if (ok) ToolUI.feedback(el('copy-btn'), '✓ コピーしました');
-    else showBanner('info', '出力を選択済みです。Cmd+C でコピーしてください');
-  });
+  // TSV（Excel 向け）のときは text/html（結合セル・書式つき）を併記する（DX-U7。lib/excel.js）。
+  // 失敗時は平文コピーへフォールバック
+  if (el('fmt-tsv').checked && lastConverted && lastConverted.ok) {
+    ToolExcel.copy(buildExcelHtml(lastConverted.value), text).then(
+      () => ToolUI.feedback(el('copy-btn'), '✓ コピーしました'),
+      () => copyPlain(text));
+    return;
+  }
+  copyPlain(text);
 }
 el('copy-btn').addEventListener('click', doCopy);
 document.addEventListener('keydown', (e) => {
@@ -451,7 +510,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 // テストフック（spec 検証用）
-window.doc2xl = { convert: convert };
+window.doc2xl = { convert: convert, buildExcelHtml: buildExcelHtml };
 
 /* ---------- 起動 ---------- */
 ToolStorage.mountWarning();
