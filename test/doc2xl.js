@@ -325,6 +325,14 @@ const { launch, fileUrl, createRunner, eq, bannerIs } = require('./helpers');
     && u4big === '',
     JSON.stringify(u4));
 
+  /* ========== DX-U8: 体裁（app-wide・primary） ========== */
+  const u8 = await page.evaluate(() => ({
+    appWide: document.querySelector('main').classList.contains('app-wide'),
+    primary: document.getElementById('copy-btn').classList.contains('primary'),
+  }));
+  r.check('DX-U8（main が app-wide・コピーが primary）',
+    u8.appWide && u8.primary, JSON.stringify(u8));
+
   /* ========== DX-U5: 幅390px ========== */
   await page.setViewportSize({ width: 390, height: 800 });
   const u5 = await page.evaluate(() =>
