@@ -63,7 +63,10 @@ test/        検証ハーネス（`./test/run [ツール名]`。書き方は tes
 
 - `file://` で開いて動作すること。これが全ての前提
 - ES モジュール禁止（file:// で CORS エラーになる）。共有は `<script src>` か1枚完結
-- 外部 CDN・npm・ビルド禁止。オフラインで動くこと。素の HTML/CSS/JS のみ
+- **使用時にサーバー起動・ビルド・インストールが不要であること**（ダブルクリックで開くだけ）。
+  外部 CDN・実行時のネットワーク禁止（オフライン完結）。
+  **ライブラリの同梱（`lib/vendor/`）は可**（2026-08-14 に利用者が緩和 —
+  「素の JS」は目的ではなく起動レスが目的。同梱の作法は coding-rules.md）
 - 描画は `textContent` / `createElement` / `createElementNS` のみ。
   HTML 文字列の組み立て（`innerHTML` 等）は禁止。
   **SVG は `createElementNS` が必要**（`createElement('svg')` は HTMLUnknownElement になる）
