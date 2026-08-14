@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mask</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🫥%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../lib/ui.css">
+<style>
+  /* mask 固有: キャンバスとドロップ領域 */
+  #drop {
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    padding: 48px 16px;
+    text-align: center;
+    color: var(--muted);
+    background: var(--panel);
+  }
+  #drop.dragover { border-color: var(--accent); color: var(--accent); }
+  #canvas {
+    max-width: 100%;
+    height: auto;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--panel);
+    cursor: crosshair;
+    touch-action: none;
+  }
+</style>
+</head>
+<body>
+<main class="app-wide">
+  <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">画像は保存されません（この画面の中だけ・機密画像を残さない）</span></p>
+  <h1>Mask</h1>
+  <p class="subtitle">スクショのマスキングと注釈 — 貼り付け → モザイク/黒塗り → 矢印・枠で説明 → PNG コピー。ぼかしは復元リスクがあるため非搭載</p>
+
+  <div class="toolbar" id="tools">
+    <label class="toggle"><input type="radio" name="tool" value="mosaic" checked> モザイク</label>
+    <label class="toggle"><input type="radio" name="tool" value="fill"> 黒塗り</label>
+    <label class="toggle"><input type="radio" name="tool" value="rect"> 枠</label>
+    <label class="toggle"><input type="radio" name="tool" value="arrow"> 矢印</label>
+    <label class="toggle"><input type="radio" name="tool" value="text"> テキスト</label>
+    <label>粒度: <select id="mosaic-size">
+      <option value="8">粗8</option>
+      <option value="16" selected>標準16</option>
+      <option value="24">粗い24</option>
+    </select></label>
+    <input type="text" id="text-input" placeholder="テキスト（クリックで配置）" size="18">
+    <span class="spacer"></span>
+    <button id="undo-btn">元に戻す</button>
+    <button id="clear-btn">注釈をクリア</button>
+    <button class="primary" id="copy-btn" title="Cmd/Ctrl+Enter">PNG をコピー</button>
+    <button id="save-btn">PNG 保存</button>
+    <label><input type="file" id="file-input" accept="image/*" hidden><button id="file-btn" type="button">画像を開く…</button></label>
+  </div>
+
+  <div class="banner" id="banner" hidden></div>
+
+  <div id="drop">ここに画像を <b>Ctrl+V で貼り付け</b>、またはドラッグ＆ドロップ／［画像を開く…］</div>
+  <canvas id="canvas" hidden></canvas>
+</main>
+
+<script src="../lib/ui.js"></script>
+<script>
+'use strict';
+
+const el = id => document.getElementById(id);
+function showBanner(kind, text) { ToolUI.banner(el('banner'), kind, text); }
+
+const MAX_SIDE = 6000;   // 取り込みガード（canvas メモリ保護。超過は中止して理由表示）
+const RED = '#dd2222';   // 注釈色（枠・矢印・テキストで共通）
+
+/* ========== 操作モデル（元画像 + ops。再描画 = 元画像から順に適用 — 非破壊） ========== */
+
+const orig = document.createElement('canvas');   // 元画像の保持
+let hasImage = false;
+let ops = [];
+
+const canvas = el('canvas');
+const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+function applyOp(op) {
+  if (op.type === 'fill') {
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(op.x, op.y, op.w, op.h);
+  } else if (op.type === 'mosaic') {
+    // 縮小 → imageSmoothingEnabled:false で拡大（依存ゼロのピクセル化 — MK-02）
+    const size = op.size || 16;
+    const sw = Math.max(1, Math.ceil(op.w / size));
+    const sh = Math.max(1, Math.ceil(op.h / size));
+    const tmp = document.createElement('canvas');
+    tmp.width = sw; tmp.height = sh;
+    const tctx = tmp.getContext('2d');
+    tctx.imageSmoothingEnabled = false;
+    tctx.drawImage(canvas, op.x, op.y, op.w, op.h, 0, 0, sw, sh);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(tmp, 0, 0, sw, sh, op.x, op.y, op.w, op.h);
+    ctx.imageSmoothingEnabled = true;
+  } else if (op.type === 'rect') {
+    ctx.strokeStyle = RED;
+    ctx.lineWidth = 3;
+    ctx.strokeRect(op.x, op.y, op.w, op.h);
+  } else if (op.type === 'arrow') {
+    ctx.strokeStyle = RED;
+    ctx.fillStyle = RED;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(op.x1, op.y1);
+    ctx.lineTo(op.x2, op.y2);
+    ctx.stroke();
+    // 矢印の頭（進行方向に向いた三角形）
+    const ang = Math.atan2(op.y2 - op.y1, op.x2 - op.x1);
+    const L = 12;
+    ctx.beginPath();
+    ctx.moveTo(op.x2, op.y2);
+    ctx.lineTo(op.x2 - L * Math.cos(ang - 0.5), op.y2 - L * Math.sin(ang - 0.5));
+    ctx.lineTo(op.x2 - L * Math.cos(ang + 0.5), op.y2 - L * Math.sin(ang + 0.5));
+    ctx.closePath();
+    ctx.fill();
+  } else if (op.type === 'text') {
+    ctx.fillStyle = RED;
+    ctx.font = 'bold 20px -apple-system, "Hiragino Sans", sans-serif';
+    ctx.fillText(op.text, op.x, op.y);
+  }
+}
+
+function redraw(previewOp) {
+  if (!hasImage) return;
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(orig, 0, 0);
+  for (const op of ops) applyOp(op);
+  if (previewOp) applyOp(previewOp);
+}
+
+// dataURL から取り込む。最大辺超過は中止（元画像は保持 — MK-U3）
+function setImage(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      if (Math.max(img.width, img.height) > MAX_SIDE) {
+        showBanner('warn', '画像の最大辺が上限（' + MAX_SIDE + 'px）を超えているため取り込みを中止しました');
+        reject(new Error('画像の最大辺が上限（' + MAX_SIDE + 'px）を超えています'));
+        return;
+      }
+      orig.width = img.width;
+      orig.height = img.height;
+      orig.getContext('2d').drawImage(img, 0, 0);
+      canvas.width = img.width;
+      canvas.height = img.height;
+      hasImage = true;
+      ops = [];
+      canvas.hidden = false;
+      el('drop').hidden = true;
+      showBanner('info', '');
+      redraw();
+      resolve();
+    };
+    img.onerror = () => {
+      showBanner('warn', '画像として読み込めませんでした');
+      reject(new Error('画像として読み込めませんでした'));
+    };
+    img.src = dataUrl;
+  });
+}
+
+/* ========== 入力（Ctrl+V / ドラッグ＆ドロップ / ファイル選択） ========== */
+
+function loadBlob(blob) {
+  const reader = new FileReader();
+  reader.onload = () => { setImage(reader.result).catch(() => {}); };
+  reader.readAsDataURL(blob);
+}
+
+document.addEventListener('paste', e => {
+  const items = (e.clipboardData && e.clipboardData.items) || [];
+  for (const it of items) {
+    if (it.type && it.type.startsWith('image/')) {
+      e.preventDefault();
+      const f = it.getAsFile();
+      if (f) loadBlob(f);
+      return;
+    }
+  }
+});
+el('drop').addEventListener('dragover', e => { e.preventDefault(); el('drop').classList.add('dragover'); });
+el('drop').addEventListener('dragleave', () => el('drop').classList.remove('dragover'));
+el('drop').addEventListener('drop', e => {
+  e.preventDefault();
+  el('drop').classList.remove('dragover');
+  const f = e.dataTransfer.files && e.dataTransfer.files[0];
+  if (f && f.type.startsWith('image/')) loadBlob(f);
+});
+el('file-btn').addEventListener('click', () => el('file-input').click());
+el('file-input').addEventListener('change', () => {
+  const f = el('file-input').files[0];
+  if (f) loadBlob(f);
+  el('file-input').value = '';
+});
+
+/* ========== マウス操作（ドラッグで矩形系・矢印、クリックでテキスト） ========== */
+
+const toolOf = () => document.querySelector('input[name="tool"]:checked').value;
+const scale = e => {
+  const r = canvas.getBoundingClientRect();
+  return {
+    x: Math.round((e.clientX - r.left) * canvas.width / r.width),
+    y: Math.round((e.clientY - r.top) * canvas.height / r.height),
+  };
+};
+let dragStart = null;
+
+function opFromDrag(tool, a, b) {
+  if (tool === 'arrow') return { type: 'arrow', x1: a.x, y1: a.y, x2: b.x, y2: b.y };
+  const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
+  const w = Math.abs(b.x - a.x), h = Math.abs(b.y - a.y);
+  if (w < 2 || h < 2) return null;   // クリックだけの誤爆を防ぐ
+  const op = { type: tool, x, y, w, h };
+  if (tool === 'mosaic') op.size = Number(el('mosaic-size').value);
+  return op;
+}
+
+canvas.addEventListener('pointerdown', e => {
+  if (!hasImage) return;
+  const p = scale(e);
+  const tool = toolOf();
+  if (tool === 'text') {
+    const text = el('text-input').value.trim();
+    if (text === '') { showBanner('info', 'テキスト欄に文字を入れてからクリックしてください'); return; }
+    ops.push({ type: 'text', x: p.x, y: p.y, text });
+    redraw();
+    return;
+  }
+  dragStart = p;
+  try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
+});
+canvas.addEventListener('pointermove', e => {
+  if (!dragStart) return;
+  const op = opFromDrag(toolOf(), dragStart, scale(e));
+  redraw(op || undefined);
+});
+canvas.addEventListener('pointerup', e => {
+  if (!dragStart) return;
+  const op = opFromDrag(toolOf(), dragStart, scale(e));
+  dragStart = null;
+  if (op) ops.push(op);
+  redraw();
+});
+
+/* ========== 出力・操作ボタン ========== */
+
+el('undo-btn').addEventListener('click', () => { ops.pop(); redraw(); });
+el('clear-btn').addEventListener('click', () => { ops = []; redraw(); });
+
+el('copy-btn').addEventListener('click', () => {
+  if (!hasImage) { showBanner('info', '先に画像を貼り付けてください'); return; }
+  // Safari 対策: ジェスチャ内で同期的に write するため Promise<Blob> を渡す（spec「出力」）
+  const item = new ClipboardItem({
+    'image/png': new Promise(res => canvas.toBlob(res, 'image/png')),
+  });
+  navigator.clipboard.write([item]).then(
+    () => ToolUI.feedback(el('copy-btn'), '✓ コピーしました'),
+    () => showBanner('warn', 'クリップボードへ書けませんでした — ［PNG 保存］を使ってください'));
+});
+el('save-btn').addEventListener('click', () => {
+  if (!hasImage) { showBanner('info', '先に画像を貼り付けてください'); return; }
+  const a = document.createElement('a');
+  a.download = 'mask.png';
+  a.href = canvas.toDataURL('image/png');
+  a.click();
+});
+document.addEventListener('keydown', e => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+    e.preventDefault();
+    el('copy-btn').click();
+  }
+});
+
+/* ========== テスト用フック（UI と同一コードパス — spec） ========== */
+
+window.mask = {
+  setImage,
+  addOp: op => { ops.push(op); redraw(); },
+  undo: () => { ops.pop(); redraw(); },
+  clearOps: () => { ops = []; redraw(); },
+  opsCount: () => ops.length,
+  size: () => ({ w: canvas.width, h: canvas.height }),
+  pixelAt: (x, y) => Array.from(ctx.getImageData(x, y, 1, 1).data),
+  countRed: (x, y, w, h) => {
+    const d = ctx.getImageData(x, y, w, h).data;
+    let n = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i] >= 180 && d[i + 1] <= 90 && d[i + 2] <= 90) n++;
+    }
+    return n;
+  },
+};
+</script>
+</body>
+</html>

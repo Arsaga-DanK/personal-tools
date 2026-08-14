@@ -64,12 +64,13 @@ const TOOLS = [
   { name: 'Terms', alias: 'terms', path: 'web/terms.html', desc: '用語統一表（変換前→変換後）を原稿へ一括適用 — 同時置換・長い語優先、ルール別件数と未適用の表示', category: '変換・比較', when: '顧客の用語集・表記ルールに原稿を合わせるとき' },
   { name: 'Schema', alias: 'ddl2spec', path: 'web/ddl2spec.html', desc: 'PostgreSQL の DDL（CREATE TABLE ＋ COMMENT ON）⇔ テーブル定義書（Markdown表）双方向変換 — 論理名・複合キー・FK・CHECK・Excel用コピー', category: '設計', when: '既存 DDL から定義書を起こすとき／定義書から DDL を作るとき（正本は DDL 側）' },
   { name: 'Outline', alias: 'doc2xl', path: 'web/doc2xl.html', desc: 'Markdown 文書の見出し階層 → Excel 用の階層表（大項目/中項目/小項目＋内容）— Markdown表・TSV 出力', category: '設計', when: '設計書を Markdown で下書きして、納品時に Excel の階層表へ移すとき' },
+  { name: 'Mask', alias: 'mask', path: 'web/mask.html', desc: 'スクショのマスキングと注釈 — 貼り付け → モザイク/黒塗り・矢印・枠・テキスト → PNG コピー（画像は保存しない）', category: '画像', when: 'スクショを Teams・設計書に貼る前の機密隠しと説明入れ' },
   { name: 'Lint', alias: 'vaultlint', path: 'web/vaultlint.html', desc: 'Obsidian vault の健全性チェック — リンク切れ・添付消失・ファイル名の罠・Inbox のデイリーを検出し、承認した修復（テキスト化・リネーム追随・アーカイブ移動）まで実行（Chrome 限定）', category: '整理', when: 'vault の棚卸しと掃除に。91_Private は読み込まない・実行前に git コミット' },
 ];
 
 // カテゴリの表示順。最も使う「タスク」を先頭に置く。
 // 「変換・比較」は Diff が変換ではなく比較のため（英語にすると Convert ツールと衝突する）
-const CATEGORY_ORDER = ['タスク', '変換・比較', '設計', '整理', 'PM'];
+const CATEGORY_ORDER = ['タスク', '変換・比較', '設計', '画像', '整理', 'PM'];
 
 // 検索: 表示名＋英名（alias）＋説明＋用途（when）＋カテゴリの部分一致（大文字小文字無視）。
 // 純関数（テストフック用）
