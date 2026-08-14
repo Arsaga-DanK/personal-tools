@@ -4,12 +4,12 @@
    検証への契約: .banner-<kind> の算出背景色は素の .banner と必ず異なる（bannerIs が照合）。 */
 
 :root {
-  --bg: #f3f4fa;
+  --bg: #f7f5f2;
   --panel: #ffffff;
-  --text: #1c1e26;
-  --muted: #6b7280;
-  --border: #dfe2ec;
-  --accent: #5b5bd6;
+  --text: #24211d;
+  --muted: #6d675f;
+  --border: #e3ddd4;
+  --accent: #d9480f;
   --accent-text: #ffffff;
   --error: #d13438;
   --success: #178344;
@@ -27,13 +27,13 @@
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #12131a;
-    --panel: #1b1d27;
-    --text: #e8eaf2;
-    --muted: #9299ab;
-    --border: #303345;
-    --accent: #8a8af0;
-    --accent-text: #12131a;
+    --bg: #171512;
+    --panel: #201d19;
+    --text: #ece7e0;
+    --muted: #a49c90;
+    --border: #3a352d;
+    --accent: #ff9e4f;
+    --accent-text: #201d19;
     --error: #ff8589;
     --success: #47c274;
     --th-bg: #232635;
@@ -85,10 +85,6 @@ h1 {
   font-weight: 750;
   letter-spacing: -0.02em;
   margin: 0;
-  background: linear-gradient(120deg, var(--text) 30%, var(--accent) 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
 }
 .subtitle { color: var(--muted); margin: 4px 0 20px; font-size: 13px; }
 h2 { font-size: 15px; margin: 28px 0 8px; }
