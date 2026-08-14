@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dates</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E📅%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../lib/ui.css">
+<style>
+  /* dates 固有: 計算行（ラベル＋入力＋結果を1行に。狭幅では折り返す） */
+  .calc-row { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin: 10px 0; }
+  .calc-row input[type="date"] { width: 150px; }
+  .calc-row input[type="number"] { width: 72px; }
+  .calc-row .result { font-weight: 650; }
+  .coef { color: var(--muted); font-size: 13px; }
+  .coef input[type="number"] { width: 60px; }
+  section { margin-bottom: 22px; }
+</style>
+</head>
+<body>
+<main class="app">
+  <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">係数などの設定のみ自動保存（日付は保存しません）</span></p>
+  <h1>Dates</h1>
+  <p class="subtitle">日付・営業日・工数の計算 — 祝日は内閣府CSV由来の 2020〜2027年 を同梱（オフライン完結）</p>
+
+  <div class="banner" id="banner" hidden></div>
+
+  <section>
+    <p class="pane-title">営業日</p>
+    <div class="calc-row">
+      <label>基準日 <input type="date" id="biz-date"></label>
+      <input type="number" id="biz-n" min="0" step="1" value="1" aria-label="営業日数">
+      <select id="biz-dir" aria-label="後か前か">
+        <option value="after">営業日後</option>
+        <option value="before">営業日前</option>
+      </select>
+      <span class="result" id="biz-result"></span>
+      <button type="button" id="biz-copy">コピー</button>
+    </div>
+    <div class="calc-row">
+      <label>期間 <input type="date" id="range-from"></label>
+      <span>〜</span>
+      <input type="date" id="range-to" aria-label="期間の終了日">
+      <span class="result" id="range-result"></span>
+    </div>
+  </section>
+
+  <section>
+    <p class="pane-title">和暦・年度</p>
+    <div class="calc-row">
+      <label>日付 <input type="date" id="wa-date"></label>
+      <span class="result" id="wa-result"></span>
+    </div>
+  </section>
+
+  <section>
+    <p class="pane-title">工数</p>
+    <div class="calc-row">
+      <input type="number" id="ef-value" min="0" step="any" value="1" aria-label="工数の値">
+      <select id="ef-unit" aria-label="工数の単位">
+        <option>時間</option>
+        <option selected>人日</option>
+        <option>人月</option>
+      </select>
+      <span class="result" id="ef-result"></span>
+    </div>
+    <p class="calc-row coef">係数: 1人日 =
+      <input type="number" id="ef-h" value="8" min="0.5" step="any" aria-label="1人日の時間数"> 時間、1人月 =
+      <input type="number" id="ef-d" value="20" min="1" step="any" aria-label="1人月の人日数"> 人日
+    </p>
+  </section>
+</main>
+
+<script src="../lib/ui.js"></script>
+<script src="../lib/storage.js"></script>
+<script>
+'use strict';
+
+/* ========== 祝日テーブル（静的同梱） ==========
+   正本は内閣府「国民の祝日」CSV（2026-08-14 取得・2020〜2027年の143件）。
+   実行時には参照しない（オフライン完結・URL 変更の事故歴あり — docs/specs/dates.md）。
+   振替休日・国民の休日は CSV と同じ「休日」表記。毎年2月頃に1年分追記し RANGE.to を更新する。 */
+const HOLIDAYS = {
+  '2020-01-01': '元日', '2020-01-13': '成人の日', '2020-02-11': '建国記念の日',
+  '2020-02-23': '天皇誕生日', '2020-02-24': '休日', '2020-03-20': '春分の日',
+  '2020-04-29': '昭和の日', '2020-05-03': '憲法記念日', '2020-05-04': 'みどりの日',
+  '2020-05-05': 'こどもの日', '2020-05-06': '休日', '2020-07-23': '海の日',
+  '2020-07-24': 'スポーツの日', '2020-08-10': '山の日', '2020-09-21': '敬老の日',
+  '2020-09-22': '秋分の日', '2020-11-03': '文化の日', '2020-11-23': '勤労感謝の日',
+  '2021-01-01': '元日', '2021-01-11': '成人の日', '2021-02-11': '建国記念の日',
+  '2021-02-23': '天皇誕生日', '2021-03-20': '春分の日', '2021-04-29': '昭和の日',
+  '2021-05-03': '憲法記念日', '2021-05-04': 'みどりの日', '2021-05-05': 'こどもの日',
+  '2021-07-22': '海の日', '2021-07-23': 'スポーツの日', '2021-08-08': '山の日',
+  '2021-08-09': '休日', '2021-09-20': '敬老の日', '2021-09-23': '秋分の日',
+  '2021-11-03': '文化の日', '2021-11-23': '勤労感謝の日',
+  '2022-01-01': '元日', '2022-01-10': '成人の日', '2022-02-11': '建国記念の日',
+  '2022-02-23': '天皇誕生日', '2022-03-21': '春分の日', '2022-04-29': '昭和の日',
+  '2022-05-03': '憲法記念日', '2022-05-04': 'みどりの日', '2022-05-05': 'こどもの日',
+  '2022-07-18': '海の日', '2022-08-11': '山の日', '2022-09-19': '敬老の日',
+  '2022-09-23': '秋分の日', '2022-10-10': 'スポーツの日', '2022-11-03': '文化の日',
+  '2022-11-23': '勤労感謝の日',
+  '2023-01-01': '元日', '2023-01-02': '休日', '2023-01-09': '成人の日',
+  '2023-02-11': '建国記念の日', '2023-02-23': '天皇誕生日', '2023-03-21': '春分の日',
+  '2023-04-29': '昭和の日', '2023-05-03': '憲法記念日', '2023-05-04': 'みどりの日',
+  '2023-05-05': 'こどもの日', '2023-07-17': '海の日', '2023-08-11': '山の日',
+  '2023-09-18': '敬老の日', '2023-09-23': '秋分の日', '2023-10-09': 'スポーツの日',
+  '2023-11-03': '文化の日', '2023-11-23': '勤労感謝の日',
+  '2024-01-01': '元日', '2024-01-08': '成人の日', '2024-02-11': '建国記念の日',
+  '2024-02-12': '休日', '2024-02-23': '天皇誕生日', '2024-03-20': '春分の日',
+  '2024-04-29': '昭和の日', '2024-05-03': '憲法記念日', '2024-05-04': 'みどりの日',
+  '2024-05-05': 'こどもの日', '2024-05-06': '休日', '2024-07-15': '海の日',
+  '2024-08-11': '山の日', '2024-08-12': '休日', '2024-09-16': '敬老の日',
+  '2024-09-22': '秋分の日', '2024-09-23': '休日', '2024-10-14': 'スポーツの日',
+  '2024-11-03': '文化の日', '2024-11-04': '休日', '2024-11-23': '勤労感謝の日',
+  '2025-01-01': '元日', '2025-01-13': '成人の日', '2025-02-11': '建国記念の日',
+  '2025-02-23': '天皇誕生日', '2025-02-24': '休日', '2025-03-20': '春分の日',
+  '2025-04-29': '昭和の日', '2025-05-03': '憲法記念日', '2025-05-04': 'みどりの日',
+  '2025-05-05': 'こどもの日', '2025-05-06': '休日', '2025-07-21': '海の日',
+  '2025-08-11': '山の日', '2025-09-15': '敬老の日', '2025-09-23': '秋分の日',
+  '2025-10-13': 'スポーツの日', '2025-11-03': '文化の日', '2025-11-23': '勤労感謝の日',
+  '2025-11-24': '休日',
+  '2026-01-01': '元日', '2026-01-12': '成人の日', '2026-02-11': '建国記念の日',
+  '2026-02-23': '天皇誕生日', '2026-03-20': '春分の日', '2026-04-29': '昭和の日',
+  '2026-05-03': '憲法記念日', '2026-05-04': 'みどりの日', '2026-05-05': 'こどもの日',
+  '2026-05-06': '休日', '2026-07-20': '海の日', '2026-08-11': '山の日',
+  '2026-09-21': '敬老の日', '2026-09-22': '休日', '2026-09-23': '秋分の日',
+  '2026-10-12': 'スポーツの日', '2026-11-03': '文化の日', '2026-11-23': '勤労感謝の日',
+  '2027-01-01': '元日', '2027-01-11': '成人の日', '2027-02-11': '建国記念の日',
+  '2027-02-23': '天皇誕生日', '2027-03-21': '春分の日', '2027-03-22': '休日',
+  '2027-04-29': '昭和の日', '2027-05-03': '憲法記念日', '2027-05-04': 'みどりの日',
+  '2027-05-05': 'こどもの日', '2027-07-19': '海の日', '2027-08-11': '山の日',
+  '2027-09-20': '敬老の日', '2027-09-23': '秋分の日', '2027-10-11': 'スポーツの日',
+  '2027-11-03': '文化の日', '2027-11-23': '勤労感謝の日',
+};
+const RANGE = { from: '2020-01-01', to: '2027-12-31' };
+
+/* ========== 純関数（フックと UI が同一コードパス） ==========
+   日付は文字列 YYYY-MM-DD で受け渡し、内部は Date.UTC / getUTCDay で計算する
+   （new Date('YYYY-MM-DD') は UTC 深夜扱いのため、ローカル TZ の getDay() と
+   混ぜると環境によって曜日がずれる — spec「営業日の定義」）。 */
+
+function parseYmd(s) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s == null ? '' : s));
+  if (!m) return null;
+  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+  // 実在しない日付（2026-02-30 等）は Date が繰り上げるため照合して弾く
+  if (d.getUTCFullYear() !== +m[1] || d.getUTCMonth() !== +m[2] - 1 || d.getUTCDate() !== +m[3]) return null;
+  return d;
+}
+function fmtYmd(d) { return d.toISOString().slice(0, 10); }
+function isBusinessDate(d) {
+  const w = d.getUTCDay();
+  return w !== 0 && w !== 6 && !HOLIDAYS[fmtYmd(d)];
+}
+
+// n>0: n営業日後（当日は数えない）/ n<0: n営業日前 / n=0: そのまま（DT-Q3）
+function addBusinessDays(dateStr, n) {
+  const d = parseYmd(dateStr);
+  if (!d || !isFinite(n)) return null;
+  const step = n > 0 ? 1 : -1;
+  let left = Math.abs(n);
+  while (left > 0) {
+    d.setUTCDate(d.getUTCDate() + step);
+    if (isBusinessDate(d)) left--;
+  }
+  return fmtYmd(d);
+}
+
+// a〜b の両端を含む営業日数。a > b は 0
+function businessDaysBetween(a, b) {
+  const da = parseYmd(a), db = parseYmd(b);
+  if (!da || !db || da > db) return 0;
+  let count = 0;
+  for (; da <= db; da.setUTCDate(da.getUTCDate() + 1)) {
+    if (isBusinessDate(da)) count++;
+  }
+  return count;
+}
+
+function isHoliday(dateStr) { return !!HOLIDAYS[dateStr]; }
+function holidayName(dateStr) { return HOLIDAYS[dateStr] || null; }
+function inRange(dateStr) { return dateStr >= RANGE.from && dateStr <= RANGE.to; }  // ISO 文字列は辞書順=日付順
+
+// 昭和以降のみ（spec「和暦・年度」）。各元号の1年目は「元年」
+const ERAS = [
+  { name: '令和', from: '2019-05-01' },
+  { name: '平成', from: '1989-01-08' },
+  { name: '昭和', from: '1926-12-25' },
+];
+function toWareki(dateStr) {
+  const d = parseYmd(dateStr);
+  if (!d) return null;
+  for (const e of ERAS) {
+    if (dateStr >= e.from) {
+      const y = d.getUTCFullYear() - Number(e.from.slice(0, 4)) + 1;
+      return { era: e.name, year: y, text: e.name + (y === 1 ? '元' : y) + '年' };
+    }
+  }
+  return null;   // 昭和より前は扱わない
+}
+
+// 年度 = 4/1〜3/31。和暦年度は年度開始日時点の元号だが、2019年度だけは通年「令和元年度」
+// （官公庁の読み替え運用 — spec「和暦・年度」）
+function toFiscal(dateStr) {
+  const d = parseYmd(dateStr);
+  if (!d) return null;
+  const fy = d.getUTCFullYear() - (d.getUTCMonth() + 1 < 4 ? 1 : 0);
+  let wareki = null;
+  if (fy >= 2019) wareki = '令和' + (fy === 2019 ? '元' : fy - 2018) + '年度';
+  else if (fy >= 1989) wareki = '平成' + (fy === 1989 ? '元' : fy - 1988) + '年度';
+  else if (fy >= 1926) wareki = '昭和' + (fy - 1925) + '年度';
+  return { fy, wareki, text: fy + '年度' + (wareki ? '（' + wareki + '）' : '') };
+}
+
+// unit: '時間' | '人日' | '人月'。戻り値は3表記すべて（負値・不正は null）
+function convertEffort(value, unit, opts) {
+  const h = opts && opts.hoursPerDay > 0 ? opts.hoursPerDay : 8;
+  const dpm = opts && opts.daysPerMonth > 0 ? opts.daysPerMonth : 20;
+  const v = Number(value);
+  if (!isFinite(v) || v < 0) return null;
+  let hours;
+  if (unit === '時間') hours = v;
+  else if (unit === '人日') hours = v * h;
+  else if (unit === '人月') hours = v * dpm * h;
+  else return null;
+  return { hours, days: hours / h, months: hours / (h * dpm) };
+}
+
+/* ========== UI 配線 ========== */
+
+const $id = id => document.getElementById(id);
+const WD = ['日', '月', '火', '水', '木', '金', '土'];
+const RANGE_WARN = '祝日データは2020〜2027年です。範囲外の日付は土日のみ考慮で計算しています';
+const WA_WARN = '和暦は昭和（1926-12-25）以降のみ対応しています';
+
+function weekday(dateStr) {
+  const d = parseYmd(dateStr);
+  return d ? WD[d.getUTCDay()] : '';
+}
+// 表示は小数第2位まで・末尾ゼロは省く（String() が自然にそうなる）
+function fmtNum(x) { return String(Math.round(x * 100) / 100); }
+function todayStr() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0')
+    + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+let warnings = [];
+
+function recalcBiz() {
+  const base = $id('biz-date').value;
+  const n = parseInt($id('biz-n').value, 10);
+  const el = $id('biz-result');
+  if (!parseYmd(base) || !isFinite(n) || n < 0) {
+    el.textContent = '—';
+    el.dataset.copy = '';
+    return;
+  }
+  const res = addBusinessDays(base, $id('biz-dir').value === 'after' ? n : -n);
+  const line = res + '（' + weekday(res) + '）';
+  const hn = holidayName(base);
+  el.textContent = '→ ' + line + (hn ? '（基準日は' + hn + '）' : '');
+  el.dataset.copy = line;
+  if (!inRange(base) || !inRange(res)) warnings.push(RANGE_WARN);
+}
+
+function recalcRange() {
+  const from = $id('range-from').value, to = $id('range-to').value;
+  const el = $id('range-result');
+  if (!parseYmd(from) || !parseYmd(to)) { el.textContent = '—'; return; }
+  el.textContent = '= ' + businessDaysBetween(from, to) + '営業日（両端を含む）';
+  if (!inRange(from) || !inRange(to)) warnings.push(RANGE_WARN);
+}
+
+function recalcWa() {
+  const v = $id('wa-date').value;
+  const el = $id('wa-result');
+  const w = parseYmd(v) ? toWareki(v) : null;
+  if (!w) {
+    el.textContent = '—';
+    if (parseYmd(v)) warnings.push(WA_WARN);   // 実在する日付だが昭和より前
+    return;
+  }
+  const hn = holidayName(v);
+  el.textContent = w.text + '・' + toFiscal(v).text + '・' + weekday(v) + '曜日'
+    + (hn ? '・' + hn : '');
+}
+
+function recalcEf() {
+  const r = convertEffort($id('ef-value').value, $id('ef-unit').value, {
+    hoursPerDay: parseFloat($id('ef-h').value),
+    daysPerMonth: parseFloat($id('ef-d').value),
+  });
+  $id('ef-result').textContent = r
+    ? '= ' + fmtNum(r.hours) + '時間 ＝ ' + fmtNum(r.days) + '人日 ＝ ' + fmtNum(r.months) + '人月'
+    : '—';
+}
+
+function recalcAll() {
+  warnings = [];
+  recalcBiz();
+  recalcRange();
+  recalcWa();
+  recalcEf();
+  ToolUI.banner($id('banner'), 'warn', Array.from(new Set(warnings)).join(' / '));
+}
+
+/* 保存は UI 状態（係数・N・向き・単位）のみ。日付は保存しない — 開くたび今日から（spec） */
+const TOOL = 'dates';
+const SETTING_IDS = ['biz-n', 'biz-dir', 'ef-unit', 'ef-h', 'ef-d'];
+let saveTimer = null;
+function scheduleSave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    const data = {};
+    for (const id of SETTING_IDS) data[id] = $id(id).value;
+    ToolStorage.save(TOOL, data);
+  }, 300);
+}
+function restore() {
+  const data = ToolStorage.load(TOOL);
+  if (!data) return;
+  for (const id of SETTING_IDS) {
+    if (typeof data[id] === 'string' && data[id] !== '') $id(id).value = data[id];
+  }
+}
+
+// 初期値: 日付欄はすべて今日
+for (const id of ['biz-date', 'range-from', 'range-to', 'wa-date']) $id(id).value = todayStr();
+restore();
+recalcAll();
+
+for (const el of document.querySelectorAll('input, select')) {
+  el.addEventListener('input', recalcAll);
+  el.addEventListener('change', recalcAll);
+}
+for (const id of SETTING_IDS) {
+  $id(id).addEventListener('input', scheduleSave);
+  $id(id).addEventListener('change', scheduleSave);
+}
+
+$id('biz-copy').addEventListener('click', () => {
+  const text = $id('biz-result').dataset.copy;
+  if (!text) return;
+  ToolUI.copy(text).then(ok =>
+    ToolUI.feedback($id('biz-copy'), ok ? '✓ コピーしました' : 'コピーできませんでした'));
+});
+
+ToolStorage.mountWarning();
+
+// テスト用フック（docs/specs/dates.md）
+window.dates = {
+  addBusinessDays, businessDaysBetween, isHoliday, holidayName, inRange,
+  toWareki, toFiscal, convertEffort, HOLIDAYS, RANGE,
+};
+</script>
+</body>
+</html>
