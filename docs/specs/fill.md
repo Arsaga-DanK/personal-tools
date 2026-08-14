@@ -23,11 +23,15 @@
 
 - 未入力の変数は出力に `{{名前}}` のまま残し、サマリに「未入力: N件（名前…）」を warn 表示
   （空文字で埋めると気付かず送ってしまう）。全部埋まれば件数表示は消える
-- ［結果をコピー］（`ToolUI.copy`、primary ボタン）
+- ［結果をコピー］（`ToolUI.copy`、primary ボタン、`title="Cmd/Ctrl+Enter"`。
+  **Cmd/Ctrl+Enter でもコピー** — coding-rules「UI の標準形」）
+- サンプル投入ボタン（`.sample-btn`）は**テンプレが空のときだけ表示**（同上）
 
 ## 保存（terms と同じ「作業状態の自動保存」のみ）
 
-- localStorage（`tools:fill`）に**テンプレ本文と変数の値**を自動保存（300ms デバウンス）
+- localStorage（`tools:fill`）に**テンプレ本文と変数の値**を自動保存
+  （300ms デバウンス＋ **pagehide / visibilitychange(hidden) でフラッシュ** — coding-rules の保存規約）
+- 1フィールド 100KB 超は保存せず `{omitted: true}`。次回起動時に info バナーで通知（terms と同じ）
 - **名前付きテンプレの管理はやらない** — 練り上げたテンプレ集の正本は vault のノートに置き、
   使うときに貼る運用（CLAUDE.md「永続データの正本は vault」。ツール内に第二の正本を作らない）
 
@@ -48,8 +52,10 @@ render(text, values) → { output, missing: [未入力の名前] } }`
 | FL-U1 | テンプレ入力 → フォーム生成 → 値入力 | 変数ごとの入力欄（ラベル=変数名）が初出順に並び、出力がリアルタイム更新 |
 | FL-U2 | 未入力あり | サマリに warn（「未入力」と件数）。全部埋めると消える |
 | FL-U3 | ［結果をコピー］（writeText スタブ） | 完成文が渡り ✓ 表示・実クリップボードに書かない |
-| FL-U4 | reload | テンプレ本文と変数の値が復元される（`tools:fill` envelope） |
+| FL-U4 | `pagehide` 発火 → reload | デバウンス中でもフラッシュ保存され、テンプレ本文と変数の値が復元される（`tools:fill` envelope） |
 | FL-U5 | 幅390px | ページの横スクロールなし |
+| FL-U6 | Cmd/Ctrl+Enter（writeText スタブ） | ［結果をコピー］が発火し ✓ 表示 |
+| FL-U7 | テンプレを空に → サンプル投入 | 空のときだけサンプルボタンが見え、投入で出力とフォームまで埋まる（ボタンは隠れる） |
 
 ハブ導線: カテゴリ「変換・比較」に載り、title は `Fill`（表示名=英名なので表示名のみ）。
 

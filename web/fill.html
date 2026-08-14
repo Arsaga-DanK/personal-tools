@@ -25,10 +25,11 @@
   <p class="subtitle">定型文テンプレの差し込み — {{変数}} からフォームを自動生成して完成文を作る</p>
 
   <div class="toolbar">
-    <button class="primary" id="copy-btn">結果をコピー</button>
+    <button class="primary" id="copy-btn" title="Cmd/Ctrl+Enter">結果をコピー</button>
     <span class="muted" style="font-size:12px">テンプレに {{変数}} を書くと入力欄が生成される。{{今日}} は日付が自動で入る（編集可）。テンプレ集の正本は vault のノートに置き、使うときに貼る</span>
   </div>
 
+  <div class="banner" id="banner" hidden></div>
   <p class="summary" id="summary"></p>
   <div id="vars"></div>
 
@@ -143,30 +144,57 @@ function recalc() {
   }
 }
 
+/* 保存規約（coding-rules）: デバウンス＋pagehide/visibilitychange フラッシュ、
+   1フィールド 100KB 超は {omitted:true}（黙って捨てず次回起動時に通知） */
+const FIELD_LIMIT = 100000;
 let saveTimer = null;
+function savePayload() {
+  const cap = v => (v.length > FIELD_LIMIT ? { omitted: true } : v);
+  const capped = {};
+  for (const k of Object.keys(values)) capped[k] = cap(values[k]);
+  return { template: cap($id('template').value), values: capped };
+}
 function scheduleSave() {
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    saveTimer = null;
-    ToolStorage.save(TOOL, { template: $id('template').value, values });
-  }, 300);
+  saveTimer = setTimeout(() => { saveTimer = null; ToolStorage.save(TOOL, savePayload()); }, 300);
 }
+// デバウンス中に閉じても消えないようフラッシュ（coding-rules の保存規約）
+function flushSave() {
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  ToolStorage.save(TOOL, savePayload());
+}
+window.addEventListener('pagehide', flushSave);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') flushSave();
+});
 
 function restore() {
   const data = ToolStorage.load(TOOL);
   if (!data) return;
+  let omitted = false;
   if (typeof data.template === 'string') $id('template').value = data.template;
+  else if (data.template && data.template.omitted) omitted = true;
   if (data.values && typeof data.values === 'object') {
     values = {};
     for (const k of Object.keys(data.values)) {
       if (typeof data.values[k] === 'string') values[k] = data.values[k];
+      else if (data.values[k] && data.values[k].omitted) omitted = true;
     }
   }
+  if (omitted) {
+    ToolUI.banner($id('banner'), 'info',
+      '前回の内容は大きすぎたため一部復元されませんでした（保存上限 100KB/欄）');
+  }
 }
+
+// サンプル投入ボタンは入力（テンプレ）が空のときだけ表示（coding-rules「UI の標準形」）
+function updateSampleBtn() { $id('sample-btn').hidden = $id('template').value !== ''; }
 
 $id('template').addEventListener('input', () => {
   rebuildForm();
   recalc();
+  updateSampleBtn();
   scheduleSave();
 });
 
@@ -174,17 +202,25 @@ $id('copy-btn').addEventListener('click', () => {
   ToolUI.copy($id('output').value).then(ok =>
     ToolUI.feedback($id('copy-btn'), ok ? '✓ コピーしました' : 'コピーできませんでした'));
 });
+document.addEventListener('keydown', e => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+    e.preventDefault();
+    $id('copy-btn').click();
+  }
+});
 
 $id('sample-btn').addEventListener('click', () => {
   $id('template').value = 'お疲れさまです。{{名前}}です。\n\n【日報】{{今日}}\n\n■ 今日やったこと\n{{今日やったこと}}\n\n■ 明日やること\n{{明日やること}}\n\n以上、よろしくお願いいたします。';
   rebuildForm();
   recalc();
+  updateSampleBtn();
   scheduleSave();
 });
 
 restore();
 rebuildForm();
 recalc();
+updateSampleBtn();
 ToolStorage.mountWarning();
 
 // テスト用フック（docs/specs/fill.md）

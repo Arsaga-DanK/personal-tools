@@ -99,8 +99,8 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     && u3.label === '✓ コピーしました',
     JSON.stringify(u3));
 
-  /* ========== FL-U4: reload で本文と値が復元 ========== */
-  await page.waitForTimeout(500);   // 保存デバウンス待ち
+  /* ========== FL-U4: pagehide フラッシュ → reload で本文と値が復元 ========== */
+  await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));   // デバウンス中でもフラッシュ保存
   await page.reload();
   const u4 = await page.evaluate(() => {
     const env = JSON.parse(localStorage.getItem('tools:fill'));
@@ -110,10 +110,47 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
       tool: env && env.tool, v: env && env.v,
     };
   });
-  r.check('FL-U4（reload でテンプレと値が復元・tools:fill envelope）',
+  r.check('FL-U4（pagehide フラッシュ → reload でテンプレと値が復元・tools:fill envelope）',
     u4.template === '【日報】{{今日}} {{名前}}' && u4.name === '川津'
     && u4.tool === 'fill' && u4.v === 1,
     JSON.stringify(u4));
+
+  /* ========== FL-U6: Cmd/Ctrl+Enter でコピー ========== */
+  const u6 = await page.evaluate(async () => {
+    const out = { text: null };
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: async t => { out.text = t; } },
+    });
+    document.dispatchEvent(new KeyboardEvent('keydown',
+      { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
+    await new Promise(d => setTimeout(d, 200));
+    return { text: out.text, label: document.getElementById('copy-btn').textContent };
+  });
+  r.check('FL-U6（Cmd/Ctrl+Enter でコピーが発火し ✓ 表示）',
+    typeof u6.text === 'string' && u6.text.includes('【日報】') && u6.label === '✓ コピーしました',
+    JSON.stringify(u6));
+
+  /* ========== FL-U7: サンプルはテンプレが空のときだけ ========== */
+  const u7 = await page.evaluate(async () => {
+    window.ToolStorage.save = () => true;   // サンプルを保存状態に残さない
+    const hiddenWhenFilled = document.getElementById('sample-btn').hidden;
+    const t = document.getElementById('template');
+    t.value = '';
+    t.dispatchEvent(new Event('input', { bubbles: true }));
+    const visibleWhenEmpty = !document.getElementById('sample-btn').hidden;
+    document.getElementById('sample-btn').click();
+    await new Promise(d => setTimeout(d, 100));
+    return {
+      hiddenWhenFilled, visibleWhenEmpty,
+      hiddenAfter: document.getElementById('sample-btn').hidden,
+      hasOutput: document.getElementById('output').value !== '',
+      hasForm: !!document.querySelector('#vars textarea[data-var="名前"]'),
+    };
+  });
+  r.check('FL-U7（サンプルは空のときだけ表示・投入で出力とフォームまで埋まる）',
+    u7.hiddenWhenFilled && u7.visibleWhenEmpty && u7.hiddenAfter && u7.hasOutput && u7.hasForm,
+    JSON.stringify(u7));
 
   /* ========== FL-U5: 幅390px ========== */
   await page.setViewportSize({ width: 390, height: 800 });

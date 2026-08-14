@@ -309,15 +309,25 @@ function recalcAll() {
 const TOOL = 'dates';
 const SETTING_IDS = ['biz-n', 'biz-dir', 'ef-unit', 'ef-h', 'ef-d'];
 let saveTimer = null;
+function savePayload() {
+  const data = {};
+  for (const id of SETTING_IDS) data[id] = $id(id).value;
+  return data;   // 全フィールドが number/select の短い値 — 100KB cap は不要
+}
 function scheduleSave() {
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    saveTimer = null;
-    const data = {};
-    for (const id of SETTING_IDS) data[id] = $id(id).value;
-    ToolStorage.save(TOOL, data);
-  }, 300);
+  saveTimer = setTimeout(() => { saveTimer = null; ToolStorage.save(TOOL, savePayload()); }, 300);
 }
+// デバウンス中に閉じても消えないようフラッシュ（coding-rules の保存規約）
+function flushSave() {
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  ToolStorage.save(TOOL, savePayload());
+}
+window.addEventListener('pagehide', flushSave);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') flushSave();
+});
 function restore() {
   const data = ToolStorage.load(TOOL);
   if (!data) return;
