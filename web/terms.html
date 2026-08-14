@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Terms</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E📖%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../lib/ui.css">
+<style>
+  /* terms 固有: ルール欄は小さめ */
+  #rules { min-height: 96px; }
+</style>
+</head>
+<body>
+<main class="app-wide">
+  <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">入力とルールは自動保存されます</span></p>
+  <h1>Terms</h1>
+  <p class="subtitle">用語統一表を原稿へ一括適用 — 同時置換・長い語優先（連鎖置換の事故を防ぐ）</p>
+
+  <div class="toolbar">
+    <button class="primary" id="copy-btn" title="Cmd/Ctrl+Enter">結果をコピー</button>
+    <span class="muted" style="font-size:12px">ルールは1行1件「変換前⇥変換後」（タブ区切り。Excel の2列をそのまま貼れる）または「変換前→変換後」。# 始まりはコメント</span>
+  </div>
+
+  <div class="banner" id="banner" hidden></div>
+  <p class="summary" id="summary"></p>
+
+  <p class="pane-title">用語統一表（ルール）<button type="button" class="sample-btn" id="sample-btn">サンプルを入れる</button></p>
+  <textarea id="rules" spellcheck="false" placeholder="サーバー	サーバ&#10;ユーザ→ユーザー&#10;# コメント行は無視されます"></textarea>
+
+  <div class="panes" style="margin-top:14px">
+    <div class="pane">
+      <p class="pane-title">入力（原稿）</p>
+      <textarea id="input" spellcheck="false" placeholder="用語を揃えたい原稿を貼り付け"></textarea>
+    </div>
+    <div class="pane">
+      <p class="pane-title">出力</p>
+      <textarea id="output" readonly spellcheck="false"></textarea>
+    </div>
+  </div>
+</main>
+
+<script src="../lib/ui.js"></script>
+<script src="../lib/storage.js"></script>
+<script>
+'use strict';
+
+/* ========== 純関数（フックと UI が同一コードパス） ========== */
+
+const MAX_RULES = 1000;
+const MAX_INPUT_CHARS = 1000000;
+
+// ルール表 → { rules: [{from, to, line}], warnings } / { error }（TM-04/05/07）
+function parseRules(rulesText) {
+  const lines = String(rulesText == null ? '' : rulesText).split('\n');
+  const warnings = [];
+  const rules = [];
+  const seen = new Set();
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+    if (raw.trim() === '' || raw.trimStart().startsWith('#')) continue;
+    let from, to;
+    if (raw.includes('\t')) {
+      const k = raw.indexOf('\t');
+      from = raw.slice(0, k); to = raw.slice(k + 1);
+    } else if (raw.includes('→')) {
+      const k = raw.indexOf('→');
+      from = raw.slice(0, k); to = raw.slice(k + 1);
+    } else {
+      warnings.push((i + 1) + '行目: 区切り（タブ または →）がありません');
+      continue;
+    }
+    from = from.trim(); to = to.trim();
+    if (from === '') { warnings.push((i + 1) + '行目: 変換前が空です'); continue; }
+    if (seen.has(from)) {
+      warnings.push((i + 1) + '行目: 変換前「' + from + '」が重複しています（最初の定義を使用）');
+      continue;
+    }
+    seen.add(from);
+    rules.push({ from, to, line: i + 1 });
+  }
+  if (rules.length > MAX_RULES) {
+    return { error: 'ルールが上限（' + MAX_RULES + '本）を超えたため処理を中止しました' };
+  }
+  return { rules, warnings };
+}
+
+// 同時置換・長い語優先（TM-01〜03・TM-Q1）。counts はルール記載順
+function applyTerms(text, rules) {
+  const src = String(text == null ? '' : text);
+  if (src.length > MAX_INPUT_CHARS) {
+    return { error: '入力が上限（100万文字）を超えたため処理を中止しました' };
+  }
+  if (!rules.length) return { text: src, counts: [] };
+  const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // オルタネーションは先頭一致優先 → 長い順に並べると「長い語優先」になる
+  const sorted = rules.slice().sort((a, b) => b.from.length - a.from.length);
+  const re = new RegExp(sorted.map(r => esc(r.from)).join('|'), 'g');
+  const byFrom = new Map(rules.map(r => [r.from, r]));
+  const counts = new Map(rules.map(r => [r.from, 0]));
+  const out = src.replace(re, m => {
+    counts.set(m, counts.get(m) + 1);
+    return byFrom.get(m).to;
+  });
+  return { text: out, counts: rules.map(r => ({ from: r.from, to: r.to, n: counts.get(r.from) })) };
+}
+
+/* ========== UI ========== */
+
+const el = id => document.getElementById(id);
+const TOOL = 'terms';
+function showBanner(kind, text) { ToolUI.banner(el('banner'), kind, text); }
+
+function run() {
+  const parsed = parseRules(el('rules').value);
+  if (parsed.error) {
+    el('output').value = '';
+    el('summary').textContent = '';
+    showBanner('warn', parsed.error);
+    return;
+  }
+  const applied = applyTerms(el('input').value, parsed.rules);
+  if (applied.error) {
+    el('output').value = '';
+    el('summary').textContent = '';
+    showBanner('warn', applied.error);
+    return;
+  }
+  el('output').value = applied.text;
+  showBanner('warn', parsed.warnings.join(' / '));   // 空なら hidden
+  const hits = applied.counts.filter(c => c.n > 0);
+  const total = hits.reduce((n, c) => n + c.n, 0);
+  const unused = applied.counts.filter(c => c.n === 0).map(c => c.from);
+  let summary = '';
+  if (parsed.rules.length && el('input').value !== '') {
+    summary = '適用 ' + total + ' 箇所（ルール ' + hits.length + '/' + parsed.rules.length + ' 本）';
+    if (unused.length) {
+      summary += ' ／ 未適用: ' + unused.slice(0, 5).join('・') +
+        (unused.length > 5 ? ' ほか' + (unused.length - 5) + '件' : '');
+    }
+  }
+  el('summary').textContent = summary;
+}
+
+function updateSampleBtn() { el('sample-btn').hidden = el('input').value !== ''; }
+
+const SAMPLE_RULES = 'サーバー\tサーバ\nユーザ\tユーザー\nデータベースサーバ\tDBサーバ\n# コメント行は無視されます';
+const SAMPLE_INPUT = 'ユーザがサーバーへ接続します。データベースサーバの設定はサーバー管理者が行います。';
+el('sample-btn').addEventListener('click', () => {
+  el('rules').value = SAMPLE_RULES;
+  el('input').value = SAMPLE_INPUT;
+  updateSampleBtn();
+  clearTimeout(debounceTimer);
+  run();
+  save();
+});
+
+/* ---------- 保存（ルールと入力。devpad と同じ {omitted:true} 規約） ---------- */
+
+const FIELD_LIMIT = 100000;
+let saveTimer = null;
+function savePayload() {
+  const cap = v => (v.length > FIELD_LIMIT ? { omitted: true } : v);
+  return { rules: cap(el('rules').value), input: cap(el('input').value) };
+}
+function save() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => { saveTimer = null; ToolStorage.save(TOOL, savePayload()); }, 300);
+}
+// デバウンス中に閉じても消えないようフラッシュ（coding-rules の保存規約）
+function flushSave() {
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  ToolStorage.save(TOOL, savePayload());
+}
+window.addEventListener('pagehide', flushSave);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') flushSave();
+});
+
+function restore() {
+  const s = ToolStorage.load(TOOL);
+  if (!s || typeof s !== 'object') return;
+  let omitted = false;
+  for (const [key, id] of [['rules', 'rules'], ['input', 'input']]) {
+    if (typeof s[key] === 'string') el(id).value = s[key];
+    else if (s[key] && s[key].omitted) omitted = true;
+  }
+  if (omitted) showBanner('info', '前回の内容は大きすぎたため一部復元されませんでした（保存上限 100KB/欄）');
+}
+
+/* ---------- イベント ---------- */
+
+let debounceTimer = null;
+const schedule = () => {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(run, 200);
+};
+el('rules').addEventListener('input', () => { schedule(); save(); });
+el('input').addEventListener('input', () => { updateSampleBtn(); schedule(); save(); });
+
+el('copy-btn').addEventListener('click', () => {
+  // デバウンス確定前のコピーで古い結果を渡さない（コピー時に確定 — TM-U1）
+  clearTimeout(debounceTimer);
+  run();
+  const text = el('output').value;
+  if (text === '') { showBanner('info', 'コピーする内容がありません'); return; }
+  ToolUI.copy(text, { selectEl: el('output') }).then(ok => {
+    if (ok) ToolUI.feedback(el('copy-btn'), '✓ コピーしました');
+    else showBanner('info', '出力を選択済みです。Cmd+C でコピーしてください');
+  });
+});
+document.addEventListener('keydown', e => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+    e.preventDefault();
+    el('copy-btn').click();
+  }
+});
+
+/* ========== テスト用フック ========== */
+
+window.terms = { parseRules, applyTerms };
+
+/* ---------- 起動 ---------- */
+ToolStorage.mountWarning();
+restore();
+updateSampleBtn();
+run();
+</script>
+</body>
+</html>
