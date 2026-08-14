@@ -315,46 +315,102 @@ const GENERATED_DDL = [
   r.check('DS-20（banner-success の CSS 規則と role=status が効いている）', s20.ok, s20.detail);
   await page.evaluate(() => { document.getElementById('banner').hidden = true; });
 
-  /* ========== DS-21: 変換後に入力を編集したら、古い出力をコピーさせない ========== */
-  await page.evaluate(() => {
+  /* ========== DS-21/25: 編集後は自動再変換 — コピーは常に最新・出力ペインも追随 ========== */
+  const s21 = await page.evaluate(async () => {
     window.__cap = [];
     navigator.clipboard.writeText = t => { window.__cap.push(t); return Promise.resolve(); };
     const inp = document.getElementById('input');
     inp.value = 'create table t (a int);';
     document.getElementById('to-spec').click();
-    // 入力を編集（再変換はしない）→ 出力は編集前の内容のまま
+    // 入力を編集して 500ms のデバウンスを待たずにコピー → 確定してからコピーされる
     inp.value = 'create table t (a int, b text);';
     inp.dispatchEvent(new Event('input', { bubbles: true }));
     document.getElementById('copy').click();
-  });
-  await page.waitForTimeout(30);
-  const s21warn = await bannerIs(page, '#banner', 'warn',
-    '入力が変更されています。再変換してからコピーしてください');
-  const s21 = await page.evaluate(async () => {
-    document.getElementById('copy-tsv').click();
-    await new Promise(d => setTimeout(d, 30));
-    const tsvBlocked = document.getElementById('banner').textContent;
-    const blockedCount = window.__cap.length;              // 2経路とも書かれていない
-    // 再変換すればコピーできる
-    document.getElementById('to-spec').click();
-    document.getElementById('copy').click();
-    await new Promise(d => setTimeout(d, 30));
-    const afterRerun = window.__cap.length;
-    const sameAsOut = window.__cap[0] === document.getElementById('output').value;
+    await new Promise(d => setTimeout(d, 60));
+    const copied = window.__cap[0] || '';
+    const outNow = document.getElementById('output').value;
     // 変換失敗後は Excel用TSV も無効（古いモデルを黙って渡さない）
-    document.getElementById('input').value = "create table t (a text default 'x);"; // 未終端 → {ok:false}
+    inp.value = "create table t (a text default 'x);"; // 未終端 → {ok:false}
     document.getElementById('to-spec').click();
     document.getElementById('copy-tsv').click();
     await new Promise(d => setTimeout(d, 30));
     const tsvAfterFail = document.getElementById('banner').textContent;
-    return { tsvBlocked, blockedCount, afterRerun, sameAsOut,
-      tsvAfterFail, finalCount: window.__cap.length };
+    return { copied, outNow, count: window.__cap.length, tsvAfterFail };
   });
-  r.check('DS-21（入力編集後はコピーせず警告・再変換でコピー可・変換失敗後は TSV も無効）',
-    s21warn.ok && s21.blockedCount === 0 && s21.tsvBlocked.includes('再変換')
-    && s21.afterRerun === 1 && s21.sameAsOut === true
-    && s21.tsvAfterFail.includes('先に変換を実行してください') && s21.finalCount === 1,
-    JSON.stringify([s21warn.detail, s21]));
+  r.check('DS-21（編集後のコピーは自動再変換してから — 最新の出力が渡る・失敗後は TSV 無効）',
+    s21.copied.includes('| b |') && s21.copied === s21.outNow && s21.count === 1
+    && s21.tsvAfterFail.includes('先に変換を実行してください'),
+    JSON.stringify([s21.copied.slice(0, 80), s21.count, s21.tsvAfterFail]));
+
+  const s25 = await page.evaluate(async () => {
+    const inp = document.getElementById('input');
+    inp.value = 'create table t (a int);';
+    document.getElementById('to-spec').click();
+    inp.value = 'create table t (a int, c text);';
+    inp.dispatchEvent(new Event('input', { bubbles: true }));
+    const before = document.getElementById('output').value.includes('| c |');
+    await new Promise(d => setTimeout(d, 700));
+    const after = document.getElementById('output').value.includes('| c |');
+    return { before, after };
+  });
+  r.check('DS-25（入力編集の 500ms 後に出力ペインが自動更新される）',
+    s25.before === false && s25.after === true, JSON.stringify(s25));
+
+  /* ========== DS-26: 0件バナーの種別と方向誘導 ========== */
+  const runWith = (text, btn) => page.evaluate(([t, b]) => {
+    const inp = document.getElementById('input');
+    inp.value = t;
+    document.getElementById(b).click();
+    const el = document.getElementById('banner');
+    return { cls: el.className, text: el.textContent, hidden: el.hidden };
+  }, [text, btn]);
+  const s26a = await runWith('今日の議事録\nただのメモ', 'to-ddl');
+  const s26b = await runWith('## users\n| 論理名 | 物理名 | 型 |\n|---|---|---|\n| ID | id | int |', 'to-spec');
+  const s26c = await runWith('論理名\t物理名\t型\nID\tid\tint', 'to-ddl');
+  const s26d = await runWith('', 'to-spec');
+  r.check('DS-26（0件は warn＋誘導。空入力だけ info）',
+    s26a.cls.includes('banner-warn') && s26a.text.includes('変換できるテーブルがありませんでした')
+    && s26b.cls.includes('banner-warn') && s26b.text.includes('定義書（Markdown表）のようです')
+    && s26c.cls.includes('banner-warn') && s26c.text.includes('TSV') && s26c.text.includes('Tables')
+    && s26d.cls.includes('banner-info'),
+    JSON.stringify([s26a, s26b, s26c, s26d]));
+
+  /* ========== DS-27: 0列テーブルは CREATE TABLE を出さずスキップ ========== */
+  const s27 = await page.evaluate(() => {
+    const r0 = window.ddl2spec.specToDdl('## 画面一覧\n| 画面 | 説明 |\n|---|---|\n| 一覧 | 検索結果 |');
+    return { ok: r0.ok, hasCreate: /CREATE TABLE/i.test(r0.value), warnings: r0.warnings };
+  });
+  r.check('DS-27（列を解釈できないテーブルは CREATE TABLE を出力せずスキップ警告）',
+    s27.ok && s27.hasCreate === false
+    && s27.warnings.some(w => w.includes('スキップ')),
+    JSON.stringify(s27));
+
+  /* ========== DS-28: 未変換の空コピー文言の統一 ========== */
+  await page.goto(fileUrl('web/ddl2spec.html'));
+  await page.evaluate(() => { window.ToolStorage.save = () => true; localStorage.clear(); });
+  await page.reload();
+  const s28 = await page.evaluate(async () => {
+    navigator.clipboard.writeText = () => Promise.resolve();
+    const b = document.getElementById('banner');
+    document.getElementById('copy').click();
+    await new Promise(d => setTimeout(d, 30));
+    const copyMsg = b.textContent;
+    document.getElementById('copy-tsv').click();
+    await new Promise(d => setTimeout(d, 30));
+    const tsvMsg = b.textContent;
+    return { copyMsg, tsvMsg };
+  });
+  r.check('DS-28（未変換のコピーは両ボタンとも「先に変換を実行してください」）',
+    s28.copyMsg === '先に変換を実行してください' && s28.tsvMsg === '先に変換を実行してください',
+    JSON.stringify(s28));
+
+  /* ========== DS-29: 警告スニペットの CJK 間に空白を入れない ========== */
+  const s29 = await page.evaluate(() => {
+    const r0 = window.ddl2spec.parseDdl('今日の議事録です');
+    return r0.warnings;
+  });
+  r.check('DS-29（スニペットが「今日の議事録です」— 1文字ずつ空白にならない）',
+    s29.some(w => w.includes('今日の議事録です')), JSON.stringify(s29));
 
   /* ========== DS-22: pagehide でフラッシュ保存（500ms のデバウンスを待たない） ========== */
   await page.goto(fileUrl('web/ddl2spec.html'));

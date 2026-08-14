@@ -131,7 +131,9 @@ function splitStatements(toks) {
 }
 const upperAt = (st, i) => (st[i] && st[i].t === 'word' ? st[i].v.toUpperCase() : null);
 const snippet = st => {
-  const s = renderTokens(st);
+  // CJK 文字間の空白は詰める（lexer の1文字1トークン由来の「今 日 の…」を防ぐ — DS-29）
+  const WIDE = '[\\u3000-\\u30FF\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uF900-\\uFAFF\\uFF00-\\uFFEF]';
+  const s = renderTokens(st).replace(new RegExp('(' + WIDE + ') (?=' + WIDE + ')', 'g'), '$1');
   return s.length > 40 ? s.slice(0, 40) + '…' : s;
 };
 // 文字列リテラルの中身（'' は ' に戻す）
@@ -550,6 +552,11 @@ function checkIdent(name, warnings) {
 function buildDdl(model, warnings) {
   const out = [];
   for (const t of model.tables) {
+    // 列を1つも解釈できなかったテーブルは `CREATE TABLE 名 ();`（不正 SQL）を出さない（DS-27）
+    if (!t.columns.length) {
+      warnings.push('列を解釈できなかったため「' + t.name + '」の CREATE TABLE をスキップしました');
+      continue;
+    }
     checkIdent(t.name, warnings);
     const parts = [];
     for (const c of t.columns) {
@@ -674,8 +681,22 @@ function showWarnings(list) {
 }
 
 let lastModel = { tables: [] };   // Excel 用コピーが参照する（直近の変換結果）
-let convertedFrom = null;         // 直近の変換に使った入力。コピーの鮮度ガードが参照（DS-21）
-let lastDir = null;               // 直近の変換方向 'spec'|'ddl'。保存してリロード後の自動変換に使う（DS-23）
+let lastDir = null;               // 直近の変換方向 'spec'|'ddl'。自動再変換とリロード後の復元に使う（DS-23/25）
+
+// 0件のとき、入力の形から方向の間違い・形式違いを推定して誘導する（DS-26 — ミニ UX 監査 DD-2/3）
+function directionHint(kind, src) {
+  if (kind === 'spec' && (/^\s*\|/m.test(src) || /^##\s/m.test(src))) {
+    return '入力は定義書（Markdown表）のようです。［定義書 → DDL］を試してください';
+  }
+  if (kind === 'ddl') {
+    if (/create\s+table/i.test(src)) return '入力は DDL のようです。［DDL → 定義書］を試してください';
+    if (/\t/.test(src)) {
+      return 'タブ区切り（TSV）は解釈できません。Markdown表（| 区切り）を貼り付けてください' +
+        '（Excel の表は Tables で Markdown に変換できます）';
+    }
+  }
+  return '';
+}
 
 function run(kind) {
   lastDir = kind;
@@ -691,25 +712,42 @@ function run(kind) {
       (parsed.line ? parsed.line + '行目: ' : '') + parsed.error);
     showWarnings([]);
     el('output').value = '';
-    lastModel = { tables: [] };   // 古いモデルを Excel 用コピーに黙って渡さない（DS-21）
-    convertedFrom = null;
+    lastModel = { tables: [] };   // 古いモデルを Excel 用コピーに黙って渡さない
     return;
   }
   lastModel = parsed.value;
-  convertedFrom = src;
   const warnings = parsed.warnings.slice();
   el('output').value = kind === 'spec' ? buildSpec(parsed.value) : buildDdl(parsed.value, warnings);
   showWarnings(warnings);
-  const n = parsed.value.tables.length;
-  showBanner('info', n === 0 ? '変換できるテーブルがありませんでした' :
-    'テーブル ' + n + ' 件を変換しました' + (warnings.length ? '（警告 ' + warnings.length + ' 件）' : ''));
+  // バナーの件数は「出力したテーブル数」（0列スキップは数えない — DS-27）
+  const n = kind === 'ddl'
+    ? parsed.value.tables.filter(t => t.columns.length > 0).length
+    : parsed.value.tables.length;
+  if (n === 0) {
+    const hint = directionHint(kind, src);
+    // 入力があるのに0件は「うまくいっていない」— 成功の info と同色にしない（DS-26）
+    showBanner(src.trim() === '' ? 'info' : 'warn',
+      '変換できるテーブルがありませんでした' + (hint ? ' — ' + hint : ''));
+  } else {
+    showBanner('info', 'テーブル ' + n + ' 件を変換しました' +
+      (warnings.length ? '（警告 ' + warnings.length + ' 件）' : ''));
+  }
   save();
 }
 
-// 変換はボタン実行のため、変換後に入力を編集すると出力は編集前の内容のまま残る。
-// その状態のコピーは黙って古い出力を渡すことになるので、コピーせず警告する（DS-21）
-function outputStale() { return convertedFrom !== null && el('input').value !== convertedFrom; }
-const STALE_MSG = '入力が変更されています。再変換してからコピーしてください';
+// 一度変換したら、入力の編集は 500ms デバウンスで同じ方向に自動再変換する（DS-25）。
+// コピーはデバウンス中の再変換を確定してから（コピー時に確定 — DS-21。doc2xl・norm と同じ規約）
+let reconvertTimer = null;
+function scheduleReconvert() {
+  clearTimeout(reconvertTimer);
+  if (!lastDir) return;
+  reconvertTimer = setTimeout(() => { reconvertTimer = null; run(lastDir); }, 500);
+}
+function settleConvert() {
+  clearTimeout(reconvertTimer);
+  reconvertTimer = null;
+  if (lastDir) run(lastDir);
+}
 
 async function copyText(text, btn, emptyMsg) {
   if (text === '') { showBanner('info', emptyMsg); return; }
@@ -775,12 +813,15 @@ function restore() {
 el('to-spec').addEventListener('click', () => run('spec'));
 el('to-ddl').addEventListener('click', () => run('ddl'));
 el('copy').addEventListener('click', () => {
-  if (outputStale()) { showBanner('warn', STALE_MSG); return; }
-  copyText(el('output').value, el('copy'), 'コピーする内容がありません');
+  settleConvert();   // デバウンス中の再変換を確定してからコピー（DS-21）
+  copyText(el('output').value, el('copy'), '先に変換を実行してください');
 });
 el('copy-tsv').addEventListener('click', () => {
-  if (outputStale()) { showBanner('warn', STALE_MSG); return; }
-  if (!lastModel.tables.length) { showBanner('info', '先に変換を実行してください'); return; }
+  settleConvert();
+  if (!lastModel.tables.some(t => t.columns.length > 0)) {
+    showBanner('info', '先に変換を実行してください');
+    return;
+  }
   const tsv = buildTsv(lastModel);
   // Excel 用: text/html（書式付き）+ text/plain（TSV）の二重フレーバー（lib/excel.js）。
   // 失敗時は従来どおり TSV の平文コピーへフォールバック
@@ -793,7 +834,7 @@ el('sample').addEventListener('click', () => {
   updateSampleBtn();
   run('spec');
 });
-el('input').addEventListener('input', () => { updateSampleBtn(); save(); });
+el('input').addEventListener('input', () => { updateSampleBtn(); save(); scheduleReconvert(); });
 document.addEventListener('keydown', e => {
   if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
     e.preventDefault();
