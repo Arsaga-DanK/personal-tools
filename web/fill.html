@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fill</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E📝%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../lib/ui.css">
+<style>
+  /* fill 固有: 変数フォーム（テンプレの {{変数}} から自動生成） */
+  #vars { display: flex; flex-wrap: wrap; gap: 10px 14px; margin: 12px 0; }
+  .var-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+  .var-field textarea { min-width: 200px; min-height: 32px; resize: vertical; }
+  #vars .hint { font-size: 13px; color: var(--muted); margin: 0; }
+  .summary.warn {
+    background: var(--warn-bg); border: 1px solid var(--warn-border);
+    color: var(--text); padding: 6px 10px; border-radius: 8px; display: inline-block;
+  }
+</style>
+</head>
+<body>
+<main class="app-wide">
+  <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">テンプレと値は自動保存されます</span></p>
+  <h1>Fill</h1>
+  <p class="subtitle">定型文テンプレの差し込み — {{変数}} からフォームを自動生成して完成文を作る</p>
+
+  <div class="toolbar">
+    <button class="primary" id="copy-btn">結果をコピー</button>
+    <span class="muted" style="font-size:12px">テンプレに {{変数}} を書くと入力欄が生成される。{{今日}} は日付が自動で入る（編集可）。テンプレ集の正本は vault のノートに置き、使うときに貼る</span>
+  </div>
+
+  <p class="summary" id="summary"></p>
+  <div id="vars"></div>
+
+  <div class="panes">
+    <div class="pane">
+      <p class="pane-title">テンプレ<button type="button" class="sample-btn" id="sample-btn">サンプルを入れる</button></p>
+      <textarea id="template" spellcheck="false" placeholder="お疲れさまです。{{名前}}です。&#10;{{件名}}の件、ご確認をお願いします。"></textarea>
+    </div>
+    <div class="pane">
+      <p class="pane-title">出力（完成文）</p>
+      <textarea id="output" readonly spellcheck="false"></textarea>
+    </div>
+  </div>
+</main>
+
+<script src="../lib/ui.js"></script>
+<script src="../lib/storage.js"></script>
+<script>
+'use strict';
+
+/* ========== 純関数（フックと UI が同一コードパス） ========== */
+
+// {{名前}} — 中身の前後空白は無視、{ } と改行は変数名に使えない（spec「変数の構文」）
+const VAR_RE = /\{\{([^{}\n]+)\}\}/g;
+
+// テンプレ → 変数名の配列（初出順・重複なし。空白だけの {{ }} は変数にしない）
+function parseVars(text) {
+  const names = [];
+  const seen = new Set();
+  for (const m of String(text == null ? '' : text).matchAll(VAR_RE)) {
+    const name = m[1].trim();
+    if (name === '' || seen.has(name)) continue;
+    seen.add(name);
+    names.push(name);
+  }
+  return names;
+}
+
+// 未入力（値なし・空文字）は {{名前}} のまま残す — 空文字で埋めると気付かず送る（FL-Q3）
+function render(text, values) {
+  const missing = new Set();
+  const output = String(text == null ? '' : text).replace(VAR_RE, (whole, inner) => {
+    const name = inner.trim();
+    if (name === '') return whole;
+    const v = values && values[name];
+    if (v === undefined || v === null || v === '') {
+      missing.add(name);
+      return whole;
+    }
+    return v;
+  });
+  return { output, missing: Array.from(missing) };
+}
+
+/* ========== UI 配線 ========== */
+
+const $id = id => document.getElementById(id);
+const TOOL = 'fill';
+
+function todayStr() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0')
+    + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+// 変数名 → 値。フォーム再生成（テンプレ編集）をまたいで保持する
+// （編集中に一時的に変数が消えても、入れた値を失わない）
+let values = {};
+
+function rebuildForm() {
+  const names = parseVars($id('template').value);
+  const form = $id('vars');
+  form.textContent = '';
+  if (names.length === 0) {
+    const p = document.createElement('p');
+    p.className = 'hint';
+    p.textContent = 'テンプレに {{変数}} を書くと、ここに入力欄が生成されます';
+    form.appendChild(p);
+    return;
+  }
+  for (const name of names) {
+    // 組み込み変数は「初期値を入れる」だけ — 隠れた自動置換はしない（spec「変数の構文」）
+    if (values[name] === undefined && name === '今日') values[name] = todayStr();
+    const label = document.createElement('label');
+    label.className = 'var-field';
+    const ta = document.createElement('textarea');
+    ta.rows = 1;
+    ta.dataset.var = name;
+    ta.value = values[name] === undefined ? '' : values[name];
+    ta.addEventListener('input', () => {
+      values[name] = ta.value;
+      recalc();
+      scheduleSave();
+    });
+    label.appendChild(document.createTextNode(name));
+    label.appendChild(ta);
+    form.appendChild(label);
+  }
+}
+
+function recalc() {
+  const result = render($id('template').value, values);
+  $id('output').value = result.output;
+  const s = $id('summary');
+  if (result.missing.length > 0) {
+    s.className = 'summary warn';
+    s.textContent = '未入力: ' + result.missing.length + '件（' + result.missing.join('・')
+      + '）— 出力に {{変数}} のまま残っています';
+  } else {
+    s.className = 'summary';
+    s.textContent = '';
+  }
+}
+
+let saveTimer = null;
+function scheduleSave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    ToolStorage.save(TOOL, { template: $id('template').value, values });
+  }, 300);
+}
+
+function restore() {
+  const data = ToolStorage.load(TOOL);
+  if (!data) return;
+  if (typeof data.template === 'string') $id('template').value = data.template;
+  if (data.values && typeof data.values === 'object') {
+    values = {};
+    for (const k of Object.keys(data.values)) {
+      if (typeof data.values[k] === 'string') values[k] = data.values[k];
+    }
+  }
+}
+
+$id('template').addEventListener('input', () => {
+  rebuildForm();
+  recalc();
+  scheduleSave();
+});
+
+$id('copy-btn').addEventListener('click', () => {
+  ToolUI.copy($id('output').value).then(ok =>
+    ToolUI.feedback($id('copy-btn'), ok ? '✓ コピーしました' : 'コピーできませんでした'));
+});
+
+$id('sample-btn').addEventListener('click', () => {
+  $id('template').value = 'お疲れさまです。{{名前}}です。\n\n【日報】{{今日}}\n\n■ 今日やったこと\n{{今日やったこと}}\n\n■ 明日やること\n{{明日やること}}\n\n以上、よろしくお願いいたします。';
+  rebuildForm();
+  recalc();
+  scheduleSave();
+});
+
+restore();
+rebuildForm();
+recalc();
+ToolStorage.mountWarning();
+
+// テスト用フック（docs/specs/fill.md）
+window.fill = { parseVars, render };
+</script>
+</body>
+</html>

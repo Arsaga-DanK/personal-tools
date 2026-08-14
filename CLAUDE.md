@@ -1,7 +1,7 @@
 
 # Personal Tools
 
-業務効率化のための個人ツール群。**現在あるのはブラウザHTML（`web/` 11本）だけ**。
+業務効率化のための個人ツール群。**現在あるのはブラウザHTML（`web/` 12本）だけ**。
 CLI（`bin/`）は形態として認めているが、まだ1本も無い（→「構成」）。
 
 ## このリポジトリでの作業原則
@@ -22,11 +22,11 @@ CLI（`bin/`）は形態として認めているが、まだ1本も無い（→�
 
 ```
 index.html   ハブ。web/ツール一覧（内部のTOOLS配列に1行足すと追加される）
-web/         ブラウザツール11本。1ツール=1HTML完結
+web/         ブラウザツール12本。1ツール=1HTML完結
 lib/         web ツールの共通コード。ui.css / ui.js / storage.js / sql.js / excel.js
 docs/        coding-rules.md（実装規約の正本）/ verification-notes.md（検証の罠）/
              ux-backlog.md / tool-backlog.md
-docs/specs/  ツールごとの仕様書兼テストケース（11本）
+docs/specs/  ツールごとの仕様書兼テストケース（12本）
 test/        検証ハーネス（`./test/run [ツール名]`。書き方は test/README.md）
 ```
 
@@ -50,7 +50,7 @@ test/        検証ハーネス（`./test/run [ツール名]`。書き方は tes
   **表示名と英名が同じなら表示名のみ**（`Diff`。`Diff (diff)` は冗長）
 - 英名は TOOLS の `alias` にも書く（画面には出さず検索にだけ効く。
   過去のメモやファイル名が英名で書かれているため）
-- 現在の対応: Tasks=taskboard / Tables=excel2md / Convert=devpad / Text=norm / Diff=diff / Terms=terms /
+- 現在の対応: Tasks=taskboard / Tables=excel2md / Convert=devpad / Text=norm / Diff=diff / Terms=terms / Fill=fill /
   Schema=ddl2spec / Outline=doc2xl /
   Lint=vaultlint / Mask=mask / Dates=dates
 - カテゴリ名は日本語のまま（英語にすると Convert ツールと同名になる。
@@ -92,7 +92,7 @@ test/        検証ハーネス（`./test/run [ツール名]`。書き方は tes
 
 - 検証時は `docs/verification-notes.md`（環境・道具・既知の罠）を必ず参照する
 - **合否の正本は `./test/run <tool>` が全 pass（コンソールエラー0件を含む）**。
-  11ツールすべてにハーネスがある。手順は `test/README.md`
+  12ツールすべてにハーネスがある。手順は `test/README.md`
 - `docs/specs/<tool>.md` のテストケースが全て一致すること（ハーネスがそれを照合している）。
   ブラウザツールも、変換ロジックを node 等で単体実行するのではなく、
   HTML から関数を切り出さずに済む範囲で、入力→期待出力の照合結果を提示する
