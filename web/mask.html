@@ -17,7 +17,9 @@
     background: var(--panel);
   }
   #drop.dragover { border-color: var(--accent); color: var(--accent); }
+  #canvas-wrap { position: relative; display: inline-block; max-width: 100%; }
   #canvas {
+    display: block;
     max-width: 100%;
     height: auto;
     border: 1px solid var(--border);
@@ -26,15 +28,22 @@
     cursor: crosshair;
     touch-action: none;
   }
+  /* 選択枠のオーバーレイ。出力 PNG に混入させないため別キャンバス（MK-Q5） */
+  #overlay {
+    position: absolute; left: 0; top: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+  }
 </style>
 </head>
 <body>
 <main class="app-wide">
   <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">画像は保存されません（この画面の中だけ・機密画像を残さない）</span></p>
   <h1>Mask</h1>
-  <p class="subtitle">スクショのマスキングと注釈 — 貼り付け → モザイク/黒塗り → 矢印・枠で説明 → PNG コピー。ぼかしは復元リスクがあるため非搭載</p>
+  <p class="subtitle">スクショのマスキングと注釈 — 貼り付け → モザイク/黒塗り → 矢印・枠で説明 → 置いた図形は「選択」で移動・削除 → PNG コピー。ぼかしは復元リスクがあるため非搭載</p>
 
   <div class="toolbar" id="tools">
+    <label class="toggle"><input type="radio" name="tool" value="select"> 選択</label>
     <label class="toggle"><input type="radio" name="tool" value="mosaic" checked> モザイク</label>
     <label class="toggle"><input type="radio" name="tool" value="fill"> 黒塗り</label>
     <label class="toggle"><input type="radio" name="tool" value="rect"> 枠</label>
@@ -57,7 +66,10 @@
   <div class="banner" id="banner" hidden></div>
 
   <div id="drop">ここに画像を <b>Ctrl+V で貼り付け</b>、またはドラッグ＆ドロップ／［画像を開く…］</div>
-  <canvas id="canvas" hidden></canvas>
+  <div id="canvas-wrap">
+    <canvas id="canvas" hidden></canvas>
+    <canvas id="overlay" hidden></canvas>
+  </div>
 </main>
 
 <script src="../lib/ui.js"></script>
@@ -76,8 +88,29 @@ const orig = document.createElement('canvas');   // 元画像の保持
 let hasImage = false;
 let ops = [];
 
+/* Undo はスナップショット履歴（MK-Q6）: 変更（追加・移動・削除・クリア）の前に
+   ops のコピーを積む。「ops を1つ pop」のままだと移動の取り消しが「図形ごと消える」になる */
+let history = [];
+const HISTORY_MAX = 200;
+function snapshot() {
+  history.push(ops.map(o => Object.assign({}, o)));
+  if (history.length > HISTORY_MAX) history.shift();
+}
+function undo() {
+  if (history.length === 0) return;
+  ops = history.pop();
+  selIndex = null;   // 戻した状態に対して古い添字を残さない
+  redraw();
+  drawOverlay();
+}
+
+let selIndex = null;   // 選択中の図形（ops の添字）。null = 未選択
+
 const canvas = el('canvas');
 const ctx = canvas.getContext('2d', { willReadFrequently: true });
+const overlay = el('overlay');
+const octx = overlay.getContext('2d');
+const FONT = 'bold 20px -apple-system, "Hiragino Sans", sans-serif';
 
 function applyOp(op) {
   if (op.type === 'fill') {
@@ -119,9 +152,72 @@ function applyOp(op) {
     ctx.fill();
   } else if (op.type === 'text') {
     ctx.fillStyle = RED;
-    ctx.font = 'bold 20px -apple-system, "Hiragino Sans", sans-serif';
+    ctx.font = FONT;
     ctx.fillText(op.text, op.x, op.y);
   }
+}
+
+/* ========== 選択・編集（v2 — spec「選択・編集」） ========== */
+
+function opBounds(op) {
+  if (op.type === 'arrow') {
+    return { x: Math.min(op.x1, op.x2) - 6, y: Math.min(op.y1, op.y2) - 6,
+             w: Math.abs(op.x2 - op.x1) + 12, h: Math.abs(op.y2 - op.y1) + 12 };
+  }
+  if (op.type === 'text') {
+    ctx.font = FONT;
+    const w = ctx.measureText(op.text).width;
+    return { x: op.x - 2, y: op.y - 20, w: w + 4, h: 26 };   // baseline が op.y・20px フォント
+  }
+  return { x: op.x, y: op.y, w: op.w, h: op.h };
+}
+
+function distToSegment(px, py, x1, y1, x2, y2) {
+  const dx = x2 - x1, dy = y2 - y1;
+  const len2 = dx * dx + dy * dy;
+  const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / len2));
+  return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+}
+
+function hitOp(op, x, y) {
+  if (op.type === 'arrow') return distToSegment(x, y, op.x1, op.y1, op.x2, op.y2) <= 8;
+  const b = opBounds(op);
+  return x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h;
+}
+
+// 最前面（後に置いた方）優先（MK-07）
+function hitTest(x, y) {
+  for (let i = ops.length - 1; i >= 0; i--) {
+    if (hitOp(ops[i], x, y)) return i;
+  }
+  return null;
+}
+
+function moveOpBy(op, dx, dy) {
+  if (op.type === 'arrow') { op.x1 += dx; op.y1 += dy; op.x2 += dx; op.y2 += dy; }
+  else { op.x += dx; op.y += dy; }
+}
+
+// 選択枠はオーバーレイにだけ描く — メインキャンバス（= 出力 PNG）に混入させない（MK-Q5）
+function drawOverlay() {
+  octx.clearRect(0, 0, overlay.width, overlay.height);
+  if (selIndex === null || !ops[selIndex]) return;
+  const b = opBounds(ops[selIndex]);
+  octx.strokeStyle = '#5e81ac';
+  octx.lineWidth = 2;
+  octx.setLineDash([6, 4]);
+  octx.strokeRect(b.x - 3, b.y - 3, b.w + 6, b.h + 6);
+  octx.setLineDash([]);
+}
+
+function deleteSelected() {
+  if (selIndex === null || !ops[selIndex]) return false;
+  snapshot();
+  ops.splice(selIndex, 1);
+  selIndex = null;
+  redraw();
+  drawOverlay();
+  return true;
 }
 
 function redraw(previewOp) {
@@ -147,12 +243,18 @@ function setImage(dataUrl) {
       orig.getContext('2d').drawImage(img, 0, 0);
       canvas.width = img.width;
       canvas.height = img.height;
+      overlay.width = img.width;
+      overlay.height = img.height;
       hasImage = true;
       ops = [];
+      history = [];
+      selIndex = null;
       canvas.hidden = false;
+      overlay.hidden = false;
       el('drop').hidden = true;
       showBanner('info', '');
       redraw();
+      drawOverlay();
       resolve();
     };
     img.onerror = () => {
@@ -207,7 +309,8 @@ const scale = e => {
     y: Math.round((e.clientY - r.top) * canvas.height / r.height),
   };
 };
-let dragStart = null;
+let dragStart = null;   // 新規図形のドラッグ
+let moveDrag = null;    // 選択図形の移動ドラッグ { last: {x,y}, moved: bool }
 
 function opFromDrag(tool, a, b) {
   if (tool === 'arrow') return { type: 'arrow', x1: a.x, y1: a.y, x2: b.x, y2: b.y };
@@ -223,9 +326,20 @@ canvas.addEventListener('pointerdown', e => {
   if (!hasImage) return;
   const p = scale(e);
   const tool = toolOf();
+  if (tool === 'select') {
+    // クリックで選択（空白なら解除）→ そのままドラッグで移動
+    selIndex = hitTest(p.x, p.y);
+    drawOverlay();
+    if (selIndex !== null) {
+      moveDrag = { last: p, moved: false };
+      try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
+    }
+    return;
+  }
   if (tool === 'text') {
     const text = el('text-input').value.trim();
     if (text === '') { showBanner('info', 'テキスト欄に文字を入れてからクリックしてください'); return; }
+    snapshot();
     ops.push({ type: 'text', x: p.x, y: p.y, text });
     redraw();
     return;
@@ -234,22 +348,58 @@ canvas.addEventListener('pointerdown', e => {
   try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
 });
 canvas.addEventListener('pointermove', e => {
-  if (!dragStart) return;
-  const op = opFromDrag(toolOf(), dragStart, scale(e));
-  redraw(op || undefined);
+  if (moveDrag && selIndex !== null && ops[selIndex]) {
+    const p = scale(e);
+    const dx = p.x - moveDrag.last.x, dy = p.y - moveDrag.last.y;
+    if (dx !== 0 || dy !== 0) {
+      if (!moveDrag.moved) { snapshot(); moveDrag.moved = true; }   // 1ドラッグ = 1手（Undo 単位）
+      moveOpBy(ops[selIndex], dx, dy);
+      moveDrag.last = p;
+      redraw();
+      drawOverlay();
+    }
+    return;
+  }
+  if (dragStart) {
+    const op = opFromDrag(toolOf(), dragStart, scale(e));
+    redraw(op || undefined);
+    return;
+  }
+  // 選択ツールで図形の上に来たらカーソルで移動可能と伝える
+  if (toolOf() === 'select' && hasImage) {
+    const p = scale(e);
+    canvas.style.cursor = hitTest(p.x, p.y) !== null ? 'move' : 'default';
+  }
 });
 canvas.addEventListener('pointerup', e => {
+  if (moveDrag) { moveDrag = null; return; }
   if (!dragStart) return;
   const op = opFromDrag(toolOf(), dragStart, scale(e));
   dragStart = null;
-  if (op) ops.push(op);
+  if (op) { snapshot(); ops.push(op); }
   redraw();
+});
+
+// ツールを切り替えたら選択を解除（破線が描画の邪魔にならない）＋カーソルを戻す
+el('tools').addEventListener('change', e => {
+  if (!e.target || e.target.name !== 'tool') return;
+  selIndex = null;
+  moveDrag = null;
+  drawOverlay();
+  canvas.style.cursor = toolOf() === 'select' ? 'default' : 'crosshair';
 });
 
 /* ========== 出力・操作ボタン ========== */
 
-el('undo-btn').addEventListener('click', () => { ops.pop(); redraw(); });
-el('clear-btn').addEventListener('click', () => { ops = []; redraw(); });
+el('undo-btn').addEventListener('click', undo);
+el('clear-btn').addEventListener('click', () => {
+  if (ops.length === 0) return;
+  snapshot();
+  ops = [];
+  selIndex = null;
+  redraw();
+  drawOverlay();
+});
 
 el('copy-btn').addEventListener('click', () => {
   if (!hasImage) { showBanner('info', '先に画像を貼り付けてください'); return; }
@@ -272,6 +422,21 @@ document.addEventListener('keydown', e => {
   if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
     e.preventDefault();
     el('copy-btn').click();
+    return;
+  }
+  // Esc = 選択解除（非破壊なのでガード不要 — coding-rules「文字の扱い」）
+  if (e.key === 'Escape' && selIndex !== null) {
+    selIndex = null;
+    drawOverlay();
+    return;
+  }
+  // Delete/Backspace = 選択図形の削除（破壊的）。入力要素へのタイプと IME 変換中は無効
+  if ((e.key === 'Delete' || e.key === 'Backspace') && selIndex !== null) {
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
+    if (e.isComposing) return;
+    e.preventDefault();
+    deleteSelected();
   }
 });
 
@@ -279,10 +444,22 @@ document.addEventListener('keydown', e => {
 
 window.mask = {
   setImage,
-  addOp: op => { ops.push(op); redraw(); },
-  undo: () => { ops.pop(); redraw(); },
-  clearOps: () => { ops = []; redraw(); },
+  addOp: op => { snapshot(); ops.push(op); redraw(); drawOverlay(); },
+  undo,
+  clearOps: () => { snapshot(); ops = []; selIndex = null; redraw(); drawOverlay(); },
   opsCount: () => ops.length,
+  hitTest,
+  selectAt: (x, y) => { selIndex = hitTest(x, y); drawOverlay(); return selIndex; },
+  selectedIndex: () => selIndex,
+  moveSelected: (dx, dy) => {
+    if (selIndex === null || !ops[selIndex]) return false;
+    snapshot();
+    moveOpBy(ops[selIndex], dx, dy);
+    redraw();
+    drawOverlay();
+    return true;
+  },
+  deleteSelected,
   size: () => ({ w: canvas.width, h: canvas.height }),
   pixelAt: (x, y) => Array.from(ctx.getImageData(x, y, 1, 1).data),
   countRed: (x, y, w, h) => {
