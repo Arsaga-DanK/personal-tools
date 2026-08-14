@@ -136,6 +136,7 @@ function parseBlocks(text, counters) {
       let j = i + 1;
       const buf = [];
       while (j < lines.length && !lines[j].startsWith(marker)) { buf.push(lines[j]); j++; }
+      if (j >= lines.length) counters.unclosedFence = true;   // 閉じ忘れは警告する（DX-20）
       blocks.push({ type: 'code', text: buf.join('\n') });
       i = j;   // 閉じフェンス行を消費（for の i++ で次の行へ）
       continue;
@@ -281,6 +282,7 @@ function warningsOf(c) {
   if (c.foot) w.push('脚注定義を' + c.foot + '件そのまま1セルに入れました');
   if (c.def) w.push('定義リストを' + c.def + '件そのまま1セルに入れました');
   if (c.wideTable) w.push('30列を超える表を' + c.wideTable + '件、内容列へ連結しました');
+  if (c.unclosedFence) w.push('閉じフェンス（```）が無いため、末尾までコードとして扱いました');
   return w;
 }
 
@@ -312,7 +314,7 @@ function convert(text, opts) {
   if (src.length > MAX_INPUT_CHARS) {
     return { ok: false, error: '入力が上限（50万文字）を超えたため処理を中止しました' };
   }
-  const counters = { frontMatter: false, link: 0, image: 0, hr: 0, html: 0, foot: 0, def: 0, wideTable: 0 };
+  const counters = { frontMatter: false, link: 0, image: 0, hr: 0, html: 0, foot: 0, def: 0, wideTable: 0, unclosedFence: false };
   const a = assemble(parseBlocks(src, counters), o, counters);
   if (a.overflow) {
     return { ok: false, error: '出力が上限（5,000行）を超えたため処理を中止しました' };
@@ -323,7 +325,12 @@ function convert(text, opts) {
   const grid = a.rows.map(r =>
     r.levels.slice(0, a.depth).concat([r.content]).concat(padTable(r.table, tableCols)));
   const value = { header: header, rows: grid, depth: a.depth, tableCols: tableCols };
-  return { ok: true, value: value, warnings: warningsOf(counters), md: toMd(value), tsv: toTsv(value) };
+  const warnings = warningsOf(counters);
+  // 見出しが1つも無いと階層列が作られない — 理由を案内する（DX-19。空入力では出さない）
+  if (a.depth === 0 && src.trim() !== '') {
+    warnings.unshift('# 見出しが見つかりませんでした（階層列は行頭の # 見出しから作られます）');
+  }
+  return { ok: true, value: value, warnings: warnings, md: toMd(value), tsv: toTsv(value) };
 }
 
 /* ========== UI ========== */

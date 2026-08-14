@@ -325,6 +325,23 @@ const { launch, fileUrl, createRunner, eq, bannerIs } = require('./helpers');
     && u4big === '',
     JSON.stringify(u4));
 
+  /* ========== DX-19/20: 見出しなし・未閉フェンスの案内（ミニUX監査 DX-A1/A2） ========== */
+  const d1920 = await page.evaluate(() => {
+    const c = window.doc2xl.convert;
+    return {
+      noHeading: c('ただの文章です。\n\n見出しはありません。', {}).warnings,
+      empty: c('', {}).warnings,
+      unclosed: c('# A\n\n```js\nconst x = 1;', {}).warnings,
+    };
+  });
+  r.check('DX-19（見出し0件の入力に案内・空入力では出さない）',
+    d1920.noHeading.some(w => w.includes('# 見出しが見つかりませんでした'))
+    && d1920.empty.length === 0,
+    JSON.stringify([d1920.noHeading, d1920.empty]));
+  r.check('DX-20（閉じフェンスの無いコードブロックに警告）',
+    d1920.unclosed.some(w => w.includes('閉じフェンス')),
+    JSON.stringify(d1920.unclosed));
+
   /* ========== DX-U8: 体裁（app-wide・primary） ========== */
   const u8 = await page.evaluate(() => ({
     appWide: document.querySelector('main').classList.contains('app-wide'),
