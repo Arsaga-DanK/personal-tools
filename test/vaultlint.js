@@ -116,7 +116,19 @@ const IDEO_SPACE = '\u3000';
   const v12 = await lint([{ path: 'a.md', text: '1行目\n2行目\n[[c]]' }]);
   r.check('VL-12（行番号が正しい）', eq(v12.broken, [['a.md', 3, 'c']]), JSON.stringify(v12.broken));
 
-  /* ========== VL-U1: UI 描画とコピー ========== */
+  /* ========== VL-13: コードフェンス・インラインコードは走査しない ========== */
+  const v13 = await lint([{
+    path: 'a.md',
+    text: [
+      '```sh',
+      'if [[ -f x ]]; then echo ok; fi',   // shell 構文 — リンクではない
+      '```',
+      '本文の `[[y]]` はインラインコード。',
+      '[[c]] は本物のリンク切れ。',
+    ].join('\n'),
+  }]);
+  r.check('VL-13（フェンス内・インラインコードは検出せず、フェンス後の本物だけ拾う）',
+    eq(v13.broken, [['a.md', 5, 'c']]), JSON.stringify(v13.broken));
   const u1 = await page.evaluate(async () => {
     window.__copied = null;
     navigator.clipboard.writeText = t => { window.__copied = t; return Promise.resolve(); };

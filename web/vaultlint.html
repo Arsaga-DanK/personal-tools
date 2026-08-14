@@ -131,10 +131,22 @@ function lint(files) {
       continue;
     }
     const lines = f.text.split('\n');
+    // コードフェンス内・インラインコード内は走査しない（VL-13。Obsidian はコード内の
+    // リンクを解決しない — shell の [[ -f x ]] 等の誤検出を防ぐ）。未閉フェンスは末尾まで
+    let fence = null;
     for (let li = 0; li < lines.length; li++) {
+      const fm = /^(```+|~~~+)/.exec(lines[li]);
+      if (fm) {
+        const marker = fm[1][0] === '`' ? '```' : '~~~';
+        if (fence === null) fence = marker;
+        else if (lines[li].startsWith(fence)) fence = null;
+        continue;
+      }
+      if (fence !== null) continue;
+      const line = lines[li].replace(/`[^`]*`/g, '``');
       let m;
       WIKI_RE.lastIndex = 0;
-      while ((m = WIKI_RE.exec(lines[li]))) {
+      while ((m = WIKI_RE.exec(line))) {
         links++;
         const embed = m[1] === '!';
         let inner = m[2].split('|')[0];               // エイリアスを剥がす
@@ -149,7 +161,7 @@ function lint(files) {
         }
       }
       MDLINK_RE.lastIndex = 0;
-      while ((m = MDLINK_RE.exec(lines[li]))) {
+      while ((m = MDLINK_RE.exec(line))) {
         const raw = m[1];
         if (/^[a-z][a-z0-9+.-]*:/i.test(raw)) continue;   // http(s): data: obsidian: 等は対象外
         links++;
