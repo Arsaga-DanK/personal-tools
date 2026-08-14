@@ -3,50 +3,51 @@
    ツール側 <style> はコンテンツ描画専用とし、ここで定義したクラスを再定義しない。
    検証への契約: .banner-<kind> の算出背景色は素の .banner と必ず異なる（bannerIs が照合）。 */
 
+/* パレットは Nord（https://www.nordtheme.com — Polar Night / Snow Storm / Frost / Aurora）に準拠 */
 :root {
-  --bg: #faf9f7;
+  --bg: #eceff4;            /* nord6 */
   --panel: #ffffff;
-  --text: #191613;
-  --muted: #6f6759;
-  --border: #e7e1d8;
-  --accent: #ea580c;
+  --text: #2e3440;          /* nord0 */
+  --muted: #5b6578;         /* nord3 を少し明るく（本文コントラスト確保） */
+  --border: #d8dee9;        /* nord4 */
+  --accent: #5e81ac;        /* nord10 */
   --accent-text: #ffffff;
-  --error: #d13438;
-  --success: #178344;
-  --th-bg: #eef0f8;
-  --warn-bg: #fdf3d7;
-  --warn-border: #e3b341;
-  --error-bg: #fdebec;
-  --error-border: #f1707480;
-  --info-bg: #e7f1fe;
-  --info-border: #6ba5f780;
-  --success-bg: #e2f6e9;
-  --success-border: #4ac26b80;
-  --shadow: 0 1px 2px rgba(25, 22, 19, .05), 0 4px 16px rgba(25, 22, 19, .06);
-  --shadow-hover: 0 2px 4px rgba(234, 88, 12, .08), 0 8px 24px rgba(234, 88, 12, .14);
+  --error: #bf616a;         /* nord11 */
+  --success: #4c7a43;       /* nord14 を暗く（白地での可読性） */
+  --th-bg: #e5e9f0;         /* nord5 */
+  --warn-bg: #faf4dd;
+  --warn-border: #ebcb8b;   /* nord13 */
+  --error-bg: #f7e5e7;
+  --error-border: #bf616a80;
+  --info-bg: #e4edf5;
+  --info-border: #81a1c180; /* nord9 */
+  --success-bg: #e7efdd;
+  --success-border: #a3be8c99; /* nord14 */
+  --shadow: 0 1px 2px rgba(46, 52, 64, .05), 0 4px 16px rgba(46, 52, 64, .07);
+  --shadow-hover: 0 2px 4px rgba(94, 129, 172, .12), 0 8px 24px rgba(94, 129, 172, .18);
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #131110;
-    --panel: #1c1916;
-    --text: #f0ebe4;
-    --muted: #a89e90;
-    --border: #3b342b;
-    --accent: #ff7a1a;
-    --accent-text: #1c1310;
-    --error: #ff8589;
-    --success: #47c274;
-    --th-bg: #232635;
-    --warn-bg: #3a2f14;
-    --warn-border: #9e6a03;
-    --error-bg: #3d1a1e;
-    --error-border: #f8514980;
-    --info-bg: #1a2b4d;
-    --info-border: #6a8fef80;
-    --success-bg: #152b20;
-    --success-border: #3fb95080;
+    --bg: #2e3440;          /* nord0 */
+    --panel: #3b4252;       /* nord1 */
+    --text: #eceff4;        /* nord6 */
+    --muted: #9aa5bc;
+    --border: #4c566a;      /* nord3 */
+    --accent: #88c0d0;      /* nord8（Frost の看板色） */
+    --accent-text: #2e3440;
+    --error: #bf616a;       /* nord11 */
+    --success: #a3be8c;     /* nord14 */
+    --th-bg: #434c5e;       /* nord2 */
+    --warn-bg: #494430;
+    --warn-border: #ebcb8b;
+    --error-bg: #4a353b;
+    --error-border: #bf616a99;
+    --info-bg: #3a4658;
+    --info-border: #81a1c199;
+    --success-bg: #3d4a3c;
+    --success-border: #a3be8c99;
     --shadow: none;
-    --shadow-hover: 0 0 0 1px rgba(255, 122, 26, .35), 0 4px 24px rgba(255, 122, 26, .16);
+    --shadow-hover: 0 0 0 1px rgba(136, 192, 208, .4), 0 4px 24px rgba(136, 192, 208, .15);
   }
 }
 
