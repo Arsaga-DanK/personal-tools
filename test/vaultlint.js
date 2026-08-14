@@ -21,8 +21,8 @@ const IDEO_SPACE = '\u3000';
   const page = r.watch(await browser.newPage());
   await page.goto(fileUrl('web/vaultlint.html'));
 
-  const lint = files => page.evaluate(fs => {
-    const res = window.vaultlint.lint(fs);
+  const lint = (files, today) => page.evaluate(([fs, td]) => {
+    const res = window.vaultlint.lint(fs, td);
     // 照合しやすい形に要約（issues は件数と主要フィールドだけ）
     if (!res.ok) return { ok: false, error: res.error };
     return {
@@ -31,10 +31,11 @@ const IDEO_SPACE = '\u3000';
       missing: res.issues.missingAttachments.map(i => [i.file, i.line, i.target]),
       bad: res.issues.badNames.map(i => [i.path, i.reason]),
       dup: res.issues.dupBasenames.map(i => [i.base, i.paths]),
+      inbox: (res.issues.inbox || []).map(i => [i.path, i.date, i.age, i.pending]),
       stats: res.stats,
       warnings: res.warnings,
     };
-  }, files);
+  }, [files, today || null]);
 
   /* ========== VL-01〜05: リンク解決 ========== */
   const v01 = await lint([{ path: 'a.md', text: '[[b]]' }, { path: 'b.md', text: '' }]);
@@ -129,6 +130,113 @@ const IDEO_SPACE = '\u3000';
   }]);
   r.check('VL-13（フェンス内・インラインコードは検出せず、フェンス後の本物だけ拾う）',
     eq(v13.broken, [['a.md', 5, 'c']]), JSON.stringify(v13.broken));
+
+  /* ========== VL-14: Inbox 棚卸し（7日より古い純デイリー・未転記タスク） ========== */
+  const v14 = await lint([
+    { path: '00_Inbox/2026-08-04.md', text: '## ログ\n作業した。' },                    // 10日前・生タスクなし
+    { path: '00_Inbox/2026-08-12.md', text: '## ログ\n直近。' },                        // 2日前 → 出ない
+    { path: '00_Inbox/2026-08-03.md', text: '- [ ] 未転記1\n本文\n- [ ] 未転記2' },     // 11日前・生タスク2
+    { path: '00_Inbox/2026-08-01_打合せ.md', text: 'トピックノート' },                  // 純デイリーではない
+  ], '2026-08-14');
+  r.check('VL-14（7日超の純デイリーのみ・pending 計上・トピックは件数のみ）',
+    eq(v14.inbox, [['00_Inbox/2026-08-04.md', '2026-08-04', 10, 0],
+      ['00_Inbox/2026-08-03.md', '2026-08-03', 11, 2]])
+    && v14.stats.inboxOthers === 1,
+    JSON.stringify([v14.inbox, v14.stats]));
+
+  /* ========== VL-15〜18: planFixes（計画の純関数） ========== */
+  const v15 = await page.evaluate(() => {
+    if (!window.vaultlint.planFixes) return { missing: true, writes: [], moves: [], skipped: [] };
+    const files = [{ path: 'a.md', text: '一行目\n[[c]] を参照\nまた [[c|別名]] も。' }];
+    const p = window.vaultlint.planFixes(files, [
+      { type: 'textify', file: 'a.md', line: 2, target: 'c' },
+      { type: 'textify', file: 'a.md', line: 3, target: 'c' },
+    ]);
+    return { writes: p.writes, moves: p.moves, skipped: p.skipped };
+  });
+  r.check('VL-15（テキスト化: [[c]]→c・[[c|別名]]→別名）',
+    v15.writes.length === 1
+    && v15.writes[0].after === '一行目\nc を参照\nまた 別名 も。'
+    && v15.moves.length === 0 && v15.skipped.length === 0,
+    JSON.stringify(v15));
+
+  const v16 = await page.evaluate(() => {
+    if (!window.vaultlint.canDeleteLine) return { missing: true };
+    const files = [{ path: 'a.md', text: '[[c]]\n前置き [[c]]' }];
+    return {
+      only: window.vaultlint.canDeleteLine(files, 'a.md', 1),
+      mixed: window.vaultlint.canDeleteLine(files, 'a.md', 2),
+      plan: window.vaultlint.planFixes(files, [
+        { type: 'deleteLine', file: 'a.md', line: 1 },
+        { type: 'deleteLine', file: 'a.md', line: 2 },
+      ]),
+    };
+  });
+  r.check('VL-16（行削除はリンクだけの行のみ・混在行はスキップ理由つき）',
+    v16.only === true && v16.mixed === false
+    && v16.plan.writes.length === 1 && v16.plan.writes[0].after === '前置き [[c]]'
+    && v16.plan.skipped.length === 1 && v16.plan.skipped[0].reason.includes('リンク以外'),
+    JSON.stringify(v16));
+
+  const v17 = await page.evaluate(() => {
+    if (!window.vaultlint.planFixes) return [];
+    const files = [{ path: 'a.md', text: '説明 ![[img.png]] 続き\n![x](files/doc.pdf)' }];
+    const p = window.vaultlint.planFixes(files, [
+      { type: 'removeAttachment', file: 'a.md', line: 1, target: 'img.png' },
+      { type: 'removeAttachment', file: 'a.md', line: 2, target: 'files/doc.pdf' },
+    ]);
+    return p.writes;
+  });
+  r.check('VL-17（参照トークンのみ除去・行は残す）',
+    v17.length === 1 && v17[0].after === '説明 続き\n',
+    JSON.stringify(v17));
+
+  const v18 = await page.evaluate(() => {
+    if (!window.vaultlint.planFixes) return { missing: true, moves: [], writes: [], conflictSkipped: [] };
+    const files = [
+      { path: 'React  Vite.md', text: '本体' },
+      { path: 'note.md', text: '[[React  Vite]] と [[React  Vite|R]] と [[React  Vite#手順]]\n```\n[[React  Vite]]\n```' },
+    ];
+    const p = window.vaultlint.planFixes(files, [
+      { type: 'rename', from: 'React  Vite.md', to: 'React Vite.md' },
+    ]);
+    const conflict = window.vaultlint.planFixes(
+      files.concat([{ path: 'React Vite.md', text: '既存' }]),
+      [{ type: 'rename', from: 'React  Vite.md', to: 'React Vite.md' }]);
+    return { moves: p.moves, writes: p.writes, conflictSkipped: conflict.skipped };
+  });
+  r.check('VL-18（rename＋リンク元3種の追随・フェンス内は不変・衝突はスキップ）',
+    eq(v18.moves, [{ from: 'React  Vite.md', to: 'React Vite.md' }])
+    && v18.writes.length === 1
+    && v18.writes[0].after === '[[React Vite]] と [[React Vite|R]] と [[React Vite#手順]]\n```\n[[React  Vite]]\n```'
+    && v18.conflictSkipped.length === 1 && v18.conflictSkipped[0].reason.includes('既に存在'),
+    JSON.stringify(v18));
+
+  /* ========== VL-19: applyFixes のメモリ適用と外部変更スキップ（NFC 比較） ========== */
+  const v19 = await page.evaluate(async () => {
+    if (!window.vaultlint.applyFixes) return { missing: true, written: [], skipped: [] };
+    const files = [
+      { path: 'a.md', text: '[[c]]' },
+      { path: 'b.md', text: '[[c]]' },
+    ];
+    const plan = window.vaultlint.planFixes(files, [
+      { type: 'textify', file: 'a.md', line: 1, target: 'c' },
+      { type: 'textify', file: 'b.md', line: 1, target: 'c' },
+    ]);
+    const disk = new Map([['a.md', '[[c]]'], ['b.md', '外部で書き換わった']]);
+    const written = [];
+    const res = await window.vaultlint.applyFixes(files, plan, {
+      read: async p => (disk.has(p) ? disk.get(p) : null),
+      write: async (p, t) => { written.push([p, t]); },
+      move: async () => {},
+    });
+    return { written, skipped: res.skipped.map(s => [s.path, s.reason.slice(0, 8)]) };
+  });
+  r.check('VL-19（適用前の再読で外部変更を検知 — 変更されたファイルだけスキップ）',
+    v19.written.length === 1 && v19.written[0][0] === 'a.md' && v19.written[0][1] === 'c'
+    && v19.skipped.length === 1 && v19.skipped[0][0] === 'b.md',
+    JSON.stringify(v19));
+
   const u1 = await page.evaluate(async () => {
     window.__copied = null;
     navigator.clipboard.writeText = t => { window.__copied = t; return Promise.resolve(); };
