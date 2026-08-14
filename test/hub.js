@@ -119,6 +119,30 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     slash.focused && slash.prevented && slash.inFieldPrevented === false,
     JSON.stringify(slash));
 
+  /* ---------- カード全体がクリック可能（HUB-14） ---------- */
+  await page.click('ul.tool-list li .desc');   // ツール名リンクの外（説明文）をクリック
+  await page.waitForLoadState('load');
+  const cardNav = await page.title();
+  await page.goto(fileUrl('index.html'));
+  const cardSelectGuard = await page.evaluate(() => {
+    // テキスト選択中のクリック（選択して離した瞬間）では遷移しない
+    const li = document.querySelector('ul.tool-list li');
+    const desc = li.querySelector('.desc');
+    const range = document.createRange();
+    range.selectNodeContents(desc);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    let navigated = false;
+    li.querySelector('a').addEventListener('click', () => { navigated = true; }, { once: true });
+    desc.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    sel.removeAllRanges();
+    return navigated;
+  });
+  r.check('HUB-14（カードのどこを押しても開く・テキスト選択中は遷移しない）',
+    cardNav === 'Tasks (taskboard)' && cardSelectGuard === false,
+    JSON.stringify([cardNav, cardSelectGuard]));
+
   const typeSearch = async q => {
     await page.fill('#search', q);
     await page.waitForTimeout(80);

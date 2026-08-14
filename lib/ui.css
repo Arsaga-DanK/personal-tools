@@ -4,12 +4,12 @@
    検証への契約: .banner-<kind> の算出背景色は素の .banner と必ず異なる（bannerIs が照合）。 */
 
 :root {
-  --bg: #f7f5f2;
+  --bg: #faf9f7;
   --panel: #ffffff;
-  --text: #24211d;
-  --muted: #6d675f;
-  --border: #e3ddd4;
-  --accent: #d9480f;
+  --text: #191613;
+  --muted: #6f6759;
+  --border: #e7e1d8;
+  --accent: #ea580c;
   --accent-text: #ffffff;
   --error: #d13438;
   --success: #178344;
@@ -22,18 +22,18 @@
   --info-border: #6ba5f780;
   --success-bg: #e2f6e9;
   --success-border: #4ac26b80;
-  --shadow: 0 1px 2px rgba(28, 30, 38, .05), 0 4px 16px rgba(28, 30, 38, .06);
-  --shadow-hover: 0 2px 4px rgba(28, 30, 38, .08), 0 8px 24px rgba(28, 30, 38, .1);
+  --shadow: 0 1px 2px rgba(25, 22, 19, .05), 0 4px 16px rgba(25, 22, 19, .06);
+  --shadow-hover: 0 2px 4px rgba(234, 88, 12, .08), 0 8px 24px rgba(234, 88, 12, .14);
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #171512;
-    --panel: #201d19;
-    --text: #ece7e0;
-    --muted: #a49c90;
-    --border: #3a352d;
-    --accent: #ff9e4f;
-    --accent-text: #201d19;
+    --bg: #131110;
+    --panel: #1c1916;
+    --text: #f0ebe4;
+    --muted: #a89e90;
+    --border: #3b342b;
+    --accent: #ff7a1a;
+    --accent-text: #1c1310;
     --error: #ff8589;
     --success: #47c274;
     --th-bg: #232635;
@@ -46,7 +46,7 @@
     --success-bg: #152b20;
     --success-border: #3fb95080;
     --shadow: none;
-    --shadow-hover: none;
+    --shadow-hover: 0 0 0 1px rgba(255, 122, 26, .35), 0 4px 24px rgba(255, 122, 26, .16);
   }
 }
 
@@ -140,6 +140,7 @@ button.primary {
 button.primary:hover {
   color: var(--accent-text);
   background: color-mix(in srgb, var(--accent) 88%, var(--text));
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--accent) 40%, transparent);
 }
 button.copied { color: var(--success); border-color: var(--success); }
 button.primary.copied { background: var(--success); border-color: var(--success); color: #ffffff; }

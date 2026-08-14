@@ -22,6 +22,7 @@
     margin: 8px 0;
     box-shadow: var(--shadow);
     transition: box-shadow .15s, border-color .15s, transform .1s;
+    cursor: pointer;   /* カード全体がクリック可能（HUB-14） */
   }
   ul.tool-list li:hover {
     border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
@@ -133,6 +134,13 @@ function render(tools) {
         when.textContent = 'いつ使う: ' + t.when;
         li.appendChild(when);
       }
+      // カードのどこを押しても開く（HUB-14）。テキスト選択して離した瞬間は遷移しない
+      li.addEventListener('click', e => {
+        if (e.target.closest('a')) return;
+        const sel = window.getSelection();
+        if (sel && String(sel).length > 0) return;
+        a.click();
+      });
       ul.appendChild(li);
     }
     listEl.appendChild(ul);
