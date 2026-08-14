@@ -22,18 +22,22 @@
 </head>
 <body>
 <main class="app">
-  <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">このツールは何も保存・変更しません（読み取り専用）</span></p>
+  <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">検査は読み取りのみ。修復は選択して承認したときだけ書き込みます</span></p>
   <h1>Lint</h1>
-  <p class="subtitle">vault の健全性チェック — リンク切れ・添付消失・ファイル名の罠・重複ベース名を検出して報告</p>
+  <p class="subtitle">vault の健全性チェック — リンク切れ・添付消失・ファイル名の罠・Inbox のデイリーを検出し、承認した修復を実行</p>
 
   <div class="toolbar">
     <button class="primary" id="pick">vault フォルダを選択</button>
     <button id="rescan" hidden>再スキャン</button>
     <button id="copy-btn" hidden>報告をコピー</button>
+    <span class="spacer"></span>
+    <label class="toggle" id="commit-label" hidden title="修復の取り消し手段は git だけです。実行前に obsidian-git でコミットしてください"><input type="checkbox" id="commit-confirm"> obsidian-git でコミット済み</label>
+    <button id="fix-btn" hidden>選択した修復を実行</button>
     <span class="muted" id="env-note" hidden></span>
   </div>
 
   <div class="banner" id="banner" hidden></div>
+  <div id="runlog" class="issue-block" hidden></div>
   <p class="summary" id="summary"></p>
   <div id="results"></div>
 </main>
@@ -380,19 +384,64 @@ async function applyFixes(files, plan, adapter) {
 const el = id => document.getElementById(id);
 function showBanner(kind, text) { ToolUI.banner(el('banner'), kind, text); }
 
+// リネームの提案名（罠の文字を除去。空ベース名・変化なしは提案できない → null）
+function renameSuggestion(path, byPath) {
+  if (!byPath.has(path)) return null;   // フォルダは対象外（影響が大きすぎる — spec）
+  const slash = path.lastIndexOf('/');
+  const dir = slash >= 0 ? path.slice(0, slash + 1) : '';
+  const name = path.slice(slash + 1);
+  const dot = name.lastIndexOf('.');
+  if (dot <= 0) return null;            // 空ベース名（.md）等は自動提案しない
+  const ext = name.slice(dot);
+  const stem = name.slice(0, dot)
+    .replace(/\u00A0/g, ' ').replace(/\u3000/g, ' ').replace(/ {2,}/g, ' ').trim();
+  if (stem === '' || stem + ext === name) return null;
+  const to = dir + stem + ext;
+  return byPath.has(to) ? null : to;    // 既存と衝突する提案は出さない
+}
+
 const CLASS_DEFS = [
   { key: 'brokenLinks', title: 'リンク切れ', cols: ['ファイル', '行', 'ターゲット'],
     row: i => [i.file, String(i.line), i.target],
-    md: i => i.file + ':' + i.line + ' → ' + i.target },
+    md: i => i.file + ':' + i.line + ' → ' + i.target,
+    fix: (i, ctx) => ({
+      options: [{ value: 'textify', label: 'テキスト化（[[ ]] を外す）' }]
+        .concat(canDeleteLine(ctx.files, i.file, i.line) ? [{ value: 'deleteLine', label: '行ごと削除' }] : [])
+        .concat([{ value: 'none', label: 'しない' }]),
+      value: 'textify',
+    }),
+    selectionOf: (i, v) => (v === 'textify' ? { type: 'textify', file: i.file, line: i.line, target: i.target }
+      : v === 'deleteLine' ? { type: 'deleteLine', file: i.file, line: i.line } : null) },
   { key: 'missingAttachments', title: '添付消失', cols: ['ファイル', '行', 'ターゲット'],
     row: i => [i.file, String(i.line), i.target],
-    md: i => i.file + ':' + i.line + ' → ' + i.target },
+    md: i => i.file + ':' + i.line + ' → ' + i.target,
+    fix: () => ({
+      options: [{ value: 'none', label: 'しない' }, { value: 'remove', label: '参照を除去（行は残す）' }],
+      value: 'none',   // 内容が消えるため既定は選択しない（spec: 個別選択）
+    }),
+    selectionOf: (i, v) => (v === 'remove' ? { type: 'removeAttachment', file: i.file, line: i.line, target: i.target } : null) },
   { key: 'badNames', title: 'ファイル名の罠', cols: ['パス', '理由'],
     row: i => [i.path, i.reason],
-    md: i => i.path + ' — ' + i.reason },
+    md: i => i.path + ' — ' + i.reason,
+    fix: (i, ctx) => {
+      const to = renameSuggestion(i.path, ctx.byPath);
+      return to ? {
+        options: [{ value: 'rename', label: 'リネーム → ' + basenameOf(to) }, { value: 'none', label: 'しない' }],
+        value: 'rename', to,
+      } : null;
+    },
+    selectionOf: (i, v, conf) => (v === 'rename' ? { type: 'rename', from: i.path, to: conf.to } : null) },
   { key: 'dupBasenames', title: '重複ベース名', cols: ['ベース名', 'パス'],
     row: i => [i.base, i.paths.join(' , ')],
     md: i => i.base + ': ' + i.paths.join(', ') },
+  { key: 'inbox', title: 'Inbox 棚卸し（7日より古いデイリー）', cols: ['ファイル', '経過', '未転記タスク'],
+    row: i => [i.path, i.age + '日', i.pending ? i.pending + '件' : '—'],
+    md: i => i.path + '（' + i.age + '日' + (i.pending ? '・未転記 ' + i.pending + '件' : '') + '）',
+    fix: i => ({
+      options: [{ value: 'archive', label: '90_Archive/daily/ へ移動' }, { value: 'none', label: 'しない' }],
+      value: i.pending ? 'none' : 'archive',   // 未転記タスクが残るものは既定で動かさない
+    }),
+    selectionOf: (i, v) => (v === 'archive' ? { type: 'archiveDaily', from: i.path } : null) },
 ];
 
 let lastReport = '';
@@ -408,18 +457,28 @@ function buildReport(res) {
   return out.join('\n');
 }
 
-function render(res, excluded) {
+let lastScan = null;      // { files, excluded } — 修復の計画づくりが参照する
+let fixControls = [];     // 各行の修復セレクト（get() が selection か null を返す）
+
+function render(res, excluded, files) {
   const host = el('results');
   host.textContent = '';
+  fixControls = [];
   if (!res.ok) {
     showBanner('error', res.error);
     el('summary').textContent = '';
     el('copy-btn').hidden = true;
+    el('fix-btn').hidden = true;
+    el('commit-label').hidden = true;
     return;
   }
+  lastScan = { files: files || [], excluded };
+  const ctx = { files: lastScan.files, byPath: new Map(lastScan.files.map(f => [f.path, f])) };
   const total = CLASS_DEFS.reduce((n, d) => n + res.issues[d.key].length, 0);
   el('summary').textContent = 'ファイル ' + res.stats.files + '・ノート ' + res.stats.notes +
-    '・リンク ' + res.stats.links + '・除外 ' + excluded + ' ／ 問題 ' + total + ' 件';
+    '・リンク ' + res.stats.links + '・除外 ' + excluded +
+    (res.stats.inboxOthers ? '・Inbox の非デイリー ' + res.stats.inboxOthers + '件（/inbox-clean へ）' : '') +
+    ' ／ 問題 ' + total + ' 件';
   showBanner('warn', res.warnings.join(' / '));   // 空なら hidden
   for (const def of CLASS_DEFS) {
     const list = res.issues[def.key];
@@ -438,7 +497,7 @@ function render(res, excluded) {
       wrap.className = 'table-wrap';
       const table = document.createElement('table');
       const thead = document.createElement('tr');
-      for (const c of def.cols) {
+      for (const c of def.cols.concat(def.fix ? ['修復'] : [])) {
         const th = document.createElement('th');
         th.textContent = c;
         thead.appendChild(th);
@@ -451,6 +510,26 @@ function render(res, excluded) {
           td.textContent = v;
           tr.appendChild(td);
         }
+        if (def.fix) {
+          const td = document.createElement('td');
+          const conf = def.fix(item, ctx);
+          if (conf) {
+            const s = document.createElement('select');
+            s.className = 'fix-select';
+            for (const o of conf.options) {
+              const opt = document.createElement('option');
+              opt.value = o.value;
+              opt.textContent = o.label;
+              s.appendChild(opt);
+            }
+            s.value = conf.value;
+            td.appendChild(s);
+            fixControls.push({ get: () => def.selectionOf(item, s.value, conf) });
+          } else {
+            td.textContent = '—';
+          }
+          tr.appendChild(td);
+        }
         table.appendChild(tr);
       }
       wrap.appendChild(table);
@@ -460,6 +539,9 @@ function render(res, excluded) {
   }
   lastReport = buildReport(res);
   el('copy-btn').hidden = false;
+  const fixable = fixControls.length > 0;
+  el('fix-btn').hidden = !fixable;
+  el('commit-label').hidden = !fixable;
 }
 
 /* ========== FSA 走査（Chrome 系限定・読み取り専用） ========== */
@@ -495,11 +577,151 @@ async function runScan() {
   try {
     const { files, excluded } = await scanVault(dirHandle);
     showBanner('info', '');
-    render(lint(files), excluded);
+    render(lint(files, todayStr()), excluded, files);
+    currentAdapter = fsaAdapter(dirHandle);
+    // 二段階権限（最小権限）: 検査は read のまま、修復の実行時に初めて readwrite を要求する
+    requestWrite = async () =>
+      (await dirHandle.requestPermission({ mode: 'readwrite' })) === 'granted';
+    rescanFn = runScan;
     el('rescan').hidden = false;
   } catch (e) {
     showBanner('error', 'スキャンに失敗しました: ' + (e && e.message ? e.message : String(e)));
   }
+}
+
+function todayStr() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') +
+    '-' + String(d.getDate()).padStart(2, '0');
+}
+
+/* ---------- 修復の実行（掟②: 提案 → 承認 → 実行） ---------- */
+
+let currentAdapter = null;   // FSA / テスト用メモリ
+let requestWrite = null;     // 実行直前の権限昇格（FSA のみ）
+let rescanFn = null;
+
+async function getDirByPath(root, path, opts) {
+  const parts = path.split('/');
+  let dir = root;
+  for (let i = 0; i < parts.length - 1; i++) dir = await dir.getDirectoryHandle(parts[i], opts);
+  return { dir, name: parts[parts.length - 1] };
+}
+
+function fsaAdapter(root) {
+  return {
+    read: async p => {
+      try {
+        const { dir, name } = await getDirByPath(root, p);
+        const fh = await dir.getFileHandle(name);
+        return await (await fh.getFile()).text();
+      } catch (_) { return null; }
+    },
+    write: async (p, text) => {
+      const { dir, name } = await getDirByPath(root, p, { create: true });
+      const fh = await dir.getFileHandle(name, { create: true });
+      const w = await fh.createWritable();
+      await w.write(text);
+      await w.close();
+    },
+    // 移動は「コピー → サイズ検証 → 元を削除」の順（バイナリ安全・失敗時に元が残る）
+    move: async (from, to) => {
+      const src = await getDirByPath(root, from);
+      const srcFh = await src.dir.getFileHandle(src.name);
+      const file = await srcFh.getFile();
+      const dst = await getDirByPath(root, to, { create: true });
+      const dstFh = await dst.dir.getFileHandle(dst.name, { create: true });
+      const w = await dstFh.createWritable();
+      await w.write(file);
+      await w.close();
+      const back = await dstFh.getFile();
+      if (back.size !== file.size) throw new Error('コピー検証に失敗しました');
+      await src.dir.removeEntry(src.name);
+    },
+  };
+}
+
+function memoryAdapter(disk) {
+  return {
+    read: async p => (disk.has(p) ? disk.get(p) : null),
+    write: async (p, t) => { disk.set(p, t); },
+    move: async (from, to) => {
+      if (!disk.has(from)) throw new Error('見つかりません: ' + from);
+      if (disk.has(to)) throw new Error('移動先に同名があります: ' + to);
+      disk.set(to, disk.get(from));
+      disk.delete(from);
+    },
+  };
+}
+
+function buildRunLogMd(plan, results) {
+  const out = ['# vault-lint 実行ログ', '',
+    '書き換え ' + results.written.length + '・移動 ' + results.moved.length +
+    '・スキップ ' + results.skipped.length, ''];
+  for (const mv of results.moved) out.push('- 移動: ' + mv.from + ' → ' + mv.to);
+  for (const s of results.skipped) out.push('- スキップ: ' + (s.path || '') + ' — ' + s.reason);
+  out.push('');
+  // 変更前の内容を残す（git コミットが唯一の undo — 手元の復元素材として）
+  for (const w of plan.writes) {
+    if (!results.written.includes(w.path)) continue;
+    out.push('## 変更前: ' + w.path, '', '```', w.before, '```', '');
+  }
+  return out.join('\n');
+}
+
+function renderRunLog(plan, results) {
+  const host = el('runlog');
+  host.textContent = '';
+  host.hidden = false;
+  const h = document.createElement('h2');
+  h.textContent = '実行結果 — 書き換え ' + results.written.length + '・移動 ' +
+    results.moved.length + '・スキップ ' + results.skipped.length;
+  host.appendChild(h);
+  const ul = document.createElement('ul');
+  const li = t => {
+    const e = document.createElement('li');
+    e.textContent = t;
+    ul.appendChild(e);
+  };
+  for (const p of results.written) li('書き換え: ' + p);
+  for (const mv of results.moved) li('移動: ' + mv.from + ' → ' + mv.to);
+  for (const s of results.skipped) li('スキップ: ' + (s.path || '') + ' — ' + s.reason);
+  host.appendChild(ul);
+  const copy = document.createElement('button');
+  copy.type = 'button';
+  copy.textContent = 'ログをコピー（変更前の内容つき）';
+  const md = buildRunLogMd(plan, results);
+  copy.addEventListener('click', () => {
+    ToolUI.copy(md).then(ok => { if (ok) ToolUI.feedback(copy, '✓ コピーしました'); });
+  });
+  host.appendChild(copy);
+}
+
+async function executeFixes() {
+  if (!lastScan || !currentAdapter) return;
+  if (!el('commit-confirm').checked) {
+    showBanner('warn', '実行前に obsidian-git でコミットし、「コミット済み」にチェックを入れてください（取り消し手段は git だけです）');
+    return;
+  }
+  const selections = fixControls.map(c => c.get()).filter(Boolean);
+  if (!selections.length) { showBanner('info', '修復が選択されていません（各行の「修復」列で選べます）'); return; }
+  const plan = planFixes(lastScan.files, selections);
+  const targets = plan.writes.map(w => '書き換え: ' + w.path)
+    .concat(plan.moves.map(mv => '移動: ' + mv.from + ' → ' + mv.to));
+  const ok = window.confirm('次の変更を実行します（書き換え ' + plan.writes.length + '・移動 ' +
+    plan.moves.length + '・スキップ予定 ' + plan.skipped.length + '）:\n\n' +
+    targets.slice(0, 20).join('\n') + (targets.length > 20 ? '\n…ほか ' + (targets.length - 20) + '件' : '') +
+    '\n\n取り消しは git のみです。実行しますか？');
+  if (!ok) return;
+  if (requestWrite && !(await requestWrite())) {
+    showBanner('error', '書き込み権限が得られませんでした');
+    return;
+  }
+  showBanner('info', '実行中…');
+  const results = await applyFixes(lastScan.files, plan, currentAdapter);
+  renderRunLog(plan, results);
+  showBanner('info', '');
+  if (rescanFn) await rescanFn();
 }
 
 el('pick').addEventListener('click', async () => {
@@ -519,6 +741,7 @@ el('copy-btn').addEventListener('click', () => {
     else showBanner('info', 'コピーできませんでした');
   });
 });
+el('fix-btn').addEventListener('click', executeFixes);
 
 // showDirectoryPicker が無いブラウザ（Safari / Firefox）は理由を出して無効化
 if (!window.showDirectoryPicker) {
@@ -536,12 +759,21 @@ window.vaultlint = {
   applyFixes,
   canDeleteLine,
   test: {
-    // FSA を通さず、アダプタ層の除外 → lint → 描画まで通す（VL-U1〜U3）
-    run(files) {
-      const { kept, excluded } = excludeFiles(files);
-      const res = lint(kept);
-      render(res, excluded);
-      return res;
+    // FSA を通さず、アダプタ層の除外 → lint → 描画 → （実行ボタンは）メモリ適用まで通す
+    // （VL-U1〜U3・U5。today 省略時は Inbox 棚卸しなし = 旧テストの互換）
+    run(files, today) {
+      const disk = new Map(files.map(f => [f.path, typeof f.text === 'string' ? f.text : null]));
+      const scan = () => {
+        const fs = [...disk.entries()].map(([path, text]) => (text === null ? { path } : { path, text }));
+        const { kept, excluded } = excludeFiles(fs);
+        const res = lint(kept, today);
+        render(res, excluded, kept);
+        return res;
+      };
+      currentAdapter = memoryAdapter(disk);
+      requestWrite = null;
+      rescanFn = async () => { scan(); };
+      return scan();
     },
   },
 };

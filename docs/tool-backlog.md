@@ -34,7 +34,7 @@
 | **ddl2spec**（表示名 `Schema`） | DDL ⇔ テーブル定義書（Markdown表）の双方向変換 | 2026-08-06。spec は `docs/specs/ddl2spec.md`。字句解析は `lib/sql.js` を Convert と共有 |
 | devpad への追加タブ（SQL整形 / 正規表現 / 基数 / XML） | 既存タブと同じ「その場で1回変換したい」用途 | 2026-08-06。**タブは11個で打ち止め**（これ以上増やすなら検索または分割が必要） |
 | **doc2xl**（表示名 `Outline`） | Markdown 文書の見出し階層 → Excel 用の階層表（MD→Excel の一方向のみ。Excel→MD は表現モデルが違うため AI ＋ `_prompts/` の担当） | 2026-08-12。spec は `docs/specs/doc2xl.md`。着手ルールの「1回目でも着手」の初適用 |
-| **vaultlint**（表示名 `Lint`） | vault の健全性チェック（リンク切れ・添付消失・ファイル名の罠・重複ベース名。読み取り専用・報告のみ） | 2026-08-13。spec は `docs/specs/vaultlint.md`。根拠は vault の `_rules/backlog.md`（実務ペインの記録）。**lib/vault.js の抽出は見送り**（VL-Q2 — v1 はハンドル永続化を持たず、taskboard と共有できる部分が無い。実測が出たら再判断） |
+| **vaultlint**（表示名 `Lint`） | vault の健全性チェック＋承認式の修復（v1: 報告のみ 2026-08-13 → v2: 修復 2026-08-14。リンク切れのテキスト化・リネームのリンク追随・Inbox デイリーのアーカイブ移動） | spec は `docs/specs/vaultlint.md`。v2 の根拠は利用者の明示要望（「報告だけでは毎回手で直すことになる」）。**lib/vault.js の抽出は v2 でも見送り** — taskboard の書き込み（単一ファイル・読込時スナップショットと比較・競合 UI）と vaultlint の書き込み（一括・適用直前の再読と比較・スキップ方式）は**構造が違い、無理に共有すると引数が肥大する**。同じ修正を両方に入れた実測が出たら再判断 |
 
 ### 候補（トリガー待ち）
 

@@ -278,7 +278,44 @@ const IDEO_SPACE = '\u3000';
     };
   });
   r.check('VL-U3（健全な vault は全クラス「問題なし」）',
-    u3.summary.includes('問題 0 件') && u3.okCount === 4, JSON.stringify(u3));
+    u3.summary.includes('問題 0 件') && u3.okCount === 5, JSON.stringify(u3));   // Inbox 棚卸しで5クラス
+
+  /* ========== VL-U5: 修復の UI フロー（選択 → コミット確認 → 実行 → ログ → 再スキャン） ========== */
+  const u5 = await page.evaluate(async () => {
+    if (!document.getElementById('fix-btn')) return { missing: true };
+    window.confirm = () => true;
+    window.vaultlint.test.run([
+      { path: 'a.md', text: '[[c]]' },
+      { path: 'b.md', text: '' },
+    ], '2026-08-14');
+    const sel = document.querySelector('select.fix-select');
+    const before = {
+      hasSelect: !!sel,
+      fixBtnHidden: document.getElementById('fix-btn').hidden,
+      options: sel ? Array.from(sel.options).map(o => o.value) : [],
+    };
+    // コミット確認なしの実行は warn で止まる
+    document.getElementById('commit-confirm').checked = false;
+    document.getElementById('fix-btn').click();
+    await new Promise(d => setTimeout(d, 60));
+    const guardMsg = document.getElementById('banner').textContent;
+    // 行削除を選んで実行
+    sel.value = 'deleteLine';
+    document.getElementById('commit-confirm').checked = true;
+    document.getElementById('fix-btn').click();
+    await new Promise(d => setTimeout(d, 150));
+    return {
+      before, guardMsg,
+      log: document.getElementById('runlog').textContent,
+      summary: document.getElementById('summary').textContent,
+    };
+  });
+  r.check('VL-U5（選択式修復: ガード → 実行 → ログ → 再スキャンで問題0件）',
+    !u5.missing && u5.before.hasSelect && u5.before.fixBtnHidden === false
+    && u5.before.options.includes('textify') && u5.before.options.includes('deleteLine')
+    && u5.guardMsg.includes('コミット')
+    && u5.log.includes('書き換え 1') && u5.summary.includes('問題 0 件'),
+    JSON.stringify(u5));
 
   /* ========== VL-U4: 幅390px ========== */
   await page.setViewportSize({ width: 390, height: 800 });
