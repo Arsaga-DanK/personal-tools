@@ -2363,6 +2363,55 @@ const F5 = [
     && r2324.popoverHidden,
     JSON.stringify([r2324.modalOpen, r2324.content, r2324.popoverHidden]));
 
+  // TB-W1: 週報の期間計算（月曜始まり）
+  const w1 = await page.evaluate(() => {
+    if (!window.taskboard.weekRange) return { missing: true };
+    return {
+      thisW: window.taskboard.weekRange('2026-08-14', 'this'),
+      lastW: window.taskboard.weekRange('2026-08-14', 'last'),
+      monday: window.taskboard.weekRange('2026-08-10', 'this'),
+    };
+  });
+  r.check('TB-WR1（週報の期間: 月曜始まり・今週/先週・月曜当日は1日）',
+    !w1.missing
+    && eq(w1.thisW, { from: '2026-08-10', to: '2026-08-14' })
+    && eq(w1.lastW, { from: '2026-08-03', to: '2026-08-09' })
+    && eq(w1.monday, { from: '2026-08-10', to: '2026-08-10' }),
+    JSON.stringify(w1));
+
+  // TB-W2: 週報コピーの内容（UI 経路。完了＋✅ が期間内のものだけ・セクション別・0件は該当なし）
+  const w2 = await page.evaluate((today) => {
+    if (!document.getElementById('btn-weekly')) return { missing: true };
+    window.taskboard.test.setToday(today);
+    const f = ['# tasks', '', '## PEW', '',
+      '- [x] 今週やった ✅ 2026-08-12',
+      '- [x] 先週やった ✅ 2026-08-05',
+      '- [x] 日付なし完了',
+      '- [-] 中止した',
+      '- [ ] 未完了',
+      '', '## UL', '',
+      '- [x] レビュー ✅ 2026-08-11',
+      '', ''].join('\n');
+    window.taskboard.test.newSession(f);
+    const caps = [];
+    navigator.clipboard.writeText = t => { caps.push(t); return Promise.resolve(); };
+    document.getElementById('wr-period').value = 'this';
+    document.getElementById('btn-weekly').click();
+    document.getElementById('wr-period').value = 'last';
+    document.getElementById('btn-weekly').click();
+    // 0件の期間（完了なしのセッション）
+    window.taskboard.test.newSession(['# tasks', '', '## PEW', '', '- [ ] 未着手', '', ''].join('\n'));
+    document.getElementById('wr-period').value = 'this';
+    document.getElementById('btn-weekly').click();
+    return { caps };
+  }, '2026-08-14');
+  r.check('TB-WR2（週報: 期間内の完了だけ・セクション別・先週切替・0件は該当なし）',
+    !w2.missing
+    && w2.caps[0] === '【完了タスク】2026-08-10〜2026-08-14（2件）\n\n■PEW\n・今週やった（08/12）\n\n■UL\n・レビュー（08/11）'
+    && w2.caps[1] === '【完了タスク】2026-08-03〜2026-08-09（1件）\n\n■PEW\n・先週やった（08/05）'
+    && w2.caps[2] === '【完了タスク】2026-08-10〜2026-08-14（0件）\n・該当なし',
+    JSON.stringify(w2.caps));
+
   /* ========== TB-R1〜R8: 依存関係の記法とバイト保全（Phase T6・2026-08-12） ==========
      記法は Obsidian Tasks の標準。トークン順は 本文 → 🆔 → ⛔ → 優先度 → 🛫 → 📅 → ✅ */
   const F12 = [

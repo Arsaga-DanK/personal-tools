@@ -243,6 +243,11 @@
       </select></label>
     </span>
     <span class="spacer"></span>
+    <select id="wr-period" title="週報の期間（月曜始まり）">
+      <option value="this" selected>今週</option>
+      <option value="last">先週</option>
+    </select>
+    <button id="btn-weekly" title="期間内に完了（✅）したタスクをセクション別にコピー — Teams の日報・週次に貼る用">週報コピー</button>
     <button id="btn-copy">Excel用コピー</button>
     <button id="btn-copy-all" hidden>全文コピー</button>
     <button id="btn-archive" disabled>完了をアーカイブ</button>
@@ -3688,6 +3693,41 @@ const TSV_STATE = { done: '済', cancelled: '中止', hold: '保留', doing: '�
 const tsvState = (status) => TSV_STATE[status] || '未';
 
 // リストビュー用。表に開始日列があるので TSV にも入れる（画面と出力を食い違わせない。TB-Q14）
+/* ---------- 週報コピー（TB-WR1/WR2）。要約は AI の領分 — ここは機械的な抽出だけ ---------- */
+
+// 週の範囲（月曜始まり）。which = 'this'（直近の月曜〜今日）| 'last'（その前の月〜日）
+function weekRange(today, which) {
+  const d = dayNum(today);
+  const monday = d - ((d + 3) % 7);   // 1970-01-01（day 0）は木曜 → +3 で月曜=0
+  const from = which === 'last' ? monday - 7 : monday;
+  const to = which === 'last' ? monday - 1 : d;
+  return { from: addDays(today, from - d), to: addDays(today, to - d) };
+}
+
+// 完了（DONE）かつ ✅ が期間内のタスクをセクション別（ファイル出現順）に列挙。
+// 中止・✅ の無い完了は含めない（どの週の成果か言えないため）
+function buildWeeklyReport(tasks, from, to) {
+  const done = tasks.filter(t =>
+    t.status === ST_DONE && t.doneDate && t.doneDate >= from && t.doneDate <= to);
+  const head = '【完了タスク】' + from + '〜' + to + '（' + done.length + '件）';
+  if (!done.length) return head + '\n・該当なし';
+  const secs = [];
+  const bySec = new Map();
+  for (const t of done) {
+    const s = t.section || 'その他';
+    if (!bySec.has(s)) { bySec.set(s, []); secs.push(s); }
+    bySec.get(s).push(t);
+  }
+  const out = [head];
+  for (const s of secs) {
+    out.push('', '■' + s);
+    for (const t of bySec.get(s)) {
+      out.push('・' + (t.displayBody || t.body) + '（' + t.doneDate.slice(5).replace('-', '/') + '）');
+    }
+  }
+  return out.join('\n');
+}
+
 function buildTsv(rows) {
   const out = ['状態\t内容\t開始日\t期限\t優先度\tタグ\tセクション']; // ヘッダー行（TB-Q4 決定）
   for (const t of rows) {
@@ -3834,6 +3874,11 @@ el('btn-copy').addEventListener('click', () => {
   if (!state.visibleRows.length) { copyFeedback(btn, false, '出力がありません'); return; }
   copyText(buildTsv(state.visibleRows), btn);
 });
+// 週報コピー（TB-WR2）。対象は全タスク — 絞り込み・「終了を含む」OFF の影響を受けない
+el('btn-weekly').addEventListener('click', () => {
+  const r = weekRange(todayStr(), el('wr-period').value);
+  copyText(buildWeeklyReport(state.doc.tasks, r.from, r.to), el('btn-weekly'));
+});
 el('btn-copy-all').addEventListener('click', () => {
   if (!state.loaded) return;
   copyText(joinLines(state.lines), el('btn-copy-all'));
@@ -3842,6 +3887,7 @@ el('btn-copy-all').addEventListener('click', () => {
 /* ---------- テストフック（spec 検証用） ---------- */
 
 window.taskboard = {
+  weekRange, buildWeeklyReport,
   test: {
     applyOps: applyOpsPure,
     timelineModel: timelineModel,
