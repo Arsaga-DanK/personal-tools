@@ -539,7 +539,13 @@ const shotPath = name => path.join(REPO, '.playwright-mcp', name); // .gitignore
   if (SHOTS) await dark.locator('#preview-section').screenshot({ path: shotPath('excel2md-sticky-dark.png') });
   r.check('E2M-P23（sticky）', sticky.scrolled && sticky.stuck && sticky.headerScrolledAway
     && sticky.shadow.includes('inset'), JSON.stringify(sticky));
-  r.check('E2M-P24（ダークモード）', sticky.pageBg === 'rgb(13, 17, 23)' && sticky.thBg === 'rgb(33, 38, 45)'
+  // 色値はピンで固定しない（パレット刷新で偽 fail する）。「暗色でヘッダーが判別できる」を照合する
+  const lum = rgb => {
+    const m = /rgb\((\d+), (\d+), (\d+)\)/.exec(rgb);
+    return m ? (0.2126 * m[1] + 0.7152 * m[2] + 0.0722 * m[3]) / 255 : 1;
+  };
+  r.check('E2M-P24（ダークモード: 背景・ヘッダーとも暗色で互いに異なる）',
+    lum(sticky.pageBg) < 0.3 && lum(sticky.thBg) < 0.3 && sticky.pageBg !== sticky.thBg
     && sticky.rightAligned === 'right' && sticky.noHScroll, JSON.stringify(sticky));
 
   await browser.close();

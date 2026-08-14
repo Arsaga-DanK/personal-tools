@@ -1,47 +1,52 @@
-/* lib/ui.css — 全ブラウザツール共通の最小スタイル
+/* lib/ui.css — 全ブラウザツール共通スタイル（2026-08-14 モダン化。クラス名・トークン名は不変）
    構成: トークン層（:root 変数 + ダークモード）→ コンポーネント層。
-   ツール側 <style> はコンテンツ描画専用とし、ここで定義したクラスを再定義しない。 */
+   ツール側 <style> はコンテンツ描画専用とし、ここで定義したクラスを再定義しない。
+   検証への契約: .banner-<kind> の算出背景色は素の .banner と必ず異なる（bannerIs が照合）。 */
 
 :root {
-  --bg: #f6f7f9;
+  --bg: #f3f4fa;
   --panel: #ffffff;
-  --text: #1f2328;
-  --muted: #6a737d;
-  --border: #d0d7de;
-  --accent: #0969da;
+  --text: #1c1e26;
+  --muted: #6b7280;
+  --border: #dfe2ec;
+  --accent: #5b5bd6;
   --accent-text: #ffffff;
-  --error: #cf222e;
-  --success: #1a7f37;
-  --th-bg: #f0f3f6;
-  --warn-bg: #fff8c5;
-  --warn-border: #d4a72c;
-  --error-bg: #ffebe9;
-  --error-border: #ff818266;
-  --info-bg: #ddf4ff;
-  --info-border: #54aeff66;
-  --success-bg: #dafbe1;
-  --success-border: #4ac26b66;
+  --error: #d13438;
+  --success: #178344;
+  --th-bg: #eef0f8;
+  --warn-bg: #fdf3d7;
+  --warn-border: #e3b341;
+  --error-bg: #fdebec;
+  --error-border: #f1707480;
+  --info-bg: #e7f1fe;
+  --info-border: #6ba5f780;
+  --success-bg: #e2f6e9;
+  --success-border: #4ac26b80;
+  --shadow: 0 1px 2px rgba(28, 30, 38, .05), 0 4px 16px rgba(28, 30, 38, .06);
+  --shadow-hover: 0 2px 4px rgba(28, 30, 38, .08), 0 8px 24px rgba(28, 30, 38, .1);
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0d1117;
-    --panel: #161b22;
-    --text: #e6edf3;
-    --muted: #8b949e;
-    --border: #30363d;
-    --accent: #388bfd;
-    --accent-text: #ffffff;
-    --error: #ff7b72;
-    --success: #3fb950;
-    --th-bg: #21262d;
-    --warn-bg: #3a2d12;
+    --bg: #12131a;
+    --panel: #1b1d27;
+    --text: #e8eaf2;
+    --muted: #9299ab;
+    --border: #303345;
+    --accent: #8a8af0;
+    --accent-text: #12131a;
+    --error: #ff8589;
+    --success: #47c274;
+    --th-bg: #232635;
+    --warn-bg: #3a2f14;
     --warn-border: #9e6a03;
-    --error-bg: #3c1618;
-    --error-border: #f8514966;
-    --info-bg: #0c2d6b;
-    --info-border: #388bfd66;
-    --success-bg: #12261e;
-    --success-border: #3fb95066;
+    --error-bg: #3d1a1e;
+    --error-border: #f8514980;
+    --info-bg: #1a2b4d;
+    --info-border: #6a8fef80;
+    --success-bg: #152b20;
+    --success-border: #3fb95080;
+    --shadow: none;
+    --shadow-hover: none;
   }
 }
 
@@ -56,6 +61,7 @@ body {
   background: var(--bg);
   color: var(--text);
   line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
 }
 
 main.app { max-width: 900px; margin: 0 auto; padding: 24px 16px 64px; }
@@ -63,12 +69,28 @@ main.app-wide { max-width: 1200px; margin: 0 auto; padding: 24px 16px 64px; }
 
 /* ツール共通ヘッダー（ハブへ戻る導線＋自動保存の注記） */
 .tool-header { display: flex; align-items: baseline; gap: 12px; font-size: 13px; margin: 0 0 4px; }
-.tool-header a { color: var(--accent); text-decoration: none; }
-.tool-header a:hover { text-decoration: underline; }
+.tool-header a {
+  color: var(--accent);
+  text-decoration: none;
+  padding: 2px 8px;
+  margin-left: -8px;
+  border-radius: 999px;
+  transition: background .15s;
+}
+.tool-header a:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .tool-header .autosave-note { margin-left: auto; color: var(--muted); font-size: 12px; }
 
-h1 { font-size: 22px; margin: 0; }
-.subtitle { color: var(--muted); margin: 2px 0 20px; font-size: 13px; }
+h1 {
+  font-size: 24px;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+  margin: 0;
+  background: linear-gradient(120deg, var(--text) 30%, var(--accent) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.subtitle { color: var(--muted); margin: 4px 0 20px; font-size: 13px; }
 h2 { font-size: 15px; margin: 28px 0 8px; }
 
 /* ツールバー・オプション行 */
@@ -81,8 +103,9 @@ h2 { font-size: 15px; margin: 28px 0 8px; }
   padding: 10px 14px;
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 12px;
   font-size: 14px;
+  box-shadow: var(--shadow);
 }
 .toolbar .spacer { flex: 1; }
 .opts { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; font-size: 13px; }
@@ -91,25 +114,45 @@ button {
   font: inherit;
   font-size: 13px;
   padding: 5px 12px;
-  border-radius: 6px;
+  border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--panel);
   color: var(--text);
   cursor: pointer;
+  transition: border-color .15s, background .15s, box-shadow .15s, transform .06s, color .15s;
 }
-button:hover { border-color: var(--accent); }
+button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: var(--shadow);
+  transform: translateY(-1px);
+}
+button:active { transform: translateY(0); box-shadow: none; }
+button:disabled {
+  opacity: .5;
+  cursor: default;
+  transform: none;
+  box-shadow: none;
+}
+button:disabled:hover { border-color: var(--border); color: var(--text); }
 button.primary {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-text);
+  font-weight: 600;
+}
+button.primary:hover {
+  color: var(--accent-text);
+  background: color-mix(in srgb, var(--accent) 88%, var(--text));
 }
 button.copied { color: var(--success); border-color: var(--success); }
-button.primary.copied { background: var(--success); border-color: var(--success); color: var(--accent-text); }
+button.primary.copied { background: var(--success); border-color: var(--success); color: #ffffff; }
 /* サンプル投入ボタン（ペイン見出しに並ぶ小さいボタン。CM-6）。
    5ツールで同一定義だったのでここへ集約した（2026-08-07） */
-.sample-btn { font-size: 11px; padding: 1px 8px; margin-left: 6px; }
+.sample-btn { font-size: 11px; padding: 1px 8px; margin-left: 6px; border-radius: 999px; }
 
 label.toggle { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+label.toggle input[type="checkbox"], label.toggle input[type="radio"] { accent-color: var(--accent); }
 
 /* キーボードフォーカスの可視化（offset で要素の外側に描き、primary ボタン上でも背景との隙間で判別できる） */
 button:focus-visible, a:focus-visible, select:focus-visible,
@@ -118,15 +161,17 @@ input:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
   outline-offset: 2px;
 }
 
-select, input[type="text"], input[type="number"] {
+select, input[type="text"], input[type="number"], input[type="search"], input[type="date"] {
   font: inherit;
   font-size: 13px;
   padding: 4px 8px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
   background: var(--panel);
   color: var(--text);
+  transition: border-color .15s, box-shadow .15s;
 }
+select:hover, input:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
 
 /* 2ペインレイアウト */
 .panes {
@@ -139,7 +184,7 @@ select, input[type="text"], input[type="number"] {
   .panes { grid-template-columns: 1fr; }
 }
 .pane { display: flex; flex-direction: column; min-width: 0; }
-.pane-title { font-size: 13px; color: var(--muted); margin: 0 0 6px 2px; }
+.pane-title { font-size: 13px; color: var(--muted); margin: 0 0 6px 2px; font-weight: 600; }
 .pane textarea { flex: 1; }
 
 textarea {
@@ -150,10 +195,16 @@ textarea {
   line-height: 1.5;
   padding: 10px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 12px;
   background: var(--panel);
   color: var(--text);
   resize: vertical;
+  transition: border-color .15s, box-shadow .15s;
+  box-shadow: var(--shadow);
+}
+textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
 /* バナー（警告・エラー・情報）
@@ -165,17 +216,17 @@ textarea {
 .banner {
   margin: 10px 0;
   padding: 8px 12px;
-  border-radius: 8px;
+  border-radius: 10px;
   font-size: 13px;
   border: 1px solid var(--border);
+  border-left-width: 4px;
   background: var(--panel);
 }
 .banner-warn { background: var(--warn-bg); border-color: var(--warn-border); }
 .banner-error { background: var(--error-bg); border-color: var(--error-border); color: var(--error); }
 .banner-info { background: var(--info-bg); border-color: var(--info-border); }
-/* banner-success は上のコメントで正式な種別として挙げているのに規則が無く、成功バナーが
-   中立の灰色で出ていた（落ちも警告も出ないので気づけない。2026-08-07 のリファクタ監査で発見）。
-   使用箇所: taskboard のアーカイブ成功・ファイル読込成功、ddl2spec のコピー成功 */
+/* banner-success は正式な種別（規則が無く灰色で出ていた事故が 2026-08-07 にあった — 消さないこと）。
+   使用箇所: taskboard のアーカイブ成功・ファイル読込成功ほか */
 .banner-success { background: var(--success-bg); border-color: var(--success-border); }
 
 /* タブ */
@@ -189,17 +240,20 @@ textarea {
 .tabs button {
   border: 1px solid transparent;
   border-bottom: none;
-  border-radius: 6px 6px 0 0;
+  border-radius: 8px 8px 0 0;
   background: transparent;
   color: var(--muted);
   padding: 6px 14px;
+  box-shadow: none;
+  transform: none;
 }
-.tabs button:hover { color: var(--text); }
+.tabs button:hover { color: var(--accent); transform: none; box-shadow: none; }
 .tabs button.active {
   background: var(--panel);
   border-color: var(--border);
-  color: var(--text);
-  font-weight: 600;
+  color: var(--accent);
+  font-weight: 650;
+  box-shadow: inset 0 2px 0 var(--accent);
 }
 .tabs button.tab-error { color: var(--error); }
 

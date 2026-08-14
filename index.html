@@ -8,20 +8,30 @@
 <link rel="stylesheet" href="lib/ui.css">
 <style>
   /* ハブ固有のコンテンツ描画スタイル（ui.css クラスの再定義はしない） */
-  #search { width: 100%; max-width: 420px; padding: 8px 12px; font-size: 14px; }
-  .category-title { font-size: 14px; color: var(--muted); margin: 24px 0 6px; font-weight: 600; }
+  #search { width: 100%; max-width: 420px; padding: 9px 14px; font-size: 14px; border-radius: 999px; }
+  .category-title {
+    font-size: 12px; color: var(--muted); margin: 26px 0 8px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .08em;
+  }
   ul.tool-list { list-style: none; margin: 0; padding: 0; }
   ul.tool-list li {
     background: var(--panel);
     border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 10px 14px;
-    margin: 6px 0;
+    border-radius: 12px;
+    padding: 12px 16px;
+    margin: 8px 0;
+    box-shadow: var(--shadow);
+    transition: box-shadow .15s, border-color .15s, transform .1s;
   }
-  ul.tool-list a { color: var(--accent); font-weight: 600; text-decoration: none; }
+  ul.tool-list li:hover {
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+    box-shadow: var(--shadow-hover);
+    transform: translateY(-1px);
+  }
+  ul.tool-list a { color: var(--accent); font-weight: 650; font-size: 15px; text-decoration: none; }
   ul.tool-list a:hover { text-decoration: underline; }
   ul.tool-list .desc { color: var(--muted); font-size: 13px; margin-left: 8px; }
-  ul.tool-list .when { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  ul.tool-list .when { color: var(--muted); font-size: 12px; margin-top: 4px; }
   #empty-msg { color: var(--muted); margin-top: 24px; }
 </style>
 </head>
