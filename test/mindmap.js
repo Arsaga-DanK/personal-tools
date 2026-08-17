@@ -67,6 +67,18 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
       JSON.stringify(mm03));
   }
 
+  if (ready) {
+    /* ========== MM-04: md リスト（記号で階層+1・字下げ幅の自動検出） ========== */
+    const mm04 = await page.evaluate(() => {
+      const input = ['テーマ', '- 枝A', '    - 葉A1', '- 枝B'].join('\n');
+      return window.mindmap.buildMindmapDsl(input);
+    });
+    const want04 = ['mindmap', '  root((テーマ))', '    枝A', '      葉A1', '    枝B'].join('\n');
+    r.check('MM-04（md リスト: 記号が外れ階層+1・4スペース字下げを自動検出・警告なし）',
+      mm04.dsl === want04 && mm04.warnings.length === 0,
+      JSON.stringify(mm04));
+  }
+
   /* ========== MM-U1: 自動保存（pagehide フラッシュ → reload） ========== */
   await page.evaluate(() => {
     const input = document.getElementById('input');
@@ -109,6 +121,31 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     document.documentElement.scrollWidth <= document.documentElement.clientWidth);
   await page.setViewportSize({ width: 1280, height: 900 });
   r.check('MM-U3（幅390pxで横スクロールなし）', u3 === true, String(u3));
+
+  /* ========== MM-U4: Tab=インデント（lib/edit.js） ========== */
+  const u4m = await page.evaluate(() => {
+    const ta = document.getElementById('input');
+    if (!window.ToolEdit) return { missing: true };
+    ta.value = 'A';
+    ta.focus();
+    ta.selectionStart = ta.selectionEnd = 1;
+    const ev = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    ta.dispatchEvent(ev);
+    const afterTab = { v: ta.value, prevented: ev.defaultPrevented };
+    ta.value = '\tB';
+    ta.selectionStart = ta.selectionEnd = 2;
+    const ev2 = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true });
+    ta.dispatchEvent(ev2);
+    const afterShift = ta.value;
+    ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    const ev3 = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    ta.dispatchEvent(ev3);
+    return { afterTab, afterShift, escPass: !ev3.defaultPrevented };
+  });
+  r.check('MM-U4（Tab=インデント・Shift+Tab=戻す・Esc→Tab は素通し）',
+    !u4m.missing && u4m.afterTab.v === 'A\t' && u4m.afterTab.prevented === true
+    && u4m.afterShift === 'B' && u4m.escPass === true,
+    JSON.stringify(u4m));
 
   /* ========== ハブ導線 ========== */
   await page.goto(fileUrl('index.html'));

@@ -73,6 +73,7 @@
 
 <script src="../lib/ui.js"></script>
 <script src="../lib/storage.js"></script>
+<script src="../lib/edit.js"></script>
 <script>
 'use strict';
 
@@ -358,6 +359,8 @@ $id('biz-copy').addEventListener('click', () => {
 });
 
 ToolStorage.mountWarning();
+
+ToolEdit.mountTodayShortcut();   // Ctrl/Cmd+; = 今日（date input に効く — lib/edit.js）
 
 // テスト用フック（docs/specs/dates.md）
 window.dates = {

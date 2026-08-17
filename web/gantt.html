@@ -47,6 +47,7 @@
 
 <script src="../lib/ui.js"></script>
 <script src="../lib/storage.js"></script>
+<script src="../lib/edit.js"></script>
 <script src="../lib/vendor/mermaid.min.js"></script>
 <script src="../lib/mmd.js"></script>
 <script>
@@ -235,6 +236,9 @@ restore();
 updateSampleBtn();
 if (el('input').value !== '') render(el('input').value);
 ToolStorage.mountWarning();
+
+ToolEdit.tabIndent(el('input'));      // Tab=インデント（lib/edit.js — coding-rules）
+ToolEdit.mountTodayShortcut();        // Ctrl/Cmd+; = 今日
 
 // テスト用フック（docs/specs/gantt.md）
 window.gantt = {

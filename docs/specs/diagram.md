@@ -45,6 +45,7 @@ localStorage キーはすべて diagram。命名規約の「英名」はこち�
 | DG-U2 | ［PNG をコピー］（`clipboard.write` スタブ） | ClipboardItem の types に `image/png`・✓ 表示・実クリップボードに書かない |
 | DG-U3 | サンプル投入 | 入力が空のときだけ表示・投入で図が描かれる |
 | DG-U4 | 幅390px | ページの横スクロールなし |
+| DG-U5 | textarea で Tab / Esc→Tab | インデント挿入（フォーカスを奪われない）/ 素通し（lib/edit.js） |
 
 ハブ導線: カテゴリ「設計」に載り、title は `Draw Diagram (diagram)`。
 

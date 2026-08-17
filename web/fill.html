@@ -47,6 +47,7 @@
 
 <script src="../lib/ui.js"></script>
 <script src="../lib/storage.js"></script>
+<script src="../lib/edit.js"></script>
 <script>
 'use strict';
 
@@ -222,6 +223,8 @@ rebuildForm();
 recalc();
 updateSampleBtn();
 ToolStorage.mountWarning();
+
+ToolEdit.mountTodayShortcut();   // Ctrl/Cmd+; = 今日（日報の日付 — lib/edit.js）
 
 // テスト用フック（docs/specs/fill.md）
 window.fill = { parseVars, render };

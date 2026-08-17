@@ -60,6 +60,7 @@ svgInfo() → {present, nodes} }`
 | GN-U1 | 入力とチェック変更 → pagehide → reload | 両方復元（`tools:gantt` envelope）・再描画 |
 | GN-U2 | ［PNG をコピー］（`clipboard.write` スタブ） | ClipboardItem の types に `image/png`・✓ 表示 |
 | GN-U3 | 幅390px | ページの横スクロールなし |
+| GN-U4 | textarea で Ctrl/Cmd+; | キャレット位置に今日の日付（YYYY-MM-DD）が入る（lib/edit.js。Tab=インデントも適用） |
 
 ハブ導線: カテゴリ「PM」に載り、title は `Draw Gantt (gantt)`。
 

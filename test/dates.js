@@ -187,6 +187,23 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
   await page.setViewportSize({ width: 1280, height: 900 });
   r.check('DT-U5（幅390pxで横スクロールなし）', u5 === true, String(u5));
 
+  /* ========== DT-U7: 日付入力欄に Ctrl/Cmd+; で今日（lib/edit.js） ========== */
+  const u7d = await page.evaluate(() => {
+    if (!window.ToolEdit) return { missing: true };
+    const inp = document.getElementById('biz-date');
+    inp.value = '2020-01-01';
+    inp.dispatchEvent(new Event('input', { bubbles: true }));
+    inp.focus();
+    const ev = new KeyboardEvent('keydown', { key: ';', metaKey: true, bubbles: true, cancelable: true });
+    inp.dispatchEvent(ev);
+    return { v: inp.value, prevented: ev.defaultPrevented,
+             result: document.getElementById('biz-result').textContent };
+  });
+  r.check('DT-U7（Ctrl/Cmd+; で今日がセットされ再計算される）',
+    !u7d.missing && /^\d{4}-\d{2}-\d{2}$/.test(u7d.v) && u7d.v !== '2020-01-01'
+    && u7d.prevented === true && u7d.result.includes('→'),
+    JSON.stringify(u7d));
+
   /* ========== ハブ導線 ========== */
   await page.goto(fileUrl('index.html'));
   const hubCats = await page.evaluate(() =>

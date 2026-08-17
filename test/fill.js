@@ -159,6 +159,22 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
   await page.setViewportSize({ width: 1280, height: 900 });
   r.check('FL-U5（幅390pxで横スクロールなし）', u5 === true, String(u5));
 
+  /* ========== FL-U8: テンプレ欄で Ctrl/Cmd+; が今日を挿入（lib/edit.js） ========== */
+  const u8f = await page.evaluate(() => {
+    if (!window.ToolEdit) return { missing: true };
+    const ta = document.getElementById('template');
+    ta.value = '日付: ';
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    ta.focus();
+    ta.selectionStart = ta.selectionEnd = ta.value.length;
+    const ev = new KeyboardEvent('keydown', { key: ';', metaKey: true, bubbles: true, cancelable: true });
+    ta.dispatchEvent(ev);
+    return { v: ta.value, prevented: ev.defaultPrevented };
+  });
+  r.check('FL-U8（Ctrl/Cmd+; でキャレット位置に今日の日付）',
+    !u8f.missing && /^日付: \d{4}-\d{2}-\d{2}$/.test(u8f.v) && u8f.prevented === true,
+    JSON.stringify(u8f));
+
   /* ========== ハブ導線 ========== */
   await page.goto(fileUrl('index.html'));
   await page.click('ul.tool-list a:text-is("Fill Template")');

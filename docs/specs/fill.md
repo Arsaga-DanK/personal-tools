@@ -56,6 +56,7 @@ render(text, values) → { output, missing: [未入力の名前] } }`
 | FL-U5 | 幅390px | ページの横スクロールなし |
 | FL-U6 | Cmd/Ctrl+Enter（writeText スタブ） | ［結果をコピー］が発火し ✓ 表示 |
 | FL-U7 | テンプレを空に → サンプル投入 | 空のときだけサンプルボタンが見え、投入で出力とフォームまで埋まる（ボタンは隠れる） |
+| FL-U8 | テンプレ欄で Ctrl/Cmd+; | キャレット位置に今日の日付が入る（lib/edit.js — 日報の日付を手打ちしない） |
 
 ハブ導線: カテゴリ「変換・比較」に載り、title は `Fill Template (fill)`。
 

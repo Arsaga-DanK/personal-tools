@@ -132,6 +132,26 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
   await page.setViewportSize({ width: 1280, height: 900 });
   r.check('DG-U4（幅390pxで横スクロールなし）', u4 === true, String(u4));
 
+  /* ========== DG-U5: Tab=インデント（lib/edit.js） ========== */
+  const u5d = await page.evaluate(() => {
+    if (!window.ToolEdit) return { missing: true };
+    const ta = document.getElementById('input');
+    ta.value = 'graph TD;';
+    ta.focus();
+    ta.selectionStart = ta.selectionEnd = ta.value.length;
+    const ev = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    ta.dispatchEvent(ev);
+    const afterTab = { v: ta.value, prevented: ev.defaultPrevented };
+    ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    const ev2 = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    ta.dispatchEvent(ev2);
+    return { afterTab, escPass: !ev2.defaultPrevented };
+  });
+  r.check('DG-U5（Tab=インデント・Esc→Tab は素通し）',
+    !u5d.missing && u5d.afterTab.v === 'graph TD;\t' && u5d.afterTab.prevented === true
+    && u5d.escPass === true,
+    JSON.stringify(u5d));
+
   /* ========== ハブ導線 ========== */
   await page.goto(fileUrl('index.html'));
   await page.click('ul.tool-list a:text-is("Draw Diagram")');

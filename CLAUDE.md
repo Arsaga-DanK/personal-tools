@@ -24,7 +24,7 @@ README.md    公開リポジトリの入口。ツール表と本数は test/hub.
 LICENSE      MIT
 index.html   ハブ。web/ツール一覧（内部のTOOLS配列に1行足すと追加される）
 web/         ブラウザツール15本。1ツール=1HTML完結
-lib/         web ツールの共通コード。ui.css / ui.js / storage.js / config.js / sql.js / excel.js / mmd.js
+lib/         web ツールの共通コード。ui.css / ui.js / storage.js / config.js / sql.js / excel.js / mmd.js / edit.js
              同梱ライブラリは lib/vendor/（現在 mermaid のみ。作法は coding-rules.md）
 docs/        coding-rules.md（実装規約の正本）/ verification-notes.md（検証の罠）/
              ux-backlog.md / tool-backlog.md

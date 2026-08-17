@@ -51,6 +51,12 @@ CLAUDE.md（作業原則）と `docs/specs/`（ツール別契約）の間を埋
 - **コピー時に確定**: デバウンス中の古い結果を渡さない —
   リアルタイム型はコピーハンドラ先頭で `clearTimeout + run()`、
   ボタン変換型（ddl2spec）は**鮮度ガード**（変換時の入力と現在の入力を比較し、違えば警告して止める）
+- **書きやすさの共通部品（lib/edit.js）**:
+  複数行のコード的入力（アウトライン・記法・表）を受ける textarea には `ToolEdit.tabIndent` を適用
+  （**Tab = インデント**・Shift+Tab = 戻す・**Esc 直後の Tab はフォーカス移動** = 脱出経路・IME 中は奪わない
+  — ブラウザの Tab がフォーカス移動に奪われて書けない、という利用者指摘 2026-08-17 への構造対処）。
+  日付を書くページは `ToolEdit.mountTodayShortcut`（**Ctrl/Cmd+; = 今日** — Excel の慣習。
+  date input は値セット・テキスト系はキャレット挿入。input/change を発火して再計算に乗せる）
 - 完成したら index.html の TOOLS 配列に登録（`{name, alias, path, desc, category, when}`）
 
 ## 新ツール追加の定型リップル（2026-08-14 に Mask/Dates/Fill ×3本で確立した手順）

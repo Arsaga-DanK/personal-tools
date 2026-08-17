@@ -87,6 +87,7 @@ toFiscal(dateStr) → {fy, text, wareki}, convertEffort, HOLIDAYS, RANGE }`
 | DT-U4 | UI: 工数 3 人日・係数を 7→保存 | 24時間表示 → 係数変更で再計算。reload 後も係数が残る（`tools:dates` envelope） |
 | DT-U5 | 幅390px | ページの横スクロールなし |
 | DT-U6 | 営業日結果の［コピー］（writeText スタブ） | 結果テキストが渡り ✓ 表示 |
+| DT-U7 | 日付入力欄にフォーカスして Ctrl/Cmd+; | 今日がセットされ再計算が走る（lib/edit.js — Excel の慣習） |
 
 ハブ導線: カテゴリ「PM」（初使用）に載り、title は `Calc Dates (dates)`。
 

@@ -123,6 +123,21 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
   await page.setViewportSize({ width: 1280, height: 900 });
   r.check('GN-U3（幅390pxで横スクロールなし）', u3 === true, String(u3));
 
+  /* ========== GN-U4: Ctrl/Cmd+; で今日の日付（lib/edit.js） ========== */
+  const u4g = await page.evaluate(() => {
+    if (!window.ToolEdit) return { missing: true };
+    const ta = document.getElementById('input');
+    ta.value = '作業\t';
+    ta.focus();
+    ta.selectionStart = ta.selectionEnd = ta.value.length;
+    const ev = new KeyboardEvent('keydown', { key: ';', metaKey: true, bubbles: true, cancelable: true });
+    ta.dispatchEvent(ev);
+    return { v: ta.value, prevented: ev.defaultPrevented };
+  });
+  r.check('GN-U4（Ctrl/Cmd+; でキャレット位置に今日の日付）',
+    !u4g.missing && /^作業\t\d{4}-\d{2}-\d{2}$/.test(u4g.v) && u4g.prevented === true,
+    JSON.stringify(u4g));
+
   /* ========== ハブ導線 ========== */
   await page.goto(fileUrl('index.html'));
   await page.click('ul.tool-list a:text-is("Draw Gantt")');

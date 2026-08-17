@@ -46,6 +46,7 @@
 
 <script src="../lib/ui.js"></script>
 <script src="../lib/storage.js"></script>
+<script src="../lib/edit.js"></script>
 <script src="../lib/vendor/mermaid.min.js"></script>
 <script src="../lib/mmd.js"></script>
 <script>
@@ -65,13 +66,30 @@ function sanitizeNode(s) {
     .replace(/\{/g, '｛').replace(/\}/g, '｝');
 }
 
-// 行頭の空白 → 階層（タブ1個 = 1階層・スペース2個 = 1階層）
-function indentLevel(raw) {
+// md のリスト記号（Obsidian のアウトライン互換 — MM-Q4）
+const BULLET_RE = /^[-*+]\s+/;
+
+// スペース字下げの「1階層ぶんの幅」を自動検出（2でも4でも合う — MM-Q4）。
+// タブ字下げの行は対象外（タブは常に1階層）
+function detectIndentUnit(lines) {
+  let unit = 0;
+  for (const raw of lines) {
+    const content = raw.trim();
+    if (content === '' || content.startsWith('#')) continue;
+    const ws = /^[\t ]*/.exec(raw)[0];
+    if (ws === '' || ws.includes('\t')) continue;
+    unit = unit === 0 ? ws.length : Math.min(unit, ws.length);
+  }
+  return unit === 0 ? 2 : unit;
+}
+
+// 行頭の空白 → 階層（タブ1個 = 1階層・スペースは unit 個 = 1階層）
+function indentLevel(raw, unit) {
   const m = /^[\t ]*/.exec(raw)[0];
   let level = 0, spaces = 0;
   for (const ch of m) {
     if (ch === '\t') { level += 1; spaces = 0; }
-    else { spaces += 1; if (spaces === 2) { level += 1; spaces = 0; } }
+    else { spaces += 1; if (spaces === unit) { level += 1; spaces = 0; } }
   }
   return level;
 }
@@ -79,19 +97,24 @@ function indentLevel(raw) {
 function buildMindmapDsl(text) {
   const warnings = [];
   const lines = String(text == null ? '' : text).split('\n');
+  const unit = detectIndentUnit(lines);
   const body = [];
   let hasRoot = false;
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i];
-    const content = raw.trim();
+    let content = raw.trim();
     if (content === '' || content.startsWith('#')) continue;
+    const isBullet = BULLET_RE.test(content);
+    if (isBullet) content = content.replace(BULLET_RE, '').trim();
+    if (content === '') continue;
     const node = sanitizeNode(content);
     if (!hasRoot) {
       hasRoot = true;
       body.push('  root((' + node + '))');
       continue;
     }
-    let level = indentLevel(raw);
+    // リスト記号の行は階層+1（md では中心テーマの直下が「トップレベルの箇条書き」— MM-Q4）
+    let level = indentLevel(raw, unit) + (isBullet ? 1 : 0);
     if (level === 0) {   // 2つ目以降のルートは1階層下げる（mermaid はルート1つ — MM-Q2）
       warnings.push((i + 1) + '行目: 中心テーマは1つです（1階層下げて描きます）');
       level = 1;
@@ -219,6 +242,9 @@ restore();
 updateSampleBtn();
 if (el('input').value !== '') render(el('input').value);
 ToolStorage.mountWarning();
+
+ToolEdit.tabIndent(el('input'));      // Tab=インデント（lib/edit.js — coding-rules）
+ToolEdit.mountTodayShortcut();        // Ctrl/Cmd+; = 今日
 
 // テスト用フック（docs/specs/mindmap.md）
 window.mindmap = {
