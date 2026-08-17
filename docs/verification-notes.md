@@ -51,10 +51,10 @@
   → **playwright-core を直接起動して自前のブラウザインスタンスを立てる**（user-data-dir が別なので競合しない）:
 
   ```js
-  const { chromium } = require('/Users/dan.kawazu/.npm/_npx/<hash>/node_modules/playwright-core');
+  const { chromium } = require(process.env.HOME + '/.npm/_npx/<hash>/node_modules/playwright-core');
   const browser = await chromium.launch({
     // playwright-core が期待するビルド番号と ms-playwright にある実体がずれるため明示する
-    executablePath: '/Users/dan.kawazu/Library/Caches/ms-playwright/'
+    executablePath: process.env.HOME + '/Library/Caches/ms-playwright/'
       + 'chromium_headless_shell-<build>/chrome-headless-shell-mac-arm64/chrome-headless-shell',
   });
   ```

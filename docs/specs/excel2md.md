@@ -4,7 +4,7 @@
 
 Excel のセル範囲（TSV）⇔ Markdown テーブルを**双方向**に変換するツール（方向切替式）。`web/excel2md.html`、カテゴリ: 変換（→要確認 E2M-Q1）。MD→TSV 方向は旧双方向ツール `excel2md/excel2md.html` の挙動を正として移植（Phase F）。
 
-**Phase G（2026-08-04）で旧版固有の2機能（列の寄せ指定・結合セルの展開）を移植し、excel2md を本ツール1本に集約した。** 旧 `excel2md/` は読み取りのみ（変更しない）。index.html からは削除済みで、数週間の併用後に `~/Personal/archive/` へ git 履歴ごと移動予定（docs/ux-backlog.md に記録。移動自体は未実施）。
+**Phase G（2026-08-04）で旧版固有の2機能（列の寄せ指定・結合セルの展開）を移植し、excel2md を本ツール1本に集約した。** 旧 `excel2md/` は読み取りのみ（変更しない）。index.html からは削除済みで、数週間の併用後にリポジトリ外のアーカイブ領域へ git 履歴ごと移動予定（docs/ux-backlog.md に記録。移動自体は未実施）。
 
 **Phase P（2026-08-05）で変換結果の表プレビューを追加し、列の揃え指定を「プレビュー最上段の揃え操作行」に移した。** Phase G のチップ行（`.align-bar`）はどの列を操作しているか分かりにくく、実機で UI が後退したと判断したため撤去する。旧 `excel2md/excel2md.html` のプレビュー UI の直感性を回復する変更で、**変換ロジック（純関数）は変更しない**（表示層の追加＋戻り値へのフィールド追加のみ。P7）。ux-backlog.md の「表示系の薄さ: excel2md のプレビュー・列揃えなし」の後半に対応する。
 
@@ -407,7 +407,7 @@ UI（`file://` で開き、入力 textarea に値を設定して `input` イベ�
 `--shots` を付けると `.playwright-mcp/` にスクリーンショットを書く）。
 以下は手順の意図の記録で、ハーネスが落ちたときの調査順にもなる。
 
-1. `file:///Users/dan.kawazu/Personal/tools/web/excel2md.html` を開く → ロード時コンソールエラー0
+1. `web/excel2md.html` を `file://` で開く → ロード時コンソールエラー0
 2. 全テストケースを `browser_evaluate` で `window.excel2md.convert` に投入し文字列一致を確認
 3. UI経路: 入力 textarea に E2M-01 を設定し `input` イベント発火 → 出力一致。E2M-04 で警告バナー表示を確認
 4. コピーボタン click → フィードバック表示（`.copied`）または選択フォールバック案内（クリップボード実内容は検証対象外）

@@ -8,7 +8,7 @@ PostgreSQL の DDL（`CREATE TABLE` ＋ `COMMENT ON`）と Markdown のテーブ
 **正本の方針（DS-Q6）**: **DDL を正本、定義書を生成物**とする。
 定義書を正本にする運用に切り替える場合は DDL を生成物と決め、
 **どちらの方向で運用するかを固定して両方を手で直さない**
-（`~/Personal/vault/_rules/vault-rules.md` の「管理範囲の原則」— 正本の分裂を避ける）。
+（正本の分裂を避ける）。
 
 ### 着手判定（`docs/tool-backlog.md` の着手ルール・2026-08-06）
 

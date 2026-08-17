@@ -6,8 +6,10 @@
 
 set -euo pipefail
 
-# asdf の shim を避ける（GUI 起動時に node が解決できない問題と同根。CLAUDE.md の制約）
-export PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+# asdf の shim を避ける（GUI 起動時に node が解決できない問題と同根。CLAUDE.md の制約）。
+# homebrew の場所は環境で違うので3つとも並べる（Apple Silicon / Intel Mac / Linuxbrew）。
+# 存在しないディレクトリが PATH にあっても害はない
+export PATH="/opt/homebrew/bin:/usr/local/bin:/home/linuxbrew/.linuxbrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 cd "${0:A:h}/.."
 

@@ -33,9 +33,19 @@ function findPlaywrightCore() {
 // ms-playwright に実在する chrome-headless-shell を探す。
 // playwright-core が期待するビルド番号と実体はずれることがあり、
 // executablePath を渡さないと「Executable doesn't exist at …」で起動できない。
+// Playwright のブラウザ置き場は OS で違う（macOS / Linux / Windows の順に探す）
+function playwrightCacheDir() {
+  const candidates = [
+    path.join(os.homedir(), 'Library/Caches/ms-playwright'),          // macOS
+    path.join(os.homedir(), '.cache/ms-playwright'),                  // Linux
+    path.join(process.env.LOCALAPPDATA || os.homedir(), 'ms-playwright'), // Windows
+  ];
+  return candidates.find(p => fs.existsSync(p)) || null;
+}
+
 function findHeadlessShell() {
-  const cache = path.join(os.homedir(), 'Library/Caches/ms-playwright');
-  if (!fs.existsSync(cache)) return null;
+  const cache = playwrightCacheDir();
+  if (!cache) return null;
   const builds = fs.readdirSync(cache)
     .filter(d => d.startsWith('chromium_headless_shell-'))
     .sort((a, b) => Number(b.split('-')[1]) - Number(a.split('-')[1])); // 新しいビルド優先
