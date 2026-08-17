@@ -6,8 +6,11 @@
 
 - `file://` ページで `isSecureContext === true`。`showOpenFilePicker` / `showSaveFilePicker` /
   `FileSystemFileHandle.prototype.createWritable` / `queryPermission` すべて存在
-- ジェスチャ無し呼び出し → `SecurityError: Must be handling a user gesture`（＝origin/scheme
-  チェックは通過。file:// でブロックされる場合は opaque origin 系エラーになる）
+- ジェスチャ無し呼び出し → ジェスチャ要求のエラー（＝origin/scheme チェックは通過。
+  file:// でブロックされる場合は opaque origin 系エラーになる）。
+  **エラー名は Chrome のバージョンで変わる** — 2026-08-04 は
+  `SecurityError: Must be handling a user gesture`、2026-08-17 の再測（Chrome 151）は
+  `NotAllowedError: User activation required`（`showOpenFilePicker` は `AbortError`）
 - ジェスチャ有り呼び出し → CDP の `Page.setInterceptFileChooserDialog` に傍受された
   `AbortError`（＝Chrome がダイアログ表示処理まで到達した証拠）
 - `file://` オリジンで IndexedDB の put/get 動作確認済み → ハンドル永続化の土台あり

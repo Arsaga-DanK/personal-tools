@@ -94,9 +94,20 @@
 - **File System Access API は file:// で利用可能**（2026-08-04 実検証。証跡は docs/specs/taskboard.md 冒頭）
   - `isSecureContext === true`。`showOpenFilePicker` / `showSaveFilePicker` /
     `createWritable` / `queryPermission` すべて存在する
-  - **ジェスチャ無し呼び出しで `SecurityError: Must be handling a user gesture` が出れば
-    scheme/origin チェックは通過している証拠**（file:// でブロックされる API は opaque origin 系の
-    エラーになる）。この切り分け方は他の API でも使える
+  - **ジェスチャ無し呼び出しがジェスチャ要求のエラーで落ちれば、scheme/origin チェックは
+    通過している証拠**（file:// でブロックされる API は opaque origin 系のエラーになる）。
+    この切り分け方は他の API でも使えるが、**エラー名で判定しないこと** —
+    2026-08-04 は `SecurityError: Must be handling a user gesture` だったが、
+    **2026-08-17 の再測では `showSaveFilePicker`/`showDirectoryPicker` が
+    `NotAllowedError: User activation required`・`showOpenFilePicker` が `AbortError`**
+    に変わっていた（Chrome 151）。文言・エラー名はバージョンで変わる
+  - **`FileSystemHandle.prototype.getParent` は無い**（2026-08-17 実測。
+    ファイルハンドルから保存先フォルダを表示できない）。
+    **`FileSystemDirectoryHandle.prototype.resolve` はある**（ディレクトリを持てば相対パスを復元できる）
+  - **file:// は全ローカルページで1オリジン**（2026-08-17 実測: 別ツールのページから
+    `indexedDB.databases()` に `tools-taskboard` が見え、`localStorage` も共有される）。
+    → **IDB に置いたハンドルは他のローカル HTML からも列挙できる**。
+    vault ルートのディレクトリハンドルを保存すると露出面が「1ファイル」から「vault 全体」に変わる
 - **IndexedDB も file:// オリジンで put/get 動作する**（ハンドル永続化の土台）
 - **paste イベントの `clipboardData` は file:// でも全フレーバー取得できる**
   （2026-08-04、実 Cmd+V で実証。excel2md Phase G）。
