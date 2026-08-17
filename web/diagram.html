@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Diagram</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E📈%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../lib/ui.css">
+<style>
+  /* diagram 固有: 出力ペインは SVG のプレビュー（白背景固定 — 出力 PNG と同じ見た目） */
+  #output {
+    min-height: 220px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: #ffffff;
+    padding: 12px;
+    overflow: auto;
+  }
+  #output svg { max-width: 100%; height: auto; }
+</style>
+</head>
+<body>
+<main class="app-wide">
+  <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">入力は自動保存されます</span></p>
+  <h1>Diagram</h1>
+  <p class="subtitle">テキストから図を描く（mermaid 同梱・オフライン完結）— フローチャート・シーケンス図などを書いて PNG コピー。図は常にライトテーマ（貼り付け先は白背景が相場）</p>
+
+  <div class="toolbar">
+    <button class="primary" id="copy-btn" title="Cmd/Ctrl+Enter">PNG をコピー</button>
+    <button id="save-svg" type="button">SVG 保存</button>
+    <span class="muted" style="font-size:12px">記法は mermaid（graph TD / sequenceDiagram / stateDiagram-v2 など）。GUI で描きたい図は draw.io の領分</span>
+  </div>
+
+  <div class="banner" id="banner" hidden></div>
+
+  <div class="panes">
+    <div class="pane">
+      <p class="pane-title">入力（mermaid 記法）<button type="button" class="sample-btn" id="sample-btn">サンプルを入れる</button></p>
+      <textarea id="input" spellcheck="false" placeholder="graph TD;&#10;  A[開始] --> B{判定};&#10;  B -->|yes| C[実行];&#10;  B -->|no| D[終了];"></textarea>
+    </div>
+    <div class="pane">
+      <p class="pane-title">図（プレビュー）</p>
+      <div id="output" aria-live="polite"></div>
+    </div>
+  </div>
+</main>
+
+<script src="../lib/ui.js"></script>
+<script src="../lib/storage.js"></script>
+<script src="../lib/vendor/mermaid.min.js"></script>
+<script src="../lib/mmd.js"></script>
+<script>
+'use strict';
+
+const el = id => document.getElementById(id);
+function showBanner(kind, text) { ToolUI.banner(el('banner'), kind, text); }
+
+const TOOL = 'diagram';
+let lastSvg = null;        // 直近の成功描画（エラー時はこれを保持 — DG-Q4）
+let renderSeq = 0;         // 遅い描画が新しい描画を上書きしないための世代番号
+
+/* ========== 描画（フックと UI が同一コードパス） ========== */
+
+// text を描画して出力とバナーを更新する。戻り値 {ok, error|null}
+async function render(text) {
+  const seq = ++renderSeq;
+  const value = String(text == null ? '' : text).trim();
+  if (value === '') {
+    lastSvg = null;
+    el('output').textContent = '';
+    showBanner('info', '');
+    return { ok: true, error: null };
+  }
+  try {
+    const host = document.createElement('div');   // 成功してから差し替える（失敗時に前回を保持）
+    const svg = await ToolMmd.render(host, value);
+    if (seq !== renderSeq) return { ok: true, error: null };   // 追い越された古い描画は捨てる
+    lastSvg = svg;
+    el('output').textContent = '';
+    el('output').appendChild(svg);
+    showBanner('info', '');
+    return { ok: true, error: null };
+  } catch (e) {
+    if (seq !== renderSeq) return { ok: false, error: String(e && e.message || e) };
+    const msg = String(e && e.message || e).split('\n')[0];
+    showBanner('warn', '描画できません: ' + msg + '（前回の図を表示しています）');
+    return { ok: false, error: msg };
+  }
+}
+
+/* ========== UI 配線 ========== */
+
+let debounceTimer = null;
+function scheduleRender() {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(() => { debounceTimer = null; render(el('input').value); }, 300);
+}
+// コピー時に確定（coding-rules）: デバウンス中の古い図を渡さない
+function flushRender() {
+  clearTimeout(debounceTimer);
+  debounceTimer = null;
+  return render(el('input').value);
+}
+
+/* 保存規約: デバウンス＋pagehide/visibilitychange フラッシュ・100KB cap */
+const FIELD_LIMIT = 100000;
+let saveTimer = null;
+function savePayload() {
+  const v = el('input').value;
+  return { input: v.length > FIELD_LIMIT ? { omitted: true } : v };
+}
+function scheduleSave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => { saveTimer = null; ToolStorage.save(TOOL, savePayload()); }, 300);
+}
+function flushSave() {
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  ToolStorage.save(TOOL, savePayload());
+}
+window.addEventListener('pagehide', flushSave);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') flushSave();
+});
+
+function restore() {
+  const data = ToolStorage.load(TOOL);
+  if (!data) return;
+  if (typeof data.input === 'string') el('input').value = data.input;
+  else if (data.input && data.input.omitted) {
+    showBanner('info', '前回の内容は大きすぎたため復元されませんでした（保存上限 100KB）');
+  }
+}
+
+function updateSampleBtn() { el('sample-btn').hidden = el('input').value !== ''; }
+
+el('input').addEventListener('input', () => {
+  scheduleRender();
+  updateSampleBtn();
+  scheduleSave();
+});
+
+el('copy-btn').addEventListener('click', () => {
+  // Safari 対策: ジェスチャ内で同期的に write するため Promise を渡す（mask と同型）
+  const blobPromise = flushRender().then(() => {
+    if (!lastSvg) throw new Error('図がありません');
+    return ToolMmd.toPngBlob(lastSvg, 2);
+  });
+  const item = new ClipboardItem({ 'image/png': blobPromise });
+  navigator.clipboard.write([item]).then(
+    () => ToolUI.feedback(el('copy-btn'), '✓ コピーしました'),
+    () => showBanner('warn', 'クリップボードへ書けませんでした — ［SVG 保存］を使ってください'));
+});
+document.addEventListener('keydown', e => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+    e.preventDefault();
+    el('copy-btn').click();
+  }
+});
+
+el('save-svg').addEventListener('click', () => {
+  if (!lastSvg) { showBanner('info', '先に図を描いてください'); return; }
+  const xml = new XMLSerializer().serializeToString(lastSvg);
+  const url = URL.createObjectURL(new Blob([xml], { type: 'image/svg+xml;charset=utf-8' }));
+  const a = document.createElement('a');
+  a.download = 'diagram.svg';
+  a.href = url;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);   // 即時 revoke はダウンロード開始と競合する
+});
+
+el('sample-btn').addEventListener('click', () => {
+  el('input').value = 'graph TD;\n  A[申請を受け取る] --> B{記載に不備?};\n  B -->|あり| C[差し戻し];\n  C --> A;\n  B -->|なし| D[承認];\n  D --> E[通知メール送信];';
+  render(el('input').value);
+  updateSampleBtn();
+  scheduleSave();
+});
+
+restore();
+updateSampleBtn();
+if (el('input').value !== '') render(el('input').value);
+ToolStorage.mountWarning();
+
+// テスト用フック（docs/specs/diagram.md。英名 diagram — window.mermaid はライブラリが占有 DG-Q1）
+window.diagram = {
+  render,
+  svgInfo: () => {
+    const svg = el('output').querySelector('svg');
+    return { present: !!svg, nodes: svg ? svg.querySelectorAll('g, path, rect, text').length : 0 };
+  },
+  lastSvgText: () => (lastSvg ? new XMLSerializer().serializeToString(lastSvg) : null),
+};
+</script>
+</body>
+</html>

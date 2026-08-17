@@ -30,8 +30,8 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     && eq(order.categories, ['タスク', '変換・比較', '設計', '画像', '整理', 'PM']), JSON.stringify(order.categories));
   r.check('HUB-2（Tasks が最初のリンク）', order.firstLink === 'Tasks', order.firstLink);
   r.check('HUB-3（TOOLS 配列順が同カテゴリ内の表示順）',
-    eq(order.toolsArray, ['Tasks', 'Tables', 'Convert', 'Text', 'Diff', 'Terms', 'Fill', 'Schema', 'Outline', 'Mask', 'Lint', 'Dates'])
-    && eq(order.groups, [['Tasks'], ['Tables', 'Convert', 'Text', 'Diff', 'Terms', 'Fill'], ['Schema', 'Outline'], ['Mask'], ['Lint'], ['Dates']]),
+    eq(order.toolsArray, ['Tasks', 'Tables', 'Convert', 'Text', 'Diff', 'Terms', 'Fill', 'Schema', 'Outline', 'Diagram', 'Mask', 'Lint', 'Dates'])
+    && eq(order.groups, [['Tasks'], ['Tables', 'Convert', 'Text', 'Diff', 'Terms', 'Fill'], ['Schema', 'Outline', 'Diagram'], ['Mask'], ['Lint'], ['Dates']]),
     JSON.stringify([order.toolsArray, order.groups]));
 
   /* ---------- 全ツールが1回だけ載る ---------- */
@@ -39,8 +39,8 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     const names = Array.from(document.querySelectorAll('ul.tool-list a')).map(a => a.textContent);
     return { names, unique: new Set(names).size, total: window.hub.TOOLS.length, other: !!Array.from(document.querySelectorAll('.category-title')).find(e => e.textContent === 'その他') };
   });
-  r.check('HUB-4（登録した12本が重複なく全て載る・「その他」が出ない）',
-    listed.names.length === 12 && listed.unique === 12 && listed.total === 12 && !listed.other,
+  r.check('HUB-4（登録した13本が重複なく全て載る・「その他」が出ない）',
+    listed.names.length === 13 && listed.unique === 13 && listed.total === 13 && !listed.other,
     JSON.stringify(listed));
 
   /* ---------- 検索（純関数＋UI） ---------- */
@@ -63,7 +63,7 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     };
   });
   r.check('HUB-5（検索: 空・表示名・説明・用途・大文字小文字・部分一致）',
-    eq(search.empty, ['Tasks', 'Tables', 'Convert', 'Text', 'Diff', 'Terms', 'Fill', 'Schema', 'Outline', 'Mask', 'Lint', 'Dates'])
+    eq(search.empty, ['Tasks', 'Tables', 'Convert', 'Text', 'Diff', 'Terms', 'Fill', 'Schema', 'Outline', 'Diagram', 'Mask', 'Lint', 'Dates'])
     && eq(search.byName, ['Tasks']) && eq(search.byDesc, ['Tasks', 'Lint'])   // 'vault' は両ツールの desc にある
     && eq(search.byWhen, ['Tasks']) && eq(search.caseInsensitive, ['Convert'])
     && eq(search.partial, ['Tables']) && eq(search.none, []),
@@ -98,7 +98,7 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     sekkei: window.hub.filter('設計').map(t => t.name),
   }));
   r.check('HUB-12（カテゴリ名で絞れる）',
-    eq(catSearch.seiri, ['Lint']) && eq(catSearch.sekkei, ['Tables', 'Diff', 'Schema', 'Outline', 'Mask']),
+    eq(catSearch.seiri, ['Lint']) && eq(catSearch.sekkei, ['Tables', 'Diff', 'Schema', 'Outline', 'Diagram', 'Mask']),
     JSON.stringify(catSearch));
 
   /* ---------- `/` で検索へフォーカス（HUB-13） ---------- */
@@ -158,7 +158,7 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
   r.check('HUB-6（UI 検索: 絞り込み・該当なし・クリアで復帰）',
     eq(s1.names, ['Text']) && eq(s1.categories, ['変換・比較'])       // 空のカテゴリ見出しは出ない
     && eq(s2.names, []) && s2.empty === '該当なし'
-    && eq(s3.names, ['Tasks', 'Tables', 'Convert', 'Text', 'Diff', 'Terms', 'Fill', 'Schema', 'Outline', 'Mask', 'Lint', 'Dates']) && s3.categories[0] === 'タスク',
+    && eq(s3.names, ['Tasks', 'Tables', 'Convert', 'Text', 'Diff', 'Terms', 'Fill', 'Schema', 'Outline', 'Diagram', 'Mask', 'Lint', 'Dates']) && s3.categories[0] === 'タスク',
     JSON.stringify([s1, s2, s3]));
 
   /* ---------- リンク遷移（全ツール） ---------- */
@@ -183,11 +183,11 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
       naming: h1 === name && title === wantTitle && alias === basename,
     });
   }
-  r.check('HUB-7（12本すべてリンクで遷移でき title が一致）',
-    navResults.length === 12 && navResults.every(n => n.ok),
+  r.check('HUB-7（13本すべてリンクで遷移でき title が一致）',
+    navResults.length === 13 && navResults.every(n => n.ok),
     JSON.stringify(navResults));
   r.check('HUB-10（h1 = 表示名・title = 「表示名 (英名)」・英名 = ファイル名）',
-    navResults.length === 12 && navResults.every(n => n.naming),
+    navResults.length === 13 && navResults.every(n => n.naming),
     JSON.stringify(navResults.map(n => [n.name, n.h1, n.title, n.href])));
 
   /* ---------- 狭幅で横スクロールしない ---------- */

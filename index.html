@@ -65,6 +65,7 @@ const TOOLS = [
   { name: 'Fill', alias: 'fill', path: 'web/fill.html', desc: '定型文テンプレの差し込み — 本文の {{変数}} から入力フォームを自動生成、埋めて完成文をコピー（{{今日}} は日付を自動セット）', category: '変換・比較', when: '日報・週報・議事録の送付文・依頼文など、毎回少しだけ変わる定型連絡を作るとき' },
   { name: 'Schema', alias: 'ddl2spec', path: 'web/ddl2spec.html', desc: 'PostgreSQL の DDL（CREATE TABLE ＋ COMMENT ON）⇔ テーブル定義書（Markdown表）双方向変換 — 論理名・複合キー・FK・CHECK・Excel用コピー', category: '設計', when: '既存 DDL から定義書を起こすとき／定義書から DDL を作るとき（正本は DDL 側）' },
   { name: 'Outline', alias: 'doc2xl', path: 'web/doc2xl.html', desc: 'Markdown 文書の見出し階層 → Excel 用の階層表（大項目/中項目/小項目＋内容）— Markdown表・TSV 出力', category: '設計', when: '設計書を Markdown で下書きして、納品時に Excel の階層表へ移すとき' },
+  { name: 'Diagram', alias: 'diagram', path: 'web/diagram.html', desc: 'テキストから図を描く（mermaid 同梱・オフライン）— フローチャート・シーケンス図・状態遷移図を書いて PNG コピー/SVG 保存', category: '設計', when: 'draw.io を開くほどでもない図を資料や Teams に貼るとき' },
   { name: 'Mask', alias: 'mask', path: 'web/mask.html', desc: 'スクショのマスキングと注釈 — 貼り付け → モザイク/黒塗り/白塗り・枠・矢印・テキスト・番号スタンプ・切り抜き → PNG コピー（画像は保存しない）', category: '画像', when: 'スクショを Teams・設計書に貼る前の機密隠しと説明入れ' },
   { name: 'Lint', alias: 'vaultlint', path: 'web/vaultlint.html', desc: 'Obsidian vault の健全性チェック — リンク切れ・添付消失・ファイル名の罠・Inbox のデイリーを検出し、承認した修復（テキスト化・リネーム追随・アーカイブ移動）まで実行（Chrome 限定）', category: '整理', when: 'vault の棚卸しと掃除に。設定した非公開フォルダは読み込まない・実行前に git コミット' },
   { name: 'Dates', alias: 'dates', path: 'web/dates.html', desc: '日付・営業日・工数の計算 — N営業日後・期限の逆算・期間の営業日数・和暦/年度・人日⇄時間⇄人月換算（祝日2020〜2027年を同梱）', category: 'PM', when: '納期やレビュー期限の逆算と、見積の工数換算に' },
