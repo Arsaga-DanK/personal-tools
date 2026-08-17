@@ -17,7 +17,7 @@
     background: var(--panel);
   }
   #drop.dragover { border-color: var(--accent); color: var(--accent); }
-  #canvas-wrap { position: relative; display: inline-block; max-width: 100%; }
+  #canvas-wrap { position: relative; display: block; width: fit-content; max-width: 100%; margin: 0 auto; }   /* 中央寄せ（v5） */
   #canvas {
     display: block;
     max-width: 100%;
@@ -91,6 +91,7 @@
       <label class="tool-btn" title="図形をクリックで選択。ドラッグで移動・ハンドルでサイズ変更・Delete で削除"><input type="radio" name="tool" value="select"><span class="tb-face"><span class="tb-icon">⌖</span>選択</span></label>
       <label class="tool-btn" title="ドラッグした範囲をピクセル化して隠す"><input type="radio" name="tool" value="mosaic" checked><span class="tb-face"><span class="tb-icon">▦</span>モザイク</span></label>
       <label class="tool-btn" title="ドラッグした範囲を黒で塗りつぶして隠す"><input type="radio" name="tool" value="fill"><span class="tb-face"><span class="tb-icon">■</span>黒塗り</span></label>
+      <label class="tool-btn" title="ドラッグした範囲を白で塗りつぶして隠す（書類の修正テープ）"><input type="radio" name="tool" value="white"><span class="tb-face"><span class="tb-icon">⬜</span>白塗り</span></label>
       <label class="tool-btn" title="ドラッグで注目箇所を枠で囲む"><input type="radio" name="tool" value="rect"><span class="tb-face"><span class="tb-icon">▢</span>枠</span></label>
       <label class="tool-btn" title="ドラッグで矢印を引く"><input type="radio" name="tool" value="arrow"><span class="tb-face"><span class="tb-icon">↗</span>矢印</span></label>
       <label class="tool-btn" title="クリックした場所に文字を直接入力（Esc か外側クリックで確定）"><input type="radio" name="tool" value="text"><span class="tb-face"><span class="tb-icon">T</span>テキスト</span></label>
@@ -105,6 +106,11 @@
         <option value="8">細8</option>
         <option value="16" selected>標準16</option>
         <option value="24">粗24</option>
+      </select></label>
+      <label class="grain" title="枠・矢印の線の太さ">太さ <select id="line-width">
+        <option value="2">細</option>
+        <option value="3" selected>標準</option>
+        <option value="5">太</option>
       </select></label>
     </span>
     <label class="toggle" title="オンの間は描画後もツールを維持（連続でマスクするとき）"><input type="checkbox" id="keep-tool"> 連続描画</label>
@@ -172,7 +178,7 @@ const FONT = 'bold 20px -apple-system, "Hiragino Sans", sans-serif';
 
 function applyOp(op) {
   if (op.type === 'fill') {
-    ctx.fillStyle = '#000000';
+    ctx.fillStyle = op.color || '#000000';   // 省略 = 黒塗り・'#ffffff' = 白塗り（v5・MK-Q15）
     ctx.fillRect(op.x, op.y, op.w, op.h);
   } else if (op.type === 'mosaic') {
     // 縮小 → imageSmoothingEnabled:false で拡大（依存ゼロのピクセル化 — MK-02）
@@ -189,19 +195,19 @@ function applyOp(op) {
     ctx.imageSmoothingEnabled = true;
   } else if (op.type === 'rect') {
     ctx.strokeStyle = op.color || RED;
-    ctx.lineWidth = 3;
+    ctx.lineWidth = op.width || 3;
     ctx.strokeRect(op.x, op.y, op.w, op.h);
   } else if (op.type === 'arrow') {
     ctx.strokeStyle = op.color || RED;
     ctx.fillStyle = op.color || RED;
-    ctx.lineWidth = 3;
+    ctx.lineWidth = op.width || 3;
     ctx.beginPath();
     ctx.moveTo(op.x1, op.y1);
     ctx.lineTo(op.x2, op.y2);
     ctx.stroke();
     // 矢印の頭（進行方向に向いた三角形）
     const ang = Math.atan2(op.y2 - op.y1, op.x2 - op.x1);
-    const L = 12;
+    const L = 4 * (op.width || 3);   // 頭は線幅に比例（標準3 → 従来の12 — v5）
     ctx.beginPath();
     ctx.moveTo(op.x2, op.y2);
     ctx.lineTo(op.x2 - L * Math.cos(ang - 0.5), op.y2 - L * Math.sin(ang - 0.5));
@@ -257,6 +263,19 @@ function hitTest(x, y) {
 function moveOpBy(op, dx, dy) {
   if (op.type === 'arrow') { op.x1 += dx; op.y1 += dy; op.x2 += dx; op.y2 += dy; }
   else { op.x += dx; op.y += dy; }
+}
+
+// 移動ドラッグは「開始時の座標＋開始点からの総移動量」で置く（累積誤差なし・Shift 軸ロックの土台）
+function copyCoords(op) {
+  return op.type === 'arrow' ? { x1: op.x1, y1: op.y1, x2: op.x2, y2: op.y2 } : { x: op.x, y: op.y };
+}
+function setOpPos(op, orig, dx, dy) {
+  if (op.type === 'arrow') {
+    op.x1 = orig.x1 + dx; op.y1 = orig.y1 + dy;
+    op.x2 = orig.x2 + dx; op.y2 = orig.y2 + dy;
+  } else {
+    op.x = orig.x + dx; op.y = orig.y + dy;
+  }
 }
 
 /* ========== リサイズハンドル（v3 — spec「リサイズハンドル」） ========== */
@@ -349,6 +368,13 @@ function drawOverlay() {
     octx.fillRect(h.x - hs / 2, h.y - hs / 2, hs, hs);
     octx.strokeRect(h.x - hs / 2, h.y - hs / 2, hs, hs);
   }
+}
+
+// バッジの採番: 既存の最大値 + 1（削除しても振り直さない — MK-Q16）
+function nextBadgeN() {
+  let n = 0;
+  for (const op of ops) if (op.type === 'badge' && op.n > n) n = op.n;
+  return n + 1;
 }
 
 function deleteSelected() {
@@ -465,14 +491,29 @@ function currentColor() {
   return sw ? sw.value : RED;
 }
 
-function opFromDrag(tool, a, b) {
-  if (tool === 'arrow') return { type: 'arrow', x1: a.x, y1: a.y, x2: b.x, y2: b.y, color: currentColor() };
-  const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
-  const w = Math.abs(b.x - a.x), h = Math.abs(b.y - a.y);
+function currentWidth() { return Number(el('line-width').value) || 3; }
+
+function opFromDrag(tool, a, b, shift) {
+  if (tool === 'arrow') {
+    let x2 = b.x, y2 = b.y;
+    if (shift) {   // 45°スナップ（長さは維持 — MK-Q18）
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const snap = Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * (Math.PI / 4);
+      const len = Math.hypot(dx, dy);
+      x2 = Math.round(a.x + len * Math.cos(snap));
+      y2 = Math.round(a.y + len * Math.sin(snap));
+    }
+    return { type: 'arrow', x1: a.x, y1: a.y, x2, y2, color: currentColor(), width: currentWidth() };
+  }
+  let w = Math.abs(b.x - a.x), h = Math.abs(b.y - a.y);
+  if (shift) { const side = Math.max(w, h); w = side; h = side; }   // 正方形（開始点アンカー）
   if (w < 2 || h < 2) return null;   // クリックだけの誤爆を防ぐ
-  const op = { type: tool, x, y, w, h };
+  const x = b.x >= a.x ? a.x : a.x - w;
+  const y = b.y >= a.y ? a.y : a.y - h;
+  const op = { type: tool === 'white' ? 'fill' : tool, x, y, w, h };
   if (tool === 'mosaic') op.size = Number(el('mosaic-size').value);
-  if (tool === 'rect') op.color = currentColor();
+  if (tool === 'rect') { op.color = currentColor(); op.width = currentWidth(); }
+  if (tool === 'white') op.color = '#ffffff';   // 白塗り = fill の白（MK-Q15）
   return op;
 }
 
@@ -514,7 +555,7 @@ canvas.addEventListener('pointerdown', e => {
     nudgeChain = false;
     drawOverlay();
     if (selIndex !== null) {
-      moveDrag = { start: p, last: p, moved: false };
+      moveDrag = { start: p, orig: copyCoords(ops[selIndex]), moved: false };
       try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
     }
     return;
@@ -540,22 +581,24 @@ canvas.addEventListener('pointermove', e => {
   }
   if (moveDrag && selIndex !== null && ops[selIndex]) {
     const p = scale(e);
+    let dx = p.x - moveDrag.start.x, dy = p.y - moveDrag.start.y;
     if (!moveDrag.moved) {
       // 画面3px の閾値 — ダブルクリック前の幻の微小移動を Undo 履歴に残さない（MK-Q12）
-      if (Math.hypot(p.x - moveDrag.start.x, p.y - moveDrag.start.y) / dispScale() <= 3) return;
+      if (Math.hypot(dx, dy) / dispScale() <= 3) return;
       snapshot();
       moveDrag.moved = true;
-      moveOpBy(ops[selIndex], p.x - moveDrag.start.x, p.y - moveDrag.start.y);
-    } else {
-      moveOpBy(ops[selIndex], p.x - moveDrag.last.x, p.y - moveDrag.last.y);
     }
-    moveDrag.last = p;
+    if (e.shiftKey) {   // 軸ロック（総移動量の大きい軸に固定 — MK-Q18）
+      if (Math.abs(dx) >= Math.abs(dy)) dy = 0;
+      else dx = 0;
+    }
+    setOpPos(ops[selIndex], moveDrag.orig, dx, dy);
     redraw();
     drawOverlay();
     return;
   }
   if (dragStart) {
-    const op = opFromDrag(toolOf(), dragStart, scale(e));
+    const op = opFromDrag(toolOf(), dragStart, scale(e), e.shiftKey);
     redraw(op || undefined);
     return;
   }
@@ -583,7 +626,7 @@ canvas.addEventListener('pointerup', e => {
     return;
   }
   if (!dragStart) return;
-  const op = opFromDrag(toolOf(), dragStart, scale(e));
+  const op = opFromDrag(toolOf(), dragStart, scale(e), e.shiftKey);
   dragStart = null;
   if (op) {
     snapshot();
@@ -776,6 +819,21 @@ document.addEventListener('keydown', e => {
     el('copy-btn').click();   // コピーは先頭で強制確定する（MK-Q9）
     return;
   }
+  // Cmd/Ctrl+D = 複製（+10,+10・複製側を選択 — MK-Q19）。未選択なら何もしない（既定動作も抑止しない）
+  if ((e.metaKey || e.ctrlKey) && (e.key === 'd' || e.key === 'D')) {
+    if (inField || selIndex === null || !ops[selIndex]) return;
+    e.preventDefault();
+    snapshot();
+    const clone = Object.assign({}, ops[selIndex]);
+    moveOpBy(clone, 10, 10);
+    if (clone.type === 'badge') clone.n = nextBadgeN();   // 同番号を2つ置かない（MK-Q19）
+    ops.push(clone);
+    selIndex = ops.length - 1;
+    nudgeChain = false;
+    redraw();
+    drawOverlay();
+    return;
+  }
   // Cmd/Ctrl+Z = Undo。Shift 付きでは発火しない（Redo と誤解した操作で逆走させない — spec）。
   // 入力要素フォーカス中はブラウザのテキスト undo に任せる
   if ((e.metaKey || e.ctrlKey) && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
@@ -808,6 +866,17 @@ document.addEventListener('keydown', e => {
     if (dx === 0 && dy === 0) return;
     snapshot('nudge');
     moveOpBy(ops[selIndex], dx, dy);
+    redraw();
+    drawOverlay();
+  }
+});
+
+// 太さセレクトは選択中の枠・矢印にも適用（色・粒度と同じ「書式は選択に効く」規則 — v5）
+el('line-width').addEventListener('change', () => {
+  const op = selIndex !== null ? ops[selIndex] : null;
+  if (op && (op.type === 'rect' || op.type === 'arrow')) {
+    snapshot();
+    op.width = Number(el('line-width').value);
     redraw();
     drawOverlay();
   }
@@ -863,6 +932,7 @@ window.mask = {
     }
     return n;
   },
+  opAt: i => (ops[i] ? Object.assign({}, ops[i]) : null),
   countColor: (x, y, w, h, range) => {   // [rLo,rHi, gLo,gHi, bLo,bHi]
     const d = ctx.getImageData(x, y, w, h).data;
     let n = 0;

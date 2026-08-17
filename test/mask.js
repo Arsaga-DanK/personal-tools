@@ -4,7 +4,7 @@
    出力: 合否一覧と終了コード（全 pass かつコンソールエラー0件で 0）
    例:   node test/mask.js  /  ./test/run mask
 
-   照合するID: MK-01〜15（操作モデル・選択編集・リサイズ・色）＋ MK-U1〜U25（UI 経路）＋ハブ導線
+   照合するID: MK-01〜19（操作モデル・編集・色・太さ・白塗り・番号）＋ MK-U1〜U31（UI 経路）＋ハブ導線
    仕様の正本は docs/specs/mask.md。期待値を変えるときは spec を先に直す。
    クリップボードは壊さない: navigator.clipboard.write をスタブして捕捉する。 */
 
@@ -268,6 +268,46 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     !mk15.missing && mk15.blue.rect > 0 && mk15.blue.arrow > 0 && mk15.blue.text > 0
     && mk15.legacyRed > 0,
     JSON.stringify(mk15));
+
+  /* ========== MK-16: 線の太さ（v5） ========== */
+  const mk16 = await page.evaluate(() => {
+    const m = window.mask;
+    if (!m.opAt) return { missing: true };
+    m.clearOps();
+    m.addOp({ type: 'rect', x: 10, y: 10, w: 40, h: 30, width: 2 });
+    const thin = m.countRed(5, 5, 50, 12);          // 上辺の帯
+    m.clearOps();
+    m.addOp({ type: 'rect', x: 10, y: 10, w: 40, h: 30, width: 5 });
+    const thick = m.countRed(5, 5, 50, 12);
+    m.clearOps();
+    m.addOp({ type: 'arrow', x1: 10, y1: 60, x2: 70, y2: 60, width: 5 });
+    const bigHead = m.countRed(50, 48, 22, 24);     // 太さ5 → 頭 L=20
+    m.clearOps();
+    m.addOp({ type: 'arrow', x1: 10, y1: 60, x2: 70, y2: 60, width: 2 });
+    const smallHead = m.countRed(50, 48, 22, 24);   // 太さ2 → 頭 L=8
+    m.clearOps();
+    return { thin, thick, bigHead, smallHead };
+  });
+  r.check('MK-16（太さ: 5 は 2 より描画画素が多い・矢印の頭も比例）',
+    !mk16.missing && mk16.thick > mk16.thin && mk16.bigHead > mk16.smallHead,
+    JSON.stringify(mk16));
+
+  /* ========== MK-19: 白塗り（v5） ========== */
+  const mk19 = await page.evaluate(() => {
+    const m = window.mask;
+    m.clearOps();
+    m.addOp({ type: 'fill', x: 10, y: 10, w: 20, h: 20, color: '#ffffff' });
+    const white = m.pixelAt(15, 15);
+    const blackDefault = (() => {
+      m.addOp({ type: 'fill', x: 50, y: 50, w: 10, h: 10 });
+      return m.pixelAt(55, 55);
+    })();
+    m.clearOps();
+    return { white, blackDefault };
+  });
+  r.check('MK-19（fill: color 白で白塗り・省略は従来どおり黒）',
+    eq(mk19.white, [255, 255, 255, 255]) && eq(mk19.blackDefault, [0, 0, 0, 255]),
+    JSON.stringify(mk19));
 
   /* ========== MK-U1: 合成 paste で画像が入る ========== */
   const u1 = await page.evaluate(async () => {
@@ -930,6 +970,122 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
   r.check('MK-U25（チェック中のツールの背景が未チェックと異なる）',
     u25t.checkedBg !== null && u25t.otherBg !== null && u25t.checkedBg !== u25t.otherBg,
     JSON.stringify(u25t));
+
+  /* ========== MK-U26: キャンバスの中央寄せ（v5） ========== */
+  await loadFixture();
+  const u26t = await page.evaluate(() => {
+    const wrap = document.getElementById('canvas-wrap');
+    const main = document.querySelector('main');
+    const w = wrap.getBoundingClientRect();
+    const mn = main.getBoundingClientRect();
+    const leftGap = w.left - mn.left;
+    const rightGap = mn.right - w.right;
+    return { leftGap, rightGap, diff: Math.abs(leftGap - rightGap) };
+  });
+  r.check('MK-U26（キャンバスが中央寄せ — 左右の余白がほぼ等しい）',
+    u26t.leftGap > 20 && u26t.rightGap > 20 && u26t.diff < 8, JSON.stringify(u26t));
+
+  /* ========== MK-U27: 太さ UI（描画時と選択への適用） ========== */
+  const u27t = await page.evaluate(() => {
+    const m = window.mask;
+    const lw = document.getElementById('line-width');
+    if (!lw || !m.opAt) return { missing: true };
+    m.clearOps();
+    const cv = document.getElementById('canvas');
+    const rect = cv.getBoundingClientRect();
+    const pt = (x, y) => ({ clientX: rect.left + x * rect.width / cv.width,
+                            clientY: rect.top + y * rect.height / cv.height, bubbles: true, pointerId: 1 });
+    const setTool = v => {
+      const rd = document.querySelector('input[name="tool"][value="' + v + '"]');
+      rd.checked = true;
+      rd.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    lw.value = '5';
+    lw.dispatchEvent(new Event('change', { bubbles: true }));
+    setTool('arrow');
+    cv.dispatchEvent(new PointerEvent('pointerdown', pt(10, 60)));
+    cv.dispatchEvent(new PointerEvent('pointermove', pt(70, 60)));
+    cv.dispatchEvent(new PointerEvent('pointerup', pt(70, 60)));
+    const drawn = m.opAt(0).width;             // 太で描いた → 5
+    lw.value = '2';
+    lw.dispatchEvent(new Event('change', { bubbles: true }));   // 描画確定で自動選択されている → 適用
+    const applied = m.opAt(0).width;
+    m.undo();
+    const undone = m.opAt(0) && m.opAt(0).width;
+    lw.value = '3';
+    return { drawn, applied, undone };
+  });
+  r.check('MK-U27（太さ: 描画時に反映・選択中の変更が効き undo で戻る）',
+    !u27t.missing && u27t.drawn === 5 && u27t.applied === 2 && u27t.undone === 5,
+    JSON.stringify(u27t));
+
+  /* ========== MK-U28: Cmd+D 複製 ========== */
+  const u28t = await page.evaluate(() => {
+    const m = window.mask;
+    if (!m.opAt) return { missing: true };
+    m.clearOps();
+    m.addOp({ type: 'fill', x: 10, y: 10, w: 20, h: 20 });
+    // 未選択 → 何もしない・preventDefault もしない
+    const evNone = new KeyboardEvent('keydown', { key: 'd', metaKey: true, bubbles: true, cancelable: true });
+    document.dispatchEvent(evNone);
+    const noneCase = { count: m.opsCount(), prevented: evNone.defaultPrevented };
+    m.selectAt(15, 15);
+    const ev = new KeyboardEvent('keydown', { key: 'd', metaKey: true, bubbles: true, cancelable: true });
+    document.dispatchEvent(ev);
+    const dup = m.opAt(1);
+    const dupCase = { count: m.opsCount(), prevented: ev.defaultPrevented,
+                      sel: m.selectedIndex(), x: dup && dup.x, y: dup && dup.y };
+    m.undo();
+    const undone = m.opsCount();
+    return { noneCase, dupCase, undone };
+  });
+  r.check('MK-U28（Cmd+D: 選択中は +10,+10 に複製し複製側を選択・未選択は何もしない）',
+    !u28t.missing && u28t.noneCase.count === 1 && u28t.noneCase.prevented === false
+    && u28t.dupCase.count === 2 && u28t.dupCase.prevented === true
+    && u28t.dupCase.sel === 1 && u28t.dupCase.x === 20 && u28t.dupCase.y === 20
+    && u28t.undone === 1,
+    JSON.stringify(u28t));
+
+  /* ========== MK-U29: Shift 制約（正方形・45°・移動の軸ロック） ========== */
+  const u29t = await page.evaluate(() => {
+    const m = window.mask;
+    if (!m.opAt) return { missing: true };
+    m.clearOps();
+    const cv = document.getElementById('canvas');
+    const rect = cv.getBoundingClientRect();
+    const pt = (x, y, shift) => ({ clientX: rect.left + x * rect.width / cv.width,
+                                   clientY: rect.top + y * rect.height / cv.height,
+                                   bubbles: true, pointerId: 1, shiftKey: !!shift });
+    const setTool = v => {
+      const rd = document.querySelector('input[name="tool"][value="' + v + '"]');
+      rd.checked = true;
+      rd.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    setTool('fill');
+    cv.dispatchEvent(new PointerEvent('pointerdown', pt(10, 10)));
+    cv.dispatchEvent(new PointerEvent('pointermove', pt(50, 30, true)));
+    cv.dispatchEvent(new PointerEvent('pointerup', pt(50, 30, true)));
+    const sq = m.opAt(0);
+    setTool('arrow');
+    cv.dispatchEvent(new PointerEvent('pointerdown', pt(10, 60)));
+    cv.dispatchEvent(new PointerEvent('pointermove', pt(60, 72, true)));
+    cv.dispatchEvent(new PointerEvent('pointerup', pt(60, 72, true)));
+    const ar = m.opAt(1);
+    // 移動の軸ロック: 正方形（10..50）を中心から Shift ドラッグ（+25,+11 → x のみ）。
+    // 開始点は角ハンドルの判定域（6px）を避けて中心にする
+    setTool('select');
+    m.selectAt(30, 30);
+    cv.dispatchEvent(new PointerEvent('pointerdown', pt(30, 30)));
+    cv.dispatchEvent(new PointerEvent('pointermove', pt(55, 41, true)));
+    cv.dispatchEvent(new PointerEvent('pointerup', pt(55, 41, true)));
+    const moved = m.opAt(0);
+    return { sq: { w: sq.w, h: sq.h }, ar: { y1: ar.y1, y2: ar.y2 }, moved: { x: moved.x, y: moved.y } };
+  });
+  r.check('MK-U29（Shift: 正方形 w=h・矢印45°スナップ（水平）・移動は軸ロック）',
+    !u29t.missing && u29t.sq.w === 40 && u29t.sq.h === 40
+    && u29t.ar.y1 === 60 && u29t.ar.y2 === 60
+    && u29t.moved.x === 35 && u29t.moved.y === 10,
+    JSON.stringify(u29t));
 
   /* ========== ハブ導線 ========== */
   await page.goto(fileUrl('index.html'));
