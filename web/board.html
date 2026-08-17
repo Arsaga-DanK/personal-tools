@@ -1,0 +1,895 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sort Ideas (board)</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🗂️%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../lib/ui.css">
+<style>
+  /* board 固有: 論理 1600×1000 を CSS 1:1 で表示（縮小すると文字が読めない — BD spec F2）。
+     ページは横スクロールさせず、ラッパの中でスクロールする */
+  #board-wrap {
+    position: relative;
+    overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    max-height: 72vh;
+    background: #ffffff;
+  }
+  #canvas { display: block; cursor: default; touch-action: none; }
+  /* 付箋のその場編集（Mask v3 と同じ状態機械） */
+  #note-editor {
+    position: absolute;
+    z-index: 2;
+    width: 168px;
+    min-height: 40px;
+    margin: 0;
+    padding: 10px;
+    box-sizing: border-box;
+    border: 1px dashed #5e81ac;
+    color: #1f2937;
+    font: 14px/20px -apple-system, "Hiragino Sans", sans-serif;
+    resize: none;
+    overflow: hidden;
+    outline: none;
+  }
+  .swatch { position: relative; display: inline-flex; }
+  .swatch input { position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none; }
+  .swatch .sw {
+    width: 18px; height: 18px; border-radius: 50%;
+    border: 2px solid var(--panel); box-shadow: 0 0 0 1px var(--border);
+    cursor: pointer; display: inline-block;
+  }
+  .swatch input:checked + .sw { box-shadow: 0 0 0 2px var(--accent); }
+  .swatch input:focus-visible + .sw { outline: 2px solid var(--accent); outline-offset: 2px; }
+  #connect-mode.active { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+</style>
+</head>
+<body>
+<main class="app-wide">
+  <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">付箋は自動保存されます</span></p>
+  <h1>Sort Ideas</h1>
+  <p class="subtitle">付箋ボード — ダブルクリックで付箋を置いて直接入力・ドラッグで並べ・色で分け・線で結ぶ → md アウトライン書き出し（Obsidian ノートへ）と PNG コピー</p>
+
+  <div class="toolbar" id="tools">
+    <button type="button" id="add-note" title="中央に付箋を置いて入力を始める（空白のダブルクリックでも作れる）">＋ 付箋を追加</button>
+    <button type="button" id="connect-mode" title="付箋を2回クリックして線で結ぶ（Esc でキャンセル）" aria-pressed="false">結線</button>
+    <span class="tool-group" role="radiogroup" aria-label="付箋の色（選択中の付箋にも効く）">
+      <label class="swatch" title="黄"><input type="radio" name="color" value="#fef08a" checked aria-label="黄"><span class="sw" style="background:#fef08a"></span></label>
+      <label class="swatch" title="桃"><input type="radio" name="color" value="#fbcfe8" aria-label="桃"><span class="sw" style="background:#fbcfe8"></span></label>
+      <label class="swatch" title="青"><input type="radio" name="color" value="#bfdbfe" aria-label="青"><span class="sw" style="background:#bfdbfe"></span></label>
+      <label class="swatch" title="緑"><input type="radio" name="color" value="#bbf7d0" aria-label="緑"><span class="sw" style="background:#bbf7d0"></span></label>
+      <label class="swatch" title="灰"><input type="radio" name="color" value="#e5e7eb" aria-label="灰"><span class="sw" style="background:#e5e7eb"></span></label>
+    </span>
+    <span class="spacer"></span>
+    <label class="toggle" title="md 書き出しを色ごとの見出しで区切る"><input type="checkbox" id="md-by-color"> 色ごとに見出し</label>
+    <button type="button" id="md-btn" title="付箋を読み順の md 箇条書きにしてコピー（Obsidian ノートへ）">md をコピー</button>
+    <button class="primary" id="copy-btn" title="Cmd/Ctrl+Enter">PNG をコピー</button>
+    <button type="button" id="undo-btn">元に戻す</button>
+    <button type="button" id="clear-btn">全て消す</button>
+  </div>
+
+  <div class="banner" id="banner" hidden></div>
+
+  <div id="board-wrap">
+    <canvas id="canvas"></canvas>
+    <textarea id="note-editor" hidden spellcheck="false" aria-label="付箋の内容（Esc か外側クリックで確定）"></textarea>
+  </div>
+</main>
+
+<script src="../lib/ui.js"></script>
+<script src="../lib/storage.js"></script>
+<script>
+'use strict';
+
+const el = id => document.getElementById(id);
+function showBanner(kind, text) { ToolUI.banner(el('banner'), kind, text); }
+
+const TOOL = 'board';
+const BOARD_W = 1600, BOARD_H = 1000;
+const NOTE_W = 168, PAD = 10, LINE_H = 20, RADIUS = 8;
+const NOTE_FONT = '14px -apple-system, "Hiragino Sans", sans-serif';
+const TEXT_COLOR = '#1f2937';
+const ACCENT = '#5e81ac';
+const CONN_COLOR = '#94a3b8';
+// 淡色5枚＋濃色文字（Mask の高彩度5色は塗りに使うと文字が読めない — BD spec F11）
+const COLORS = [
+  { hex: '#fef08a', label: '黄' },
+  { hex: '#fbcfe8', label: '桃' },
+  { hex: '#bfdbfe', label: '青' },
+  { hex: '#bbf7d0', label: '緑' },
+  { hex: '#e5e7eb', label: '灰' },
+];
+const COLOR_SET = new Set(COLORS.map(c => c.hex));
+
+/* ========== データモデル（フラット・安定 id — BD spec F4/F13） ========== */
+
+let notes = [];        // { id, x, y, text, color }
+let conns = [];        // { id, a, b } — a/b は note の id（無向）
+let history = [];      // スナップショット履歴（保存しない — F8）
+const HISTORY_MAX = 200;
+let nudgeChain = false;
+let selected = new Set();   // 'n<id>' / 'c<id>'
+let mode = 'select';        // 'select' | 'connect'
+let pendingA = null;        // 結線の片端確定（note id）
+
+const nextNoteId = () => notes.reduce((m, n) => Math.max(m, n.id), 0) + 1;
+const nextConnId = () => conns.reduce((m, c) => Math.max(m, c.id), 0) + 1;
+
+function snapshot(tag) {
+  if (tag === 'nudge' && nudgeChain) return;
+  history.push({
+    notes: notes.map(n => Object.assign({}, n)),
+    conns: conns.map(c => Object.assign({}, c)),
+  });
+  if (history.length > HISTORY_MAX) history.shift();
+  nudgeChain = tag === 'nudge';
+}
+
+function undo() {
+  if (history.length === 0) return;
+  const h = history.pop();
+  notes = h.notes;
+  conns = h.conns;
+  selected = new Set();
+  pendingA = null;
+  nudgeChain = false;
+  redraw();
+  scheduleSave();
+}
+
+/* ========== 折返しと寸法（結果は履歴の外にキャッシュ — F13） ========== */
+
+const canvas = el('canvas');
+const ctx = canvas.getContext('2d');
+const dpr = window.devicePixelRatio || 1;
+canvas.width = BOARD_W * dpr;
+canvas.height = BOARD_H * dpr;
+canvas.style.width = BOARD_W + 'px';
+canvas.style.height = BOARD_H + 'px';
+
+const wrapCache = new Map();   // id → { text, lines }
+
+// 文字単位の貪欲折返し（日本語は空白区切り不可 — コードポイント分割でサロゲート安全）
+function wrapText(text) {
+  ctx.font = NOTE_FONT;
+  const maxW = NOTE_W - PAD * 2;
+  const out = [];
+  for (const para of String(text).split('\n')) {
+    let line = '';
+    for (const ch of Array.from(para)) {
+      if (line !== '' && ctx.measureText(line + ch).width > maxW) {
+        out.push(line);
+        line = ch;
+      } else {
+        line += ch;
+      }
+    }
+    out.push(line);
+  }
+  return out;
+}
+
+function noteLines(n) {
+  const c = wrapCache.get(n.id);
+  if (c && c.text === n.text) return c.lines;
+  const lines = wrapText(n.text);
+  wrapCache.set(n.id, { text: n.text, lines });
+  return lines;
+}
+
+function noteH(n) { return Math.max(40, PAD * 2 + noteLines(n).length * LINE_H); }
+function noteBounds(n) { return { x: n.x, y: n.y, w: NOTE_W, h: noteH(n) }; }
+function noteCenter(n) { const b = noteBounds(n); return { x: b.x + b.w / 2, y: b.y + b.h / 2 }; }
+function noteById(id) { return notes.find(n => n.id === id) || null; }
+
+function clampNote(n) {
+  n.x = Math.min(Math.max(0, Math.round(n.x)), BOARD_W - NOTE_W);
+  n.y = Math.min(Math.max(0, Math.round(n.y)), Math.max(0, BOARD_H - noteH(n)));
+}
+
+/* ========== 描画（選択マーカーは出力用の再描画では描かない） ========== */
+
+function roundedRect(c, x, y, w, h, r) {
+  c.beginPath();
+  c.moveTo(x + r, y);
+  c.arcTo(x + w, y, x + w, y + h, r);
+  c.arcTo(x + w, y + h, x, y + h, r);
+  c.arcTo(x, y + h, x, y, r);
+  c.arcTo(x, y, x + w, y, r);
+  c.closePath();
+}
+
+let editing = null;        // { id: 既存 note id | null, x, y, color }
+let rubberRect = null;
+
+function drawModel(c, withSelection) {
+  c.fillStyle = '#ffffff';
+  c.fillRect(0, 0, BOARD_W, BOARD_H);
+  // 線は付箋の下層
+  for (const cn of conns) {
+    const a = noteById(cn.a), b = noteById(cn.b);
+    if (!a || !b) continue;
+    const pa = noteCenter(a), pb = noteCenter(b);
+    c.strokeStyle = withSelection && selected.has('c' + cn.id) ? ACCENT : CONN_COLOR;
+    c.lineWidth = withSelection && selected.has('c' + cn.id) ? 4 : 2;
+    c.beginPath();
+    c.moveTo(pa.x, pa.y);
+    c.lineTo(pb.x, pb.y);
+    c.stroke();
+  }
+  for (const n of notes) {
+    if (editing && editing.id === n.id) continue;   // 編集中は描画から外す（Mask v3 と同型）
+    const b = noteBounds(n);
+    roundedRect(c, b.x, b.y, b.w, b.h, RADIUS);
+    c.fillStyle = n.color;
+    c.fill();
+    c.strokeStyle = 'rgba(0, 0, 0, 0.12)';
+    c.lineWidth = 1;
+    c.stroke();
+    c.fillStyle = TEXT_COLOR;
+    c.font = NOTE_FONT;
+    c.textBaseline = 'top';
+    const lines = noteLines(n);
+    for (let i = 0; i < lines.length; i++) {
+      c.fillText(lines[i], b.x + PAD, b.y + PAD + i * LINE_H);
+    }
+    c.textBaseline = 'alphabetic';
+    if (withSelection && (selected.has('n' + n.id) || pendingA === n.id)) {
+      c.strokeStyle = ACCENT;
+      c.lineWidth = 2;
+      c.setLineDash(pendingA === n.id ? [] : [6, 4]);
+      roundedRect(c, b.x - 3, b.y - 3, b.w + 6, b.h + 6, RADIUS + 3);
+      c.stroke();
+      c.setLineDash([]);
+    }
+  }
+  if (withSelection && rubberRect) {
+    c.strokeStyle = ACCENT;
+    c.lineWidth = 1.5;
+    c.setLineDash([5, 4]);
+    c.strokeRect(rubberRect.x, rubberRect.y, rubberRect.w, rubberRect.h);
+    c.setLineDash([]);
+  }
+}
+
+function redraw() {
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  drawModel(ctx, true);
+}
+
+/* ========== 当たり判定（付箋は最前面優先 → 線） ========== */
+
+function distToSegment(px, py, x1, y1, x2, y2) {
+  const dx = x2 - x1, dy = y2 - y1;
+  const len2 = dx * dx + dy * dy;
+  const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / len2));
+  return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+}
+
+function hitTest(x, y) {
+  for (let i = notes.length - 1; i >= 0; i--) {
+    const b = noteBounds(notes[i]);
+    if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
+      return { type: 'note', id: notes[i].id };
+    }
+  }
+  for (let i = conns.length - 1; i >= 0; i--) {
+    const a = noteById(conns[i].a), b = noteById(conns[i].b);
+    if (!a || !b) continue;
+    const pa = noteCenter(a), pb = noteCenter(b);
+    if (distToSegment(x, y, pa.x, pa.y, pb.x, pb.y) <= 8) {
+      return { type: 'conn', id: conns[i].id };
+    }
+  }
+  return null;
+}
+
+/* ========== 変更操作（フックと UI が同一コードパス） ========== */
+
+function currentColor() {
+  const sw = document.querySelector('input[name="color"]:checked');
+  return sw ? sw.value : COLORS[0].hex;
+}
+
+function pushNote(x, y, text, color) {
+  const n = {
+    id: nextNoteId(),
+    x: Math.round(x), y: Math.round(y),
+    text: String(text),
+    color: COLOR_SET.has(color) ? color : COLORS[0].hex,
+  };
+  clampNote(n);
+  notes.push(n);
+  return n.id;
+}
+
+function addNote(x, y, text, color) {
+  snapshot();
+  const id = pushNote(x, y, text, color);
+  redraw();
+  scheduleSave();
+  return id;
+}
+
+function connect(a, b) {
+  if (a === b) return false;
+  if (!noteById(a) || !noteById(b)) return false;
+  if (conns.some(c => (c.a === a && c.b === b) || (c.a === b && c.b === a))) return false;
+  snapshot();
+  conns.push({ id: nextConnId(), a, b });
+  redraw();
+  scheduleSave();
+  return true;
+}
+
+function selNoteIds() {
+  return Array.from(selected).filter(k => k[0] === 'n').map(k => Number(k.slice(1)));
+}
+
+function deleteSelected() {
+  if (selected.size === 0) return false;
+  snapshot();
+  const gone = new Set(selNoteIds());
+  conns = conns.filter(c => !selected.has('c' + c.id) && !gone.has(c.a) && !gone.has(c.b));
+  notes = notes.filter(n => !selected.has('n' + n.id));
+  selected = new Set();
+  redraw();
+  scheduleSave();
+  return true;
+}
+
+function moveSelected(dx, dy) {
+  const ids = selNoteIds();
+  if (ids.length === 0) return false;
+  snapshot();
+  for (const id of ids) {
+    const n = noteById(id);
+    if (n) { n.x += dx; n.y += dy; clampNote(n); }
+  }
+  redraw();
+  scheduleSave();
+  return true;
+}
+
+function clearAll() {
+  snapshot();
+  notes = [];
+  conns = [];
+  selected = new Set();
+  pendingA = null;
+  redraw();
+  scheduleSave();
+}
+
+/* ========== md 書き出し（決定的な規則のみ — BD spec F3） ========== */
+
+// 読み順: y の重なりで行バンドを作り、行内は左→右・行間は上→下
+function readingOrder(list) {
+  const sorted = list.slice().sort((a, b) => a.y - b.y || a.x - b.x);
+  const bands = [];
+  let band = null, bottom = -1;
+  for (const n of sorted) {
+    if (band === null || n.y > bottom) {
+      band = [];
+      bands.push(band);
+      bottom = n.y + noteH(n);
+    } else {
+      bottom = Math.max(bottom, n.y + noteH(n));
+    }
+    band.push(n);
+  }
+  const out = [];
+  for (const b of bands) {
+    b.sort((a, c) => a.x - c.x || a.y - c.y);
+    out.push(...b);
+  }
+  return out;
+}
+
+function noteMdLines(n) {
+  const lines = n.text.split('\n');
+  return ['- ' + lines[0]].concat(lines.slice(1).map(l => '  ' + l));
+}
+
+function firstLine(n) { return n.text.split('\n')[0]; }
+
+function buildMd(opts) {
+  const byColor = !!(opts && opts.byColor);
+  const parts = [];
+  if (byColor) {
+    for (const c of COLORS) {
+      const group = notes.filter(n => n.color === c.hex);
+      if (group.length === 0) continue;
+      const sec = ['## ' + c.label];
+      for (const n of readingOrder(group)) sec.push(...noteMdLines(n));
+      parts.push(sec.join('\n'));
+    }
+  } else {
+    const all = [];
+    for (const n of readingOrder(notes)) all.push(...noteMdLines(n));
+    if (all.length) parts.push(all.join('\n'));
+  }
+  if (conns.length > 0) {
+    const sec = ['## つながり'];
+    for (const c of conns.slice().sort((a, b) => a.id - b.id)) {
+      const a = noteById(c.a), b = noteById(c.b);
+      if (a && b) sec.push('- ' + firstLine(a) + ' ⇔ ' + firstLine(b));
+    }
+    if (sec.length > 1) parts.push(sec.join('\n'));
+  }
+  return parts.join('\n\n');
+}
+
+/* ========== 保存（notes/connectors のみ・履歴は保存しない — F8） ========== */
+
+let saveTimer = null;
+function savePayload() {
+  return {
+    notes: notes.map(n => Object.assign({}, n)),
+    connectors: conns.map(c => Object.assign({}, c)),
+  };
+}
+function scheduleSave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => { saveTimer = null; ToolStorage.save(TOOL, savePayload()); }, 300);
+}
+function flushSave() {
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  ToolStorage.save(TOOL, savePayload());
+}
+window.addEventListener('pagehide', flushSave);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') flushSave();
+});
+
+// 復元は型・値域ガード。壊れた分は件数 warn（黙って捨てない — F8）
+function restore() {
+  const data = ToolStorage.load(TOOL);
+  if (!data) return;
+  let droppedNotes = 0, droppedConns = 0;
+  const seen = new Set();
+  if (Array.isArray(data.notes)) {
+    for (const raw of data.notes) {
+      const ok = raw && typeof raw === 'object'
+        && Number.isInteger(raw.id) && raw.id > 0 && !seen.has(raw.id)
+        && Number.isFinite(raw.x) && Number.isFinite(raw.y)
+        && typeof raw.text === 'string';
+      if (!ok) { droppedNotes++; continue; }
+      seen.add(raw.id);
+      const n = {
+        id: raw.id, x: raw.x, y: raw.y, text: raw.text,
+        color: COLOR_SET.has(raw.color) ? raw.color : COLORS[0].hex,
+      };
+      clampNote(n);
+      notes.push(n);
+    }
+  }
+  if (Array.isArray(data.connectors)) {
+    const cSeen = new Set();
+    for (const raw of data.connectors) {
+      const ok = raw && typeof raw === 'object'
+        && Number.isInteger(raw.id) && raw.id > 0 && !cSeen.has(raw.id)
+        && seen.has(raw.a) && seen.has(raw.b) && raw.a !== raw.b;
+      if (!ok) { droppedConns++; continue; }
+      cSeen.add(raw.id);
+      conns.push({ id: raw.id, a: raw.a, b: raw.b });
+    }
+  }
+  if (droppedNotes > 0 || droppedConns > 0) {
+    showBanner('warn', '保存データの壊れていた付箋' + droppedNotes + '件・つながり'
+      + droppedConns + '件を除いて復元しました');
+  }
+}
+
+/* ========== その場編集（Mask v3 と同じ状態機械） ========== */
+
+const editor = el('note-editor');
+
+function sizeEditor() {
+  editor.style.height = 'auto';
+  editor.style.height = Math.max(40, editor.scrollHeight) + 'px';
+}
+
+function openEditor(note, x, y) {
+  if (editing) commitEdit(true);
+  editing = note
+    ? { id: note.id, x: note.x, y: note.y, color: note.color }
+    : { id: null, x: Math.min(Math.max(0, Math.round(x)), BOARD_W - NOTE_W),
+        y: Math.min(Math.max(0, Math.round(y)), BOARD_H - 40), color: currentColor() };
+  selected = new Set();
+  redraw();
+  editor.style.left = editing.x + 'px';
+  editor.style.top = editing.y + 'px';
+  editor.style.background = editing.color;
+  editor.value = note ? note.text : '';
+  editor.hidden = false;
+  sizeEditor();
+  editor.focus();
+  editor.setSelectionRange(editor.value.length, editor.value.length);
+}
+
+function commitEdit(quiet) {
+  if (!editing) return;
+  const cur = editing;
+  const text = editor.value.replace(/\n+$/, '');
+  editing = null;
+  editor.hidden = true;
+  editor.value = '';
+  if (cur.id !== null) {
+    const n = noteById(cur.id);
+    if (!n) { redraw(); return; }
+    if (text.trim() === '') {
+      snapshot();   // 空で確定 = 削除（線も道連れ・1手 — F4）
+      conns = conns.filter(c => c.a !== cur.id && c.b !== cur.id);
+      notes = notes.filter(m => m.id !== cur.id);
+      selected = new Set();
+    } else {
+      if (text !== n.text) { snapshot(); n.text = text; clampNote(n); }
+      if (!quiet) selected = new Set(['n' + cur.id]);
+    }
+  } else if (text.trim() !== '') {
+    snapshot();
+    const id = pushNote(cur.x, cur.y, text, cur.color);
+    if (!quiet) selected = new Set(['n' + id]);
+  }
+  redraw();
+  scheduleSave();
+}
+
+function discardPending() {
+  if (pendingA !== null) { pendingA = null; redraw(); }
+}
+
+editor.addEventListener('input', sizeEditor);
+editor.addEventListener('keydown', e => {
+  if (e.isComposing || e.keyCode === 229) return;   // IME 変換中は奪わない
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    e.stopPropagation();   // document 側の選択解除へ連鎖させない
+    commitEdit();
+  }
+});
+editor.addEventListener('blur', () => commitEdit());
+
+/* ========== ポインタ操作（Mask v6 のエンジンを id 参照で専用化 — BD-Q3） ========== */
+
+function scalePoint(e) {
+  const r = canvas.getBoundingClientRect();
+  return {
+    x: (e.clientX - r.left) * BOARD_W / r.width,
+    y: (e.clientY - r.top) * BOARD_H / r.height,
+  };
+}
+
+let moveDrag = null;      // { start, origs: Map(noteId → {x,y}), moved }
+let rubberDrag = null;    // { start, additive }
+let suppressDblclick = false;
+
+canvas.addEventListener('pointerdown', e => {
+  const committed = !!editing;
+  if (editing) commitEdit();
+  suppressDblclick = committed;   // 確定に使ったクリックの dblclick で新規付箋を作らない（F7）
+  const p = scalePoint(e);
+  if (mode === 'connect') {
+    const h = hitTest(p.x, p.y);
+    if (h && h.type === 'note') {
+      if (pendingA === null) pendingA = h.id;
+      else if (h.id !== pendingA) { connect(pendingA, h.id); pendingA = null; }
+      else pendingA = null;
+    } else {
+      pendingA = null;
+    }
+    redraw();
+    return;
+  }
+  const h = hitTest(p.x, p.y);
+  nudgeChain = false;
+  if (e.shiftKey && h) {   // トグル
+    const key = (h.type === 'note' ? 'n' : 'c') + h.id;
+    if (selected.has(key)) selected.delete(key); else selected.add(key);
+    redraw();
+    return;
+  }
+  if (h && h.type === 'note') {
+    const key = 'n' + h.id;
+    if (!selected.has(key)) selected = new Set([key]);
+    redraw();
+    const origs = new Map();
+    for (const id of selNoteIds()) {
+      const n = noteById(id);
+      if (n) origs.set(id, { x: n.x, y: n.y });
+    }
+    moveDrag = { start: p, origs, moved: false };
+    try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
+    return;
+  }
+  if (h && h.type === 'conn') {
+    selected = new Set(['c' + h.id]);
+    redraw();
+    return;
+  }
+  rubberDrag = { start: p, additive: e.shiftKey };
+  try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
+});
+
+canvas.addEventListener('pointermove', e => {
+  if (moveDrag && selNoteIds().length > 0) {
+    const p = scalePoint(e);
+    let dx = p.x - moveDrag.start.x, dy = p.y - moveDrag.start.y;
+    if (!moveDrag.moved) {
+      if (Math.hypot(dx, dy) <= 3) return;   // 微小移動の閾値（幻の1px移動を履歴に残さない）
+      snapshot();
+      moveDrag.moved = true;
+    }
+    if (e.shiftKey) {   // 軸ロック
+      if (Math.abs(dx) >= Math.abs(dy)) dy = 0; else dx = 0;
+    }
+    for (const [id, orig] of moveDrag.origs) {
+      const n = noteById(id);
+      if (n) { n.x = orig.x + dx; n.y = orig.y + dy; clampNote(n); }
+    }
+    redraw();
+    return;
+  }
+  if (rubberDrag) {
+    const p = scalePoint(e);
+    const x = Math.max(0, Math.min(rubberDrag.start.x, p.x));
+    const y = Math.max(0, Math.min(rubberDrag.start.y, p.y));
+    rubberRect = {
+      x, y,
+      w: Math.min(BOARD_W, Math.max(rubberDrag.start.x, p.x)) - x,
+      h: Math.min(BOARD_H, Math.max(rubberDrag.start.y, p.y)) - y,
+    };
+    redraw();
+    return;
+  }
+  if (mode === 'select') {
+    const p = scalePoint(e);
+    canvas.style.cursor = hitTest(p.x, p.y) !== null ? 'move' : 'default';
+  }
+});
+
+canvas.addEventListener('pointerup', () => {
+  if (moveDrag) {
+    if (moveDrag.moved) scheduleSave();
+    moveDrag = null;
+    return;
+  }
+  if (rubberDrag) {
+    const additive = rubberDrag.additive;
+    const r = rubberRect;
+    rubberDrag = null;
+    rubberRect = null;
+    if (r && (r.w > 2 || r.h > 2)) {
+      const enclosed = [];
+      for (const n of notes) {
+        const b = noteBounds(n);
+        if (b.x >= r.x && b.y >= r.y && b.x + b.w <= r.x + r.w && b.y + b.h <= r.y + r.h) {
+          enclosed.push('n' + n.id);
+        }
+      }
+      if (additive) for (const k of enclosed) selected.add(k);
+      else selected = new Set(enclosed);
+    } else if (!additive) {
+      selected = new Set();
+    }
+    redraw();
+  }
+});
+
+canvas.addEventListener('dblclick', e => {
+  if (suppressDblclick) { suppressDblclick = false; return; }
+  if (mode !== 'select') return;
+  const p = scalePoint(e);
+  const h = hitTest(p.x, p.y);
+  if (h && h.type === 'note') {
+    moveDrag = null;
+    openEditor(noteById(h.id));
+  } else if (!h) {
+    openEditor(null, p.x - NOTE_W / 2, p.y - 20);
+  }
+});
+
+/* ========== ツールバー ========== */
+
+el('add-note').addEventListener('click', () => {
+  commitEdit(true);
+  const k = notes.length % 10;
+  openEditor(null, BOARD_W / 2 - NOTE_W / 2 + k * 16, 120 + k * 16);
+});
+
+el('connect-mode').addEventListener('click', () => {
+  commitEdit(true);
+  discardPending();
+  mode = mode === 'connect' ? 'select' : 'connect';
+  el('connect-mode').classList.toggle('active', mode === 'connect');
+  el('connect-mode').setAttribute('aria-pressed', String(mode === 'connect'));
+  canvas.style.cursor = mode === 'connect' ? 'crosshair' : 'default';
+  selected = new Set();
+  redraw();
+});
+
+el('tools').addEventListener('change', e => {
+  if (!e.target || e.target.name !== 'color') return;
+  // 書式は選択中の付箋にも効く（Mask の書式規則と同型・1手）
+  let touched = false;
+  for (const id of selNoteIds()) {
+    const n = noteById(id);
+    if (n) {
+      if (!touched) { snapshot(); touched = true; }
+      n.color = e.target.value;
+    }
+  }
+  if (touched) { redraw(); scheduleSave(); }
+});
+
+el('md-btn').addEventListener('click', () => {
+  commitEdit(true);
+  discardPending();
+  if (notes.length === 0) { showBanner('info', '付箋がありません — 先に付箋を置いてください'); return; }
+  ToolUI.copy(buildMd({ byColor: el('md-by-color').checked })).then(ok =>
+    ToolUI.feedback(el('md-btn'), ok ? '✓ コピーしました' : 'コピーできませんでした'));
+});
+
+// コンテンツの外接矩形＋余白24px でトリムした白背景2倍 PNG（F6）
+function exportPngBlob() {
+  let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+  for (const n of notes) {
+    const b = noteBounds(n);
+    x1 = Math.min(x1, b.x); y1 = Math.min(y1, b.y);
+    x2 = Math.max(x2, b.x + b.w); y2 = Math.max(y2, b.y + b.h);
+  }
+  const M = 24;
+  x1 = Math.max(0, x1 - M); y1 = Math.max(0, y1 - M);
+  x2 = Math.min(BOARD_W, x2 + M); y2 = Math.min(BOARD_H, y2 + M);
+  const w = Math.max(1, Math.round(x2 - x1)), h = Math.max(1, Math.round(y2 - y1));
+  const off = document.createElement('canvas');
+  off.width = w * 2;
+  off.height = h * 2;
+  const c = off.getContext('2d');
+  c.scale(2, 2);
+  c.translate(-x1, -y1);
+  c.fillStyle = '#ffffff';
+  c.fillRect(x1, y1, w, h);
+  drawModel(c, false);   // 選択マーカーは出力に入れない
+  return new Promise((resolve, reject) =>
+    off.toBlob(b => (b ? resolve(b) : reject(new Error('PNG 変換に失敗しました'))), 'image/png'));
+}
+
+el('copy-btn').addEventListener('click', () => {
+  commitEdit(true);
+  discardPending();
+  if (notes.length === 0) { showBanner('info', '付箋がありません — 先に付箋を置いてください'); return; }
+  const item = new ClipboardItem({ 'image/png': exportPngBlob() });
+  navigator.clipboard.write([item]).then(
+    () => ToolUI.feedback(el('copy-btn'), '✓ コピーしました'),
+    () => showBanner('warn', 'クリップボードへ書けませんでした'));
+});
+
+el('undo-btn').addEventListener('click', () => {
+  commitEdit(true);
+  discardPending();
+  undo();
+});
+el('clear-btn').addEventListener('click', () => {
+  commitEdit(true);
+  discardPending();
+  if (notes.length === 0 && conns.length === 0) return;
+  clearAll();
+});
+
+/* ========== キーボード（Mask v6 と同型） ========== */
+
+function isTextEntryTarget(t) {
+  if (!t || !t.tagName) return false;
+  if (t.tagName === 'TEXTAREA' || t.tagName === 'SELECT') return true;
+  if (t.tagName !== 'INPUT') return false;
+  return !(t.type === 'radio' || t.type === 'checkbox' || t.type === 'button' || t.type === 'file');
+}
+
+document.addEventListener('keydown', e => {
+  const inField = isTextEntryTarget(e.target);
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+    e.preventDefault();
+    el('copy-btn').click();
+    return;
+  }
+  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
+    if (inField) return;
+    e.preventDefault();
+    commitEdit(true);
+    discardPending();
+    undo();
+    return;
+  }
+  if ((e.metaKey || e.ctrlKey) && (e.key === 'd' || e.key === 'D')) {
+    if (inField) return;
+    const ids = selNoteIds();
+    if (ids.length === 0) return;
+    e.preventDefault();
+    snapshot();
+    const clones = [];
+    for (const id of ids.sort((a, b) => a - b)) {
+      const n = noteById(id);
+      if (!n) continue;
+      const cloneId = pushNote(n.x + 16, n.y + 16, n.text, n.color);   // 線は引き継がない（F4）
+      clones.push('n' + cloneId);
+    }
+    selected = new Set(clones);
+    nudgeChain = false;
+    redraw();
+    scheduleSave();
+    return;
+  }
+  if ((e.metaKey || e.ctrlKey) && (e.key === 'a' || e.key === 'A')) {
+    if (inField || notes.length === 0) return;
+    e.preventDefault();
+    selected = new Set(notes.map(n => 'n' + n.id).concat(conns.map(c => 'c' + c.id)));
+    nudgeChain = false;
+    redraw();
+    return;
+  }
+  if (e.key === 'Escape') {
+    if (pendingA !== null) { discardPending(); return; }
+    if (selected.size > 0) { selected = new Set(); redraw(); return; }
+    return;
+  }
+  if ((e.key === 'Delete' || e.key === 'Backspace') && selected.size > 0) {
+    if (inField || e.isComposing) return;
+    e.preventDefault();
+    deleteSelected();
+    return;
+  }
+  if (e.key.startsWith('Arrow') && selNoteIds().length > 0) {
+    if (inField || e.isComposing) return;
+    e.preventDefault();
+    const step = e.shiftKey ? 10 : 1;
+    const dx = e.key === 'ArrowRight' ? step : e.key === 'ArrowLeft' ? -step : 0;
+    const dy = e.key === 'ArrowDown' ? step : e.key === 'ArrowUp' ? -step : 0;
+    if (dx === 0 && dy === 0) return;
+    snapshot('nudge');
+    for (const id of selNoteIds()) {
+      const n = noteById(id);
+      if (n) { n.x += dx; n.y += dy; clampNote(n); }
+    }
+    redraw();
+    scheduleSave();
+  }
+});
+
+/* ========== 起動 ========== */
+
+restore();
+redraw();
+ToolStorage.mountWarning();
+
+// テスト用フック（docs/specs/board.md）
+window.board = {
+  addNote,
+  notes: () => notes.map(n => Object.assign({}, n)),
+  connectors: () => conns.map(c => Object.assign({}, c)),
+  connect,
+  selectAt: (x, y) => {
+    const h = hitTest(x, y);
+    selected = h ? new Set([(h.type === 'note' ? 'n' : 'c') + h.id]) : new Set();
+    nudgeChain = false;
+    redraw();
+    return h;
+  },
+  selectedIds: () => Array.from(selected).sort((a, b) => {
+    if (a[0] !== b[0]) return a[0] < b[0] ? -1 : 1;
+    return Number(a.slice(1)) - Number(b.slice(1));
+  }),
+  moveSelected,
+  deleteSelected,
+  undo,
+  clearAll,
+  buildMd,
+  hitTest,
+};
+</script>
+</body>
+</html>

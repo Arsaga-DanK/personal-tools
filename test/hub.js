@@ -55,7 +55,7 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
   // 前半は**意図的な固定ピン**（ツール追加・改名を意識的な仕様変更にする関門）。
   // 後半は導出値との照合（描画ロジックが TOOLS × CATEGORY_ORDER に従っているか）
   r.check('HUB-3（TOOLS 配列順が同カテゴリ内の表示順）',
-    eq(order.toolsArray, ['Plan Tasks', 'Convert Table', 'Convert Data', 'Normalize Text', 'Compare Text', 'Unify Terms', 'Fill Template', 'Document Schema', 'Export Outline', 'Draw Diagram', 'Draw Mindmap', 'Mask Image', 'Check Vault', 'Calc Dates', 'Draw Gantt'])
+    eq(order.toolsArray, ['Plan Tasks', 'Convert Table', 'Convert Data', 'Normalize Text', 'Compare Text', 'Unify Terms', 'Fill Template', 'Document Schema', 'Export Outline', 'Draw Diagram', 'Draw Mindmap', 'Sort Ideas', 'Mask Image', 'Check Vault', 'Calc Dates', 'Draw Gantt'])
     && eq(order.groups, order.expectedGroups) && eq(order.categories, order.expectedCategories),
     JSON.stringify([order.toolsArray, order.groups, order.expectedGroups]));
 
@@ -64,8 +64,8 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     const names = Array.from(document.querySelectorAll('ul.tool-list a')).map(a => a.textContent);
     return { names, unique: new Set(names).size, total: window.hub.TOOLS.length, other: !!Array.from(document.querySelectorAll('.category-title')).find(e => e.textContent === 'その他') };
   });
-  r.check('HUB-4（登録した15本が重複なく全て載る・「その他」が出ない）',
-    listed.names.length === 15 && listed.unique === 15 && listed.total === 15 && !listed.other,
+  r.check('HUB-4（登録した16本が重複なく全て載る・「その他」が出ない）',
+    listed.names.length === 16 && listed.unique === 16 && listed.total === 16 && !listed.other,
     JSON.stringify(listed));
 
   /* ---------- 検索（純関数＋UI） ---------- */
@@ -105,17 +105,17 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     };
   });
   r.check('HUB-5（検索: 空・表示名・説明・用途・大文字小文字・部分一致）',
-    eq(search.empty, ['Plan Tasks', 'Convert Table', 'Convert Data', 'Normalize Text', 'Compare Text', 'Unify Terms', 'Fill Template', 'Document Schema', 'Export Outline', 'Draw Diagram', 'Draw Mindmap', 'Mask Image', 'Check Vault', 'Calc Dates', 'Draw Gantt'])
+    eq(search.empty, ['Plan Tasks', 'Convert Table', 'Convert Data', 'Normalize Text', 'Compare Text', 'Unify Terms', 'Fill Template', 'Document Schema', 'Export Outline', 'Draw Diagram', 'Draw Mindmap', 'Sort Ideas', 'Mask Image', 'Check Vault', 'Calc Dates', 'Draw Gantt'])
     && eq(search.byName, ['Plan Tasks']) && eq(search.byDesc, ['Plan Tasks', 'Check Vault'])   // 'vault' は両ツールの desc にある
     && eq(search.byWhen, ['Plan Tasks']) && eq(search.caseInsensitive, ['Convert Data'])
     && eq(search.none, []),
     JSON.stringify(search));
-  // 部分一致・英名検索は**全15本**を照合する（1本ずつ導出したクエリで自分自身に当たること）
+  // 部分一致・英名検索は**全16本**を照合する（1本ずつ導出したクエリで自分自身に当たること）
   r.check('HUB-5b（表示名の部分一致が全ツールで効く）',
-    search.partialName.length === 15 && search.partialName.every(p => p.q.length >= 3 && p.ok),
+    search.partialName.length === 16 && search.partialName.every(p => p.q.length >= 3 && p.ok),
     JSON.stringify(search.partialName.filter(p => !p.ok)));
   r.check('HUB-9（英名で辿れる（完全一致・大文字小文字無視・部分一致）・英名は画面に出さない）',
-    search.aliasProbe.length === 15
+    search.aliasProbe.length === 16
     && search.aliasProbe.every(p => p.exact && p.upper && p.partial)
     && search.aliasLeaked.length === 0,
     JSON.stringify([search.aliasProbe.filter(p => !(p.exact && p.upper && p.partial)), search.aliasLeaked]));
@@ -205,7 +205,7 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
   r.check('HUB-6（UI 検索: 絞り込み・該当なし・クリアで復帰）',
     eq(s1.names, ['Normalize Text']) && eq(s1.categories, ['変換・比較'])       // 空のカテゴリ見出しは出ない
     && eq(s2.names, []) && s2.empty === '該当なし'
-    && eq(s3.names, ['Plan Tasks', 'Convert Table', 'Convert Data', 'Normalize Text', 'Compare Text', 'Unify Terms', 'Fill Template', 'Document Schema', 'Export Outline', 'Draw Diagram', 'Draw Mindmap', 'Mask Image', 'Check Vault', 'Calc Dates', 'Draw Gantt']) && s3.categories[0] === 'タスク',
+    && eq(s3.names, ['Plan Tasks', 'Convert Table', 'Convert Data', 'Normalize Text', 'Compare Text', 'Unify Terms', 'Fill Template', 'Document Schema', 'Export Outline', 'Draw Diagram', 'Draw Mindmap', 'Sort Ideas', 'Mask Image', 'Check Vault', 'Calc Dates', 'Draw Gantt']) && s3.categories[0] === 'タスク',
     JSON.stringify([s1, s2, s3]));
 
   /* ---------- リンク遷移（全ツール） ---------- */
@@ -230,11 +230,11 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
       naming: h1 === name && title === wantTitle && alias === basename,
     });
   }
-  r.check('HUB-7（15本すべてリンクで遷移でき title が一致）',
-    navResults.length === 15 && navResults.every(n => n.ok),
+  r.check('HUB-7（16本すべてリンクで遷移でき title が一致）',
+    navResults.length === 16 && navResults.every(n => n.ok),
     JSON.stringify(navResults));
   r.check('HUB-10（h1 = 表示名・title = 「表示名 (英名)」・英名 = ファイル名）',
-    navResults.length === 15 && navResults.every(n => n.naming),
+    navResults.length === 16 && navResults.every(n => n.naming),
     JSON.stringify(navResults.map(n => [n.name, n.h1, n.title, n.href])));
 
   /* ---------- 狭幅で横スクロールしない ---------- */
