@@ -27,11 +27,11 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     toolsArray: window.hub.TOOLS.map(t => t.name),
   }));
   r.check('HUB-1（カテゴリ順: タスクが先頭）', order.categories[0] === 'タスク'
-    && eq(order.categories, ['タスク', '変換・比較', '設計', '画像', '整理', 'PM']), JSON.stringify(order.categories));
+    && eq(order.categories, ['タスク', '変換・比較', '設計', '発想', '画像', '整理', 'PM']), JSON.stringify(order.categories));
   r.check('HUB-2（Tasks が最初のリンク）', order.firstLink === 'Tasks', order.firstLink);
   r.check('HUB-3（TOOLS 配列順が同カテゴリ内の表示順）',
-    eq(order.toolsArray, ['Tasks', 'Tables', 'Convert', 'Text', 'Diff', 'Terms', 'Fill', 'Schema', 'Outline', 'Diagram', 'Mask', 'Lint', 'Dates', 'Gantt'])
-    && eq(order.groups, [['Tasks'], ['Tables', 'Convert', 'Text', 'Diff', 'Terms', 'Fill'], ['Schema', 'Outline', 'Diagram'], ['Mask'], ['Lint'], ['Dates', 'Gantt']]),
+    eq(order.toolsArray, ['Tasks', 'Tables', 'Convert', 'Text', 'Diff', 'Terms', 'Fill', 'Schema', 'Outline', 'Diagram', 'Mindmap', 'Mask', 'Lint', 'Dates', 'Gantt'])
+    && eq(order.groups, [['Tasks'], ['Tables', 'Convert', 'Text', 'Diff', 'Terms', 'Fill'], ['Schema', 'Outline', 'Diagram'], ['Mindmap'], ['Mask'], ['Lint'], ['Dates', 'Gantt']]),
     JSON.stringify([order.toolsArray, order.groups]));
 
   /* ---------- 全ツールが1回だけ載る ---------- */
@@ -39,8 +39,8 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     const names = Array.from(document.querySelectorAll('ul.tool-list a')).map(a => a.textContent);
     return { names, unique: new Set(names).size, total: window.hub.TOOLS.length, other: !!Array.from(document.querySelectorAll('.category-title')).find(e => e.textContent === 'その他') };
   });
-  r.check('HUB-4（登録した14本が重複なく全て載る・「その他」が出ない）',
-    listed.names.length === 14 && listed.unique === 14 && listed.total === 14 && !listed.other,
+  r.check('HUB-4（登録した15本が重複なく全て載る・「その他」が出ない）',
+    listed.names.length === 15 && listed.unique === 15 && listed.total === 15 && !listed.other,
     JSON.stringify(listed));
 
   /* ---------- 検索（純関数＋UI） ---------- */
@@ -63,7 +63,7 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     };
   });
   r.check('HUB-5（検索: 空・表示名・説明・用途・大文字小文字・部分一致）',
-    eq(search.empty, ['Tasks', 'Tables', 'Convert', 'Text', 'Diff', 'Terms', 'Fill', 'Schema', 'Outline', 'Diagram', 'Mask', 'Lint', 'Dates', 'Gantt'])
+    eq(search.empty, ['Tasks', 'Tables', 'Convert', 'Text', 'Diff', 'Terms', 'Fill', 'Schema', 'Outline', 'Diagram', 'Mindmap', 'Mask', 'Lint', 'Dates', 'Gantt'])
     && eq(search.byName, ['Tasks']) && eq(search.byDesc, ['Tasks', 'Lint'])   // 'vault' は両ツールの desc にある
     && eq(search.byWhen, ['Tasks']) && eq(search.caseInsensitive, ['Convert'])
     && eq(search.partial, ['Tables']) && eq(search.none, []),
@@ -158,7 +158,7 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
   r.check('HUB-6（UI 検索: 絞り込み・該当なし・クリアで復帰）',
     eq(s1.names, ['Text']) && eq(s1.categories, ['変換・比較'])       // 空のカテゴリ見出しは出ない
     && eq(s2.names, []) && s2.empty === '該当なし'
-    && eq(s3.names, ['Tasks', 'Tables', 'Convert', 'Text', 'Diff', 'Terms', 'Fill', 'Schema', 'Outline', 'Diagram', 'Mask', 'Lint', 'Dates', 'Gantt']) && s3.categories[0] === 'タスク',
+    && eq(s3.names, ['Tasks', 'Tables', 'Convert', 'Text', 'Diff', 'Terms', 'Fill', 'Schema', 'Outline', 'Diagram', 'Mindmap', 'Mask', 'Lint', 'Dates', 'Gantt']) && s3.categories[0] === 'タスク',
     JSON.stringify([s1, s2, s3]));
 
   /* ---------- リンク遷移（全ツール） ---------- */
@@ -183,11 +183,11 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
       naming: h1 === name && title === wantTitle && alias === basename,
     });
   }
-  r.check('HUB-7（14本すべてリンクで遷移でき title が一致）',
-    navResults.length === 14 && navResults.every(n => n.ok),
+  r.check('HUB-7（15本すべてリンクで遷移でき title が一致）',
+    navResults.length === 15 && navResults.every(n => n.ok),
     JSON.stringify(navResults));
   r.check('HUB-10（h1 = 表示名・title = 「表示名 (英名)」・英名 = ファイル名）',
-    navResults.length === 14 && navResults.every(n => n.naming),
+    navResults.length === 15 && navResults.every(n => n.naming),
     JSON.stringify(navResults.map(n => [n.name, n.h1, n.title, n.href])));
 
   /* ---------- 狭幅で横スクロールしない ---------- */

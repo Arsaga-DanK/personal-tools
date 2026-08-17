@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mindmap</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🧠%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../lib/ui.css">
+<style>
+  /* mindmap 固有: 出力ペインは白背景固定（出力 PNG と同じ見た目 — diagram と同じ） */
+  #output {
+    min-height: 260px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: #ffffff;
+    padding: 12px;
+    overflow: auto;
+  }
+  #output svg { max-width: 100%; height: auto; }
+</style>
+</head>
+<body>
+<main class="app-wide">
+  <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">入力は自動保存されます</span></p>
+  <h1>Mindmap</h1>
+  <p class="subtitle">箇条書き → マインドマップ（mermaid 同梱）— 1行目が中心テーマ・タブで階層。思考の速度で打てて、テキストはそのままノートに貼れる</p>
+
+  <div class="toolbar">
+    <button class="primary" id="copy-btn" title="Cmd/Ctrl+Enter">PNG をコピー</button>
+    <span class="muted" style="font-size:12px">インデントはタブ1個（またはスペース2個）で1階層。# 始まりはメモ行（図に出ない）</span>
+  </div>
+
+  <div class="banner" id="banner" hidden></div>
+
+  <div class="panes">
+    <div class="pane">
+      <p class="pane-title">アウトライン<button type="button" class="sample-btn" id="sample-btn">サンプルを入れる</button></p>
+      <textarea id="input" spellcheck="false" placeholder="新サービス案&#10;&#9;課題&#10;&#9;&#9;価格が高い&#10;&#9;打ち手&#10;&#9;&#9;無料プラン"></textarea>
+    </div>
+    <div class="pane">
+      <p class="pane-title">マインドマップ（プレビュー）</p>
+      <div id="output" aria-live="polite"></div>
+    </div>
+  </div>
+</main>
+
+<script src="../lib/ui.js"></script>
+<script src="../lib/storage.js"></script>
+<script src="../lib/vendor/mermaid.min.js"></script>
+<script src="../lib/mmd.js"></script>
+<script>
+'use strict';
+
+const el = id => document.getElementById(id);
+function showBanner(kind, text) { ToolUI.banner(el('banner'), kind, text); }
+
+const TOOL = 'mindmap';
+
+/* ========== 純関数: アウトライン → mermaid mindmap DSL（spec「変換」） ========== */
+
+// mermaid mindmap の形状指定記法（()[]{}）と衝突する文字は全角へ（MM-Q3）
+function sanitizeNode(s) {
+  return s.replace(/\(/g, '（').replace(/\)/g, '）')
+    .replace(/\[/g, '［').replace(/\]/g, '］')
+    .replace(/\{/g, '｛').replace(/\}/g, '｝');
+}
+
+// 行頭の空白 → 階層（タブ1個 = 1階層・スペース2個 = 1階層）
+function indentLevel(raw) {
+  const m = /^[\t ]*/.exec(raw)[0];
+  let level = 0, spaces = 0;
+  for (const ch of m) {
+    if (ch === '\t') { level += 1; spaces = 0; }
+    else { spaces += 1; if (spaces === 2) { level += 1; spaces = 0; } }
+  }
+  return level;
+}
+
+function buildMindmapDsl(text) {
+  const warnings = [];
+  const lines = String(text == null ? '' : text).split('\n');
+  const body = [];
+  let hasRoot = false;
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+    const content = raw.trim();
+    if (content === '' || content.startsWith('#')) continue;
+    const node = sanitizeNode(content);
+    if (!hasRoot) {
+      hasRoot = true;
+      body.push('  root((' + node + '))');
+      continue;
+    }
+    let level = indentLevel(raw);
+    if (level === 0) {   // 2つ目以降のルートは1階層下げる（mermaid はルート1つ — MM-Q2）
+      warnings.push((i + 1) + '行目: 中心テーマは1つです（1階層下げて描きます）');
+      level = 1;
+    }
+    body.push('  '.repeat(level + 1) + node);
+  }
+  if (!hasRoot) return { dsl: null, warnings };
+  return { dsl: ['mindmap'].concat(body).join('\n'), warnings };
+}
+
+/* ========== 描画（フックと UI が同一コードパス。前回の図を保持 — diagram と同じ） ========== */
+
+let lastSvg = null;
+let renderSeq = 0;
+
+async function render(text) {
+  const seq = ++renderSeq;
+  const value = String(text == null ? '' : text);
+  if (value.trim() === '') {
+    lastSvg = null;
+    el('output').textContent = '';
+    showBanner('info', '');
+    return { ok: true, error: null };
+  }
+  const { dsl, warnings } = buildMindmapDsl(value);
+  if (dsl === null) {
+    lastSvg = null;
+    el('output').textContent = '';
+    showBanner('warn', '内容の行がありません（# 始まりはメモ行です）');
+    return { ok: false, error: '内容なし' };
+  }
+  try {
+    const host = document.createElement('div');
+    const svg = await ToolMmd.render(host, dsl);
+    if (seq !== renderSeq) return { ok: true, error: null };
+    lastSvg = svg;
+    el('output').textContent = '';
+    el('output').appendChild(svg);
+    showBanner(warnings.length ? 'warn' : 'info', warnings.join(' / '));
+    return { ok: true, error: null };
+  } catch (e) {
+    if (seq !== renderSeq) return { ok: false, error: String(e && e.message || e) };
+    const msg = String(e && e.message || e).split('\n')[0];
+    showBanner('warn', '描画できません: ' + msg + '（前回の図を表示しています）');
+    return { ok: false, error: msg };
+  }
+}
+
+/* ========== UI 配線 ========== */
+
+let debounceTimer = null;
+function scheduleRender() {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(() => { debounceTimer = null; render(el('input').value); }, 300);
+}
+function flushRender() {   // コピー時に確定（coding-rules）
+  clearTimeout(debounceTimer);
+  debounceTimer = null;
+  return render(el('input').value);
+}
+
+const FIELD_LIMIT = 100000;
+let saveTimer = null;
+function savePayload() {
+  const v = el('input').value;
+  return { input: v.length > FIELD_LIMIT ? { omitted: true } : v };
+}
+function scheduleSave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => { saveTimer = null; ToolStorage.save(TOOL, savePayload()); }, 300);
+}
+function flushSave() {
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  ToolStorage.save(TOOL, savePayload());
+}
+window.addEventListener('pagehide', flushSave);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') flushSave();
+});
+
+function restore() {
+  const data = ToolStorage.load(TOOL);
+  if (!data) return;
+  if (typeof data.input === 'string') el('input').value = data.input;
+  else if (data.input && data.input.omitted) {
+    showBanner('info', '前回の内容は大きすぎたため復元されませんでした（保存上限 100KB）');
+  }
+}
+
+function updateSampleBtn() { el('sample-btn').hidden = el('input').value !== ''; }
+
+el('input').addEventListener('input', () => {
+  scheduleRender();
+  updateSampleBtn();
+  scheduleSave();
+});
+
+el('copy-btn').addEventListener('click', () => {
+  // Safari 対策: ジェスチャ内で同期的に write するため Promise を渡す（mask / diagram と同型）
+  const blobPromise = flushRender().then(() => {
+    if (!lastSvg) throw new Error('図がありません');
+    return ToolMmd.toPngBlob(lastSvg, 2);
+  });
+  const item = new ClipboardItem({ 'image/png': blobPromise });
+  navigator.clipboard.write([item]).then(
+    () => ToolUI.feedback(el('copy-btn'), '✓ コピーしました'),
+    () => showBanner('warn', 'クリップボードへ書けませんでした'));
+});
+document.addEventListener('keydown', e => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+    e.preventDefault();
+    el('copy-btn').click();
+  }
+});
+
+el('sample-btn').addEventListener('click', () => {
+  el('input').value = '業務効率化のアイデア\n\t困りごと\n\t\t定型連絡に時間がかかる\n\t\tスクショの加工が面倒\n\t打ち手\n\t\tテンプレ化\n\t\t専用ツールを作る\n\t\t\t1枚HTMLで起動レス\n\tやらないこと\n\t\tチーム共有情報の管理';
+  render(el('input').value);
+  updateSampleBtn();
+  scheduleSave();
+});
+
+restore();
+updateSampleBtn();
+if (el('input').value !== '') render(el('input').value);
+ToolStorage.mountWarning();
+
+// テスト用フック（docs/specs/mindmap.md）
+window.mindmap = {
+  buildMindmapDsl,
+  render,
+  svgInfo: () => {
+    const svg = el('output').querySelector('svg');
+    return { present: !!svg, nodes: svg ? svg.querySelectorAll('g, path, text').length : 0 };
+  },
+};
+</script>
+</body>
+</html>
