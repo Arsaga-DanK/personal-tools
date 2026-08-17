@@ -17,6 +17,61 @@
     overflow: auto;
   }
   #output svg { max-width: 100%; height: auto; }
+
+  /* 行エディタ（spec「行エディタ」GN-Q9〜Q15）。ui.css のクラスは再定義しない */
+  .view-seg {
+    display: inline-flex;
+    margin-left: 8px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    overflow: hidden;
+    vertical-align: middle;
+  }
+  .view-seg button { border: none; border-radius: 0; font-size: 11px; padding: 2px 10px; }
+  .view-seg button:hover { transform: none; box-shadow: none; }
+  .view-seg button.active { background: var(--accent); color: var(--accent-text); }
+  #editor {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--panel);
+    padding: 8px;
+    box-shadow: var(--shadow);
+  }
+  #editor-rows { display: flex; flex-direction: column; gap: 4px; max-height: 62vh; overflow-y: auto; }
+  /* 行は折返しレイアウト（390px でも全コントロールが可視域内 — GN-U12。内部横スクロールに逃げない） */
+  .ed-row { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; }
+  .ed-num {
+    flex: none;
+    width: 24px;
+    text-align: right;
+    font-size: 11px;
+    color: var(--muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  /* 幅の合計は2ペイン時のペイン幅（約568px）で1行に収まるように選ぶ（狭幅は折返し — GN-U12） */
+  .ed-name { flex: 1 1 118px; min-width: 108px; }
+  .ed-startcell { flex: none; display: flex; flex-direction: column; }
+  .ed-start, .ed-end { flex: none; width: 132px; }
+  .ed-dur { flex: none; width: 48px; }
+  .ed-dur.ed-bad { border-color: var(--error); }
+  .ed-chain { font-size: 10px; color: var(--muted); line-height: 1.3; }
+  .ed-sec { flex: 1 1 auto; font-weight: 650; }
+  .ed-raw {
+    flex: 1 1 auto;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    border-color: var(--warn-border);
+  }
+  .ed-comment {
+    flex: 1 1 auto;
+    color: var(--muted);
+    font-size: 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    overflow-wrap: anywhere;
+  }
+  .ed-btns { flex: none; margin-left: auto; display: inline-flex; gap: 2px; }
+  .ed-btns button { padding: 1px 6px; font-size: 12px; border-radius: 6px; line-height: 1.4; }
+  .ed-foot { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+  .ed-hint { font-size: 11px; }
 </style>
 </head>
 <body>
@@ -35,8 +90,22 @@
 
   <div class="panes">
     <div class="pane">
-      <p class="pane-title">タスク表<button type="button" class="sample-btn" id="sample-btn">サンプルを入れる</button></p>
+      <p class="pane-title">タスク表
+        <span class="view-seg" role="group" aria-label="入力の表示">
+          <button type="button" id="view-text" class="active">テキスト</button>
+          <button type="button" id="view-editor" title="記法を知らなくてもフォームで表が組めます">行エディタ</button>
+        </span>
+        <button type="button" class="sample-btn" id="sample-btn">サンプルを入れる</button>
+      </p>
       <textarea id="input" spellcheck="false" placeholder="設計フェーズ&#10;基本設計&#9;2026-08-18&#9;2026-08-22&#10;詳細設計&#9;2026-08-25&#9;5d"></textarea>
+      <div id="editor" hidden>
+        <div id="editor-rows"></div>
+        <div class="ed-foot">
+          <button type="button" id="add-task">＋ タスク</button>
+          <button type="button" id="add-section">＋ セクション</button>
+          <span class="muted ed-hint">Enter = 下に行を挿入・開始が空欄 = 前のタスクの続き・Cmd/Ctrl+Z = 戻す</span>
+        </div>
+      </div>
     </div>
     <div class="pane">
       <p class="pane-title">チャート（プレビュー）</p>
@@ -77,6 +146,9 @@ function normDate(s) {
   return m[1] + '-' + mm + '-' + dd;
 }
 
+// 日数の上限（約10年）。文言と対で変える — 性能ガードの二重管理（GN-Q18）
+const MAX_DURATION_DAYS = 3650;
+
 // '5d' / '5日' → '5d'（それ以外は null）
 function normDuration(s) {
   const m = /^(\d+)\s*(d|日)$/.exec(String(s).trim());
@@ -111,6 +183,7 @@ function buildDsl(text, opts) {
   const excludeWeekends = !opts || opts.excludeWeekends !== false;
   const warnings = [];
   const body = [];
+  const chained = {};   // 開始空欄で補完した行番号（0始まり）→ 実効開始日（行エディタのキャプション — GN-11）
   let taskN = 0;
   let prevEnd = null;   // 直前タスクの終了（含む）— チェーン入力の起点
   const lines = String(text == null ? '' : text).split('\n');
@@ -136,6 +209,7 @@ function buildDsl(text, opts) {
         continue;
       }
       start = nextStart(prevEnd, excludeWeekends);
+      chained[i] = start;
     }
     let end = normDate(parts[2]) || normDuration(parts[2]);
     if (name === '' || !start || !end) {
@@ -151,15 +225,21 @@ function buildDsl(text, opts) {
       prevEnd = end;
       end = addDays(end, 1);
     } else {
-      prevEnd = walkBusinessDays(start, parseInt(end, 10), excludeWeekends);
+      // 日数の上限ガード（営業日ウォークは1日ずつ進むため、桁違いの日数で固まる — GN-Q18）
+      const days = parseInt(end, 10);
+      if (days > MAX_DURATION_DAYS) {
+        warnings.push((i + 1) + '行目: 日数が大きすぎます（' + MAX_DURATION_DAYS + '日まで）');
+        continue;
+      }
+      prevEnd = walkBusinessDays(start, days, excludeWeekends);
     }
     taskN++;
     body.push(name + ' :t' + taskN + ', ' + start + ', ' + end);
   }
-  if (taskN === 0) return { dsl: null, warnings };
+  if (taskN === 0) return { dsl: null, warnings, chained };
   const head = ['gantt', 'dateFormat YYYY-MM-DD', 'axisFormat %m/%d'];
   if (excludeWeekends) head.push('excludes weekends');
-  return { dsl: head.concat(body).join('\n'), warnings };
+  return { dsl: head.concat(body).join('\n'), warnings, chained };
 }
 
 /* ========== 取り込み（貼るだけ — spec「取り込み」。純関数） ========== */
@@ -236,6 +316,426 @@ function importText(raw) {
   return { text: '# 取り込み: ' + ToolEdit.today() + '\n' + out.join('\n'), warnings, kind: 'tasks' };
 }
 
+/* ========== 行エディタ（spec「行エディタ」GN-Q9〜Q15）==========
+   テキストが正本・エディタはその窓。編集した行だけを最小スプライスで書き戻し、
+   他の行はバイト不変。textarea.value を書き換える経路（サンプル・restore・取り込み・
+   テスト注入）の後は必ず buildEditor で再構築する（GN-Q9）。 */
+
+const EDITOR_MAX_LINES = 500;   // 文言 CAP_NOTICE は定数から組む（数字の二重管理を作らない）
+const COMMIT_MS = 400;          // 書き戻しのデバウンス（GN-Q11）
+
+// '5' / '5d' / '5日' → '5d'（フォームでは数字だけで書ける — テキスト記法より緩い）。
+// 上限 MAX_DURATION_DAYS 超は null（日付を日数欄に打つ誤入力で営業日ウォークが暴走する — GN-Q18）
+function normEditorDur(s) {
+  const m = /^(\d+)\s*(d|日)?$/.exec(String(s).trim());
+  if (!m) return null;
+  return +m[1] > MAX_DURATION_DAYS ? null : m[1] + 'd';
+}
+
+// 1行の型。buildDsl のトークン化規則と一致させる（タブ優先・なければカンマ・#=コメント）
+function classifyLine(raw) {
+  const t = raw.trim();
+  if (t === '' && !raw.includes('\t')) return 'empty';
+  if (t.startsWith('#')) return 'comment';
+  const parts = raw.includes('\t') ? raw.split('\t') : raw.split(',');
+  if (parts.length === 1) return 'section';
+  if (parts.length < 3) return 'invalid';
+  const st = parts[1].trim(), en = parts[2].trim();
+  const stOk = st === '' || normDate(st) !== null;
+  const enOk = en === '' || normDate(en) !== null || normDuration(en) !== null;
+  return stOk && enOk ? 'task' : 'invalid';
+}
+
+// 純関数: テキスト → 行の配列。空行は出さない（テキストには保持 — 行番号ガターの欠番で分かる）。
+// トークンは生値のまま保持し、編集していないフィールドを正規化で書き換えない（GN-Q9）
+function parseRows(text) {
+  const lines = String(text == null ? '' : text).split('\n');
+  const rows = [];
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+    const type = classifyLine(raw);
+    if (type === 'empty') continue;
+    if (type === 'task') {
+      rows.push({ type, line: i, raw, tokens: raw.includes('\t') ? raw.split('\t') : raw.split(',') });
+    } else {
+      rows.push({ type, line: i, raw });
+    }
+  }
+  return rows;
+}
+
+let view = 'text';    // 'text' | 'editor'（保存・復元は enum ガード — GN-Q10）
+let edRowEls = [];    // { row, els, rowEl }。row.raw が鮮度ガードの基準
+let edUndo = [];      // テキストスナップショット（cap 50・redo なし — GN-Q13）
+let undoArmed = null; // フィールド編集の Undo 単位: focusin で覚え、最初のスプライスで積む
+
+function pushUndo(snapshot) {
+  edUndo.push(snapshot);
+  if (edUndo.length > 50) edUndo.shift();
+}
+
+// 書き戻しのデバウンス（1スロット。別フィールドへ移ったら先に前のをフラッシュ — 取りこぼさない）
+let commitTimer = null, commitKey = null, commitFn = null;
+function scheduleCommit(key, fn) {
+  if (commitTimer !== null && commitKey !== key) flushCommit();
+  clearTimeout(commitTimer);
+  commitKey = key;
+  commitFn = fn;
+  commitTimer = setTimeout(() => {
+    commitTimer = null;
+    const f = commitFn;
+    commitFn = null;
+    commitKey = null;
+    f();
+  }, COMMIT_MS);
+}
+function flushCommit() {
+  if (commitTimer === null) return;
+  clearTimeout(commitTimer);
+  commitTimer = null;
+  const f = commitFn;
+  commitFn = null;
+  commitKey = null;
+  if (f) f();
+}
+function cancelCommit() {
+  clearTimeout(commitTimer);
+  commitTimer = null;
+  commitFn = null;
+  commitKey = null;
+}
+
+// 編集した行だけを書き戻す。構築時の raw と現在行が違えば**書かずに再構築**（鮮度ガード — GN-Q9）
+function spliceLine(row, newLine) {
+  const ta = el('input');
+  const lines = ta.value.split('\n');
+  if (lines[row.line] !== row.raw) {
+    buildEditor(null);
+    return false;
+  }
+  if (undoArmed !== null) {
+    pushUndo(undoArmed);
+    undoArmed = null;
+  }
+  lines[row.line] = newLine;
+  ta.value = lines.join('\n');
+  row.raw = newLine;
+  ta.dispatchEvent(new Event('input', { bubbles: true }));   // 既存の描画・保存パイプラインへ
+  refreshChainCaptions();
+  return true;
+}
+
+// フォーカス中の空 date を確定する。blur を待たずにここで確定させるのは、
+// 再構築起因の blur を無視する（GN-Q16）ぶん「クリアしてすぐ構造操作」を取りこぼすため（対の修正）
+function commitFocusedEmptyDate() {
+  const a = document.activeElement;
+  if (!a || a.tagName !== 'INPUT' || a.type !== 'date' || a.value !== '') return;
+  for (const rec of edRowEls) {
+    if (rec.els.start === a) { commitField(rec.row, rec.els, 'start'); return; }
+    if (rec.els.end === a) { commitField(rec.row, rec.els, 'end'); return; }
+  }
+}
+
+// 構造変更の鮮度ガード（GN-Q9 をスプライス以外にも適用）。
+// 起点行が構築時と違えば書かずに再構築する（外部書き換え後の古い DOM から別の行を消さない）
+function staleAt(line, raw) {
+  if (el('input').value.split('\n')[line] === raw) return false;
+  buildEditor(null);
+  return true;
+}
+
+// 構造変更（追加・削除・移動・取り込み）: フラッシュ → スナップショット → 行配列を編集
+function mutateLines(fn) {
+  commitFocusedEmptyDate();
+  flushCommit();
+  const ta = el('input');
+  pushUndo(ta.value);
+  const lines = ta.value === '' ? [] : ta.value.split('\n');
+  fn(lines);
+  ta.value = lines.join('\n');
+  ta.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+// フィールドのサニタイズ（型シフト防止）: タブ・改行は空白へ・行頭 # は全角へ・
+// セクションのカンマは全角へ（名前の ':' 全角化と同じ流儀）
+function sanitizeName(s) {
+  return String(s).replace(/[\t\r\n]/g, ' ').replace(/^(\s*)#/, '$1＃');
+}
+function sanitizeSection(s) {
+  return sanitizeName(s).replace(/,/g, '，');
+}
+
+function commitField(row, els, field) {
+  if (field === 'sec') {
+    const line = sanitizeSection(els.sec.value);
+    if (line !== row.raw) spliceLine(row, line);
+    return;
+  }
+  if (field === 'raw') {
+    const line = els.raw.value;
+    if (line !== row.raw) spliceLine(row, line);
+    return;
+  }
+  const tokens = row.tokens.slice();
+  if (field === 'name') {
+    tokens[0] = sanitizeName(els.name.value);
+  } else if (field === 'start') {
+    tokens[1] = els.start.value;
+  } else if (field === 'end') {
+    const v = els.end.value;
+    // 空の確定は「終了が日付のとき」だけ意味を持つ（日数トークンを消さない）
+    if (v === '' && normDate(String(tokens[2]).trim()) === null) return;
+    tokens[2] = v;
+    if (v !== '') {
+      els.dur.value = '';               // 相互排他（1スプライス = 1 Undo 単位）
+      els.dur.classList.remove('ed-bad');   // 空にしたのに赤枠が残らないよう対で戻す
+    }
+  } else if (field === 'dur') {
+    const v = els.dur.value.trim();
+    const nd = v === '' ? '' : normEditorDur(v);
+    if (nd === null) {   // 解釈できない日数はコミットしない（invalid 行に落とさない）
+      els.dur.classList.add('ed-bad');
+      return;
+    }
+    els.dur.classList.remove('ed-bad');
+    if (nd === '' && normEditorDur(String(tokens[2]).trim()) === null) return;
+    tokens[2] = nd;
+    if (nd !== '') els.end.value = '';
+  }
+  const line = tokens.join('\t');
+  if (line === row.raw) return;
+  if (spliceLine(row, line)) row.tokens = tokens;
+}
+
+// テキスト系フィールド: input の 400ms デバウンス・blur でフラッシュ（GN-Q11）
+function wireText(row, els, field, input) {
+  input.addEventListener('input', () =>
+    scheduleCommit(row.line + ':' + field, () => commitField(row, els, field)));
+  input.addEventListener('blur', () => {
+    flushCommit();
+    // 生行・セクションは型が変わったら再構築して昇格/降格（タイピング中は触らない — フォーカス維持）。
+    // mousedown → blur → 再構築 → mouseup だと押したボタンが detached になり click が消えるため、
+    // クリック処理が終わってから遅延で入れ替える（実測 — GN-Q17）
+    if ((field === 'raw' || field === 'sec') && classifyLine(row.raw) !== row.type) rebuildLater(row.line);
+  });
+}
+
+// date input: 有効値は change の 400ms デバウンス・空値は blur 時のみ（GN-Q11 — 実測に基づく）
+function wireDate(row, els, field, input) {
+  input.addEventListener('change', () => {
+    if (input.value === '' || normDate(input.value) === null) return;
+    scheduleCommit(row.line + ':' + field, () => commitField(row, els, field));
+  });
+  input.addEventListener('blur', () => {
+    flushCommit();
+    if (input.value === '') commitField(row, els, field);
+  });
+}
+
+// 型が変わった行の入れ替えを「今のクリック処理の後」に回す（GN-Q17）。
+// 遅延中に行数は変わらないので line は有効なまま。エディタ内にフォーカスが残っていれば復元する
+function rebuildLater(line) {
+  setTimeout(() => {
+    if (view !== 'editor') return;
+    const inside = document.activeElement && el('editor').contains(document.activeElement);
+    buildEditor(inside ? { line } : null);
+  }, 0);
+}
+
+function mkInput(type, cls, value) {
+  const i = document.createElement('input');
+  i.type = type;
+  i.className = cls;
+  i.value = value;
+  return i;
+}
+function mkBtn(cls, label, title, onClick) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = cls;
+  b.textContent = label;
+  b.title = title;
+  b.addEventListener('click', onClick);
+  return b;
+}
+function firstField(rec) {
+  return rec.els.name || rec.els.sec || rec.els.raw || rec.rowEl.querySelector('button');
+}
+
+function makeRow(row) {
+  const rowEl = document.createElement('div');
+  rowEl.className = 'ed-row';
+  rowEl.dataset.line = row.line;
+  const num = document.createElement('span');
+  num.className = 'ed-num';
+  num.textContent = row.line + 1;   // 警告の「N行目」と一致（空行を隠しても指し先が分かる）
+  rowEl.appendChild(num);
+  const els = {};
+  if (row.type === 'comment') {
+    const c = document.createElement('span');
+    c.className = 'ed-comment';
+    c.textContent = row.raw;
+    rowEl.appendChild(c);
+  } else if (row.type === 'section') {
+    els.sec = mkInput('text', 'ed-sec', row.raw);
+    els.sec.placeholder = 'セクション名';
+    wireText(row, els, 'sec', els.sec);
+    rowEl.appendChild(els.sec);
+  } else if (row.type === 'invalid') {
+    els.raw = mkInput('text', 'ed-raw', row.raw);
+    els.raw.title = '解釈できない行（「名前、開始、終了か日数」に直すとフォームになります）';
+    wireText(row, els, 'raw', els.raw);
+    rowEl.appendChild(els.raw);
+  } else {
+    els.name = mkInput('text', 'ed-name', row.tokens[0]);
+    els.name.placeholder = 'タスク名';
+    wireText(row, els, 'name', els.name);
+    rowEl.appendChild(els.name);
+    const cell = document.createElement('span');
+    cell.className = 'ed-startcell';
+    els.start = mkInput('date', 'ed-start', normDate(String(row.tokens[1]).trim()) || '');
+    els.start.title = '開始（空欄 = 前のタスクの続き）';
+    wireDate(row, els, 'start', els.start);
+    els.chain = document.createElement('span');
+    els.chain.className = 'ed-chain';
+    cell.appendChild(els.start);
+    cell.appendChild(els.chain);
+    rowEl.appendChild(cell);
+    const en = String(row.tokens[2]).trim();
+    const enDate = normDate(en);
+    els.end = mkInput('date', 'ed-end', enDate || '');
+    els.end.title = '終了（その日を含む）';
+    wireDate(row, els, 'end', els.end);
+    rowEl.appendChild(els.end);
+    els.dur = mkInput('text', 'ed-dur', enDate ? '' : en);
+    els.dur.placeholder = '5d';
+    els.dur.title = '日数（5 / 5d / 5日）';
+    wireText(row, els, 'dur', els.dur);
+    rowEl.appendChild(els.dur);
+  }
+  const btns = document.createElement('span');
+  btns.className = 'ed-btns';
+  btns.appendChild(mkBtn('ed-up', '↑', '上へ', () => moveRowLine(row, -1)));
+  btns.appendChild(mkBtn('ed-down', '↓', '下へ', () => moveRowLine(row, 1)));
+  btns.appendChild(mkBtn('ed-del', '×', 'この行を削除', () => deleteRowLine(row)));
+  rowEl.appendChild(btns);
+  return { row, els, rowEl };
+}
+
+// 再構築（構造変更・外部書き換えの後だけ。フィールド編集では呼ばない — フォーカス維持）。
+// focus: 'first' | {line, field?} | {nextOf} | null（フォーカス規則は spec「行の操作」）
+function buildEditor(focus) {
+  cancelCommit();
+  undoArmed = null;
+  const host = el('editor-rows');
+  // 要素を外すと blur が同期発火する（実測 — isConnected はまだ true なのでその判定では防げない）。
+  // 古い row のままコミットが走るが、spliceLine の鮮度ガードが書き込みを弾く（GN-Q16・GN-U18）
+  host.textContent = '';
+  edRowEls = [];
+  for (const row of parseRows(el('input').value)) {
+    const rec = makeRow(row);
+    edRowEls.push(rec);
+    host.appendChild(rec.rowEl);
+  }
+  refreshChainCaptions();
+  if (!focus) return;
+  let rec = null;
+  if (focus === 'first') rec = edRowEls[0];
+  else if (focus.nextOf !== undefined) rec = edRowEls.find(x => x.row.line >= focus.nextOf) || edRowEls[edRowEls.length - 1];
+  else rec = edRowEls.find(x => x.row.line === focus.line);
+  if (!rec) return;
+  const target = (focus.field && rec.els[focus.field]) || firstField(rec);
+  if (target) target.focus();
+}
+
+// チェーン行（開始空欄）に実効開始日を表示（date input は placeholder が効かない — 空欄の意味の可視化）
+function refreshChainCaptions() {
+  if (view !== 'editor') return;
+  const { chained } = buildDsl(el('input').value, { excludeWeekends: el('exclude-weekends').checked });
+  for (const rec of edRowEls) {
+    if (!rec.els.chain) continue;
+    const c = chained[rec.row.line];
+    rec.els.chain.textContent = c ? '続き ' + c.slice(5, 7) + '/' + c.slice(8, 10) + '〜' : '';
+  }
+}
+
+function addLineAtEnd(text, field) {
+  let at = 0;
+  mutateLines(lines => {
+    // 末尾改行の有無を見て結合（空行を増殖させない）
+    if (lines.length && lines[lines.length - 1] === '') {
+      at = lines.length - 1;
+      lines.splice(at, 0, text);
+    } else {
+      lines.push(text);
+      at = lines.length - 1;
+    }
+  });
+  buildEditor({ line: at, field });
+}
+// 以下の構造操作は起点行の raw を持つ row を受け取る（鮮度ガードのため — GN-Q9）
+function insertBelow(row) {
+  if (staleAt(row.line, row.raw)) return;
+  mutateLines(lines => lines.splice(row.line + 1, 0, '\t\t'));
+  buildEditor({ line: row.line + 1, field: 'name' });
+}
+function deleteRowLine(row) {
+  if (staleAt(row.line, row.raw)) return;
+  mutateLines(lines => lines.splice(row.line, 1));
+  buildEditor({ nextOf: row.line });
+}
+function moveRowLine(row, dir) {
+  const i = edRowEls.findIndex(rec => rec.row.line === row.line);
+  const other = edRowEls[i + dir];
+  if (i === -1 || !other) return;
+  if (staleAt(row.line, row.raw) || staleAt(other.row.line, other.row.raw)) return;
+  const oline = other.row.line;
+  mutateLines(lines => {
+    const t = lines[row.line];
+    lines[row.line] = lines[oline];
+    lines[oline] = t;
+  });
+  buildEditor({ line: oline });   // 移動した行を追いかける
+}
+function editorUndo() {
+  // 未コミットの入力を先に確定させる（破棄すると「直前の1手」より前まで飛ぶ — 実測）
+  commitFocusedEmptyDate();
+  flushCommit();
+  if (!edUndo.length) return;
+  const ta = el('input');
+  ta.value = edUndo.pop();
+  ta.dispatchEvent(new Event('input', { bubbles: true }));
+  buildEditor(null);
+}
+
+// 末尾改行は行として数えない（500行ちょうどのテキストを弾かない）
+function lineCount(v) {
+  const n = v.split('\n').length;
+  return v.endsWith('\n') ? n - 1 : n;
+}
+
+const CAP_NOTICE = '行が多すぎるため行エディタは使えません（'
+  + EDITOR_MAX_LINES + '行まで — テキストで編集してください）';
+
+function setView(next, opts) {
+  if (next === 'editor' && lineCount(el('input').value) > EDITOR_MAX_LINES) {
+    // 復元経路は直後の初期 render にバナーを消されるので、呼び出し側に返して後で出させる
+    if (opts && opts.deferNotice) return CAP_NOTICE;
+    showBanner('warn', CAP_NOTICE);
+    return null;
+  }
+  flushCommit();
+  view = next;
+  el('input').hidden = next === 'editor';
+  el('editor').hidden = next !== 'editor';
+  el('view-text').classList.toggle('active', next === 'text');
+  el('view-editor').classList.toggle('active', next === 'editor');
+  // 復元でのフォーカス奪取はしない（ページを開いた瞬間にキーボードが開く・読み上げ位置が飛ぶ）
+  if (next === 'editor') buildEditor(opts && opts.noFocus ? null : 'first');
+  scheduleSave();
+  return null;
+}
+
 /* ========== 描画（フックと UI が同一コードパス。前回の図を保持 — diagram と同じ） ========== */
 
 let lastSvg = null;
@@ -294,6 +794,7 @@ function savePayload() {
   return {
     input: v.length > FIELD_LIMIT ? { omitted: true } : v,
     excludeWeekends: el('exclude-weekends').checked,
+    view,
   };
 }
 function scheduleSave() {
@@ -301,6 +802,7 @@ function scheduleSave() {
   saveTimer = setTimeout(() => { saveTimer = null; ToolStorage.save(TOOL, savePayload()); }, 300);
 }
 function flushSave() {
+  flushCommit();   // 行エディタのデバウンス中の編集を正本へ確定してから保存
   clearTimeout(saveTimer);
   saveTimer = null;
   ToolStorage.save(TOOL, savePayload());
@@ -318,6 +820,9 @@ function restore() {
     showBanner('info', '前回の内容は大きすぎたため復元されませんでした（保存上限 100KB）');
   }
   if (typeof data.excludeWeekends === 'boolean') el('exclude-weekends').checked = data.excludeWeekends;
+  // enum ガード（不正値・無指定はテキストのまま）。復元ではフォーカスを奪わない
+  if (data.view === 'editor') return setView('editor', { noFocus: true, deferNotice: true });
+  return null;
 }
 
 function updateSampleBtn() { el('sample-btn').hidden = el('input').value !== ''; }
@@ -353,9 +858,11 @@ el('input').addEventListener('paste', e => {
 el('exclude-weekends').addEventListener('change', () => {
   scheduleRender();
   scheduleSave();
+  refreshChainCaptions();   // チェーン行の実効開始日は営業日設定に依存する
 });
 
 el('copy-btn').addEventListener('click', () => {
+  flushCommit();   // 行エディタのデバウンス中の編集を確定してから描画（鮮度 — coding-rules）
   // Safari 対策: ジェスチャ内で同期的に write するため Promise を渡す（mask / diagram と同型）
   const blobPromise = flushRender().then(() => {
     if (!lastSvg) throw new Error('チャートがありません');
@@ -378,11 +885,78 @@ el('sample-btn').addEventListener('click', () => {
   render(el('input').value);
   updateSampleBtn();
   scheduleSave();
+  if (view === 'editor') buildEditor('first');   // 外部書き換え経路は必ず再構築（GN-Q9）
 });
 
-restore();
+/* ---------- 行エディタの配線 ---------- */
+
+el('view-text').addEventListener('click', () => setView('text'));
+el('view-editor').addEventListener('click', () => setView('editor'));
+el('add-task').addEventListener('click', () => addLineAtEnd('\t\t', 'name'));
+el('add-section').addEventListener('click', () => addLineAtEnd('新しいセクション', 'sec'));
+
+// フィールド編集の Undo 単位: フォーカスした時点のテキストを覚える（最初のスプライスで積む）
+el('editor').addEventListener('focusin', e => {
+  if (e.target.tagName === 'INPUT') undoArmed = el('input').value;
+});
+
+// Enter = その行の下に新規タスク行（Excel の筋肉記憶。IME 中は無効。
+// date input の Enter は change を伴わない実測があるため先にフラッシュする）
+el('editor').addEventListener('keydown', e => {
+  if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229) return;
+  if (!e.target || e.target.tagName !== 'INPUT') return;
+  const rowEl = e.target.closest('.ed-row');
+  if (!rowEl) return;
+  const rec = edRowEls.find(x => x.rowEl === rowEl);
+  if (!rec) return;
+  e.preventDefault();
+  commitFocusedEmptyDate();   // date の Enter は change を伴わない（実測）— 空クリアを取りこぼさない
+  flushCommit();
+  insertBelow(rec.row);
+});
+
+// Cmd/Ctrl+Z（エディタ表示中のみ）: プログラム代入はネイティブ undo を殺すため自前で戻す（GN-Q13）
+document.addEventListener('keydown', e => {
+  if (view !== 'editor') return;
+  if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
+  if (String(e.key).toLowerCase() !== 'z') return;
+  if (e.isComposing || e.keyCode === 229) return;
+  e.preventDefault();
+  editorUndo();
+});
+
+// エディタ表示中の paste: 認識できる形式は変換して末尾に挿入（テキストビューと同じ体験）
+el('editor').addEventListener('paste', e => {
+  const raw = e.clipboardData ? e.clipboardData.getData('text/plain') : '';
+  if (!raw) return;
+  const r = importText(raw);
+  if (r.kind === 'excel') {
+    e.preventDefault();
+    showBanner('warn', 'これは「Excel用コピー」の形式です — Plan Tasks のタイムライン表示にある「計画をコピー」を貼ってください');
+    return;
+  }
+  if (!r.kind || !r.text) return;   // 知らない形式はフォーカス中の入力へ（既定動作）
+  e.preventDefault();
+  const at = el('input').value === '' ? 0 : el('input').value.split('\n').length;
+  mutateLines(lines => {
+    for (const l of r.text.split('\n')) lines.push(l);
+  });
+  updateSampleBtn();
+  buildEditor({ line: at });   // 挿入した先頭行へフォーカス
+  flushRender().then(() => {
+    if (r.warnings.length) showBanner('warn', r.warnings.join('・'));
+  });
+});
+
+const capNotice = restore();
 updateSampleBtn();
-if (el('input').value !== '') render(el('input').value);
+if (el('input').value !== '') {
+  const first = render(el('input').value);
+  // 復元時の上限案内は初期 render の後に出す（render のバナー更新に消されるため）
+  if (capNotice) first.then(() => showBanner('warn', capNotice));
+} else if (capNotice) {
+  showBanner('warn', capNotice);
+}
 ToolStorage.mountWarning();
 
 ToolEdit.tabIndent(el('input'));      // Tab=インデント（lib/edit.js — coding-rules）
@@ -391,6 +965,7 @@ ToolEdit.mountTodayShortcut();        // Ctrl/Cmd+; = 今日
 // テスト用フック（docs/specs/gantt.md）
 window.gantt = {
   buildDsl,
+  parseRows,
   importText,
   render,
   svgInfo: () => {

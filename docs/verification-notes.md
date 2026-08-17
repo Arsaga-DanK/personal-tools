@@ -183,6 +183,22 @@ osascript -e 'the clipboard as «class HTML»' # HTML フレーバーの退避
 - **`position: absolute` の装飾（今日の縦線など）は `pointer-events: none` を付ける**。
   付けないと下のバーの click / pointerdown を奪う。
   図が詰まるズーム（1日=1.6px）では必ず重なるので、広いときの手動確認では見つからない
+- **headless shell の `input[type=date]` は非セグメント**（2026-08-17 実測・gantt 行エディタの設計前調査）。
+  実 Chrome は年/月/日のセグメント編集だが、headless shell では自由テキスト的に化ける
+  （focus して '20260818' を1キーずつ押すと value が `60818-02-02` になった）。
+  → **date input のテストはキー打鍵で書かない**。`value` セット＋ input/change dispatch で書き、
+  セグメント編集の実挙動（年打ち直し1打目の `0001-…`・Backspace 1回で空文字が
+  input+change 同時発火）は spec の実機スモークに落とす
+- **フォーカス中の要素を DOM から外すと blur は同期発火し、そのとき `isConnected` はまだ `true`**
+  （2026-08-17 実測・gantt 行エディタ）。
+  → 「再構築で外れた要素の blur を無視する」目的の **`isConnected` ガードは1度も発動しない**。
+  実際に守るのは**書き込み側の鮮度ガード**（保存前に「構築時の値」と「現在の値」を比較して
+  違えば書かない）。**ガードを入れたら必ず外して RED を見る** — このときは
+  「入れても外しても緑」で死んだコードだと判明した（GN-Q16）
+- **textarea への `value` プログラム代入はネイティブ undo スタックを殺す**（2026-08-17 実測）。
+  代入後は `execCommand('undo')` も Cmd+Z も代入前に戻せない。
+  → JS からテキストを書き換える UI（gantt 行エディタ等）で Cmd+Z を活かすには
+  **自前のスナップショット履歴が必須**（mask/board/gantt が同型）
 
 ---
 
