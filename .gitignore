@@ -1,3 +1,12 @@
 /excel2md/
 .DS_Store
 .playwright-mcp/
+
+# エディタ・IDE
+.vscode/
+.idea/
+*.swp
+
+# 作業中の一時ファイル
+*.log
+node_modules/
