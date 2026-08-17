@@ -152,6 +152,67 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     && u5d.escPass === true,
     JSON.stringify(u5d));
 
+  /* ========== DG-05: extractMermaid（Obsidian のノートから取り出す — 純関数） ========== */
+  const dg05 = await page.evaluate(() => {
+    if (!window.diagram.extractMermaid) return { missing: true };
+    const f = window.diagram.extractMermaid;
+    const body = 'flowchart TD\n  A[開始] --> B[終了]';
+    return {
+      fenced: f('```mermaid\n' + body + '\n```'),
+      prose: f('# 設計メモ\n\n本文です。\n\n```mermaid\n' + body + '\n```\n\nあとがき。'),
+      twoBlocks: f('```mermaid\n' + body + '\n```\n\n```mermaid\nflowchart LR\n  X --> Y\n```'),
+      bare: f('```\n' + body + '\n```'),
+      plain: f(body),
+      unclosed: f('```mermaid\n' + body),
+    };
+  });
+  {
+    const body = 'flowchart TD\n  A[開始] --> B[終了]';
+    const d = dg05;
+    r.check('DG-05（extractMermaid: フェンス/地の文/2ブロック+warn/素の```/フェンスなし/閉じ忘れ）',
+      !d.missing
+      && d.fenced.dsl === body && d.fenced.warnings.length === 0
+      && d.prose.dsl === body
+      && d.twoBlocks.dsl === body && d.twoBlocks.warnings.length === 1
+      && d.twoBlocks.warnings[0].includes('最初')
+      && d.bare.dsl === body
+      && d.plain.dsl === body && d.plain.warnings.length === 0
+      && d.unclosed.dsl === body,
+      JSON.stringify(dg05));
+  }
+
+  /* ========== DG-06: ノートの ```mermaid ブロックがそのまま描ける ========== */
+  const dg06 = await page.evaluate(async () => {
+    const res = await window.diagram.render('```mermaid\nflowchart TD\n  A[開始] --> B[終了]\n```');
+    return { res, info: window.diagram.svgInfo() };
+  });
+  r.check('DG-06（Obsidian のノートから貼った ```mermaid ブロックが描ける）',
+    dg06.res.ok === true && dg06.info.present === true && dg06.info.nodes > 0,
+    JSON.stringify(dg06));
+
+  /* ========== DG-U6: ［Obsidian 用にコピー］ ========== */
+  const u6d = await page.evaluate(async () => {
+    const btn = document.getElementById('copy-md');
+    if (!btn) return { missing: true };
+    const ta = document.getElementById('input');
+    ta.value = '```mermaid\nflowchart TD\n  A[開始] --> B[終了]\n```';   // フェンス付きを貼った状態
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    let written = null;
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: async t => { written = t; } },
+    });
+    btn.click();
+    await new Promise(d => setTimeout(d, 400));
+    return { written, label: btn.textContent, input: ta.value };
+  });
+  r.check('DG-U6（Obsidian 用にコピー: ```mermaid で1重に包んだテキスト・入力欄は不変・✓ 表示）',
+    !u6d.missing
+    && u6d.written === '```mermaid\nflowchart TD\n  A[開始] --> B[終了]\n```'
+    && u6d.input === '```mermaid\nflowchart TD\n  A[開始] --> B[終了]\n```'
+    && u6d.label === '✓ コピーしました',
+    JSON.stringify(u6d));
+
   /* ========== ハブ導線 ========== */
   await page.goto(fileUrl('index.html'));
   await page.click('ul.tool-list a:text-is("Draw Diagram")');

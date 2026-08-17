@@ -27,6 +27,7 @@
 
   <div class="toolbar">
     <button class="primary" id="copy-btn" title="Cmd/Ctrl+Enter">PNG をコピー</button>
+    <button id="copy-md" type="button" title="```mermaid ブロックとしてコピー（Obsidian のノートに貼るとそのまま図になり、あとから編集できます）">Obsidian 用にコピー</button>
     <button id="save-svg" type="button">SVG 保存</button>
     <span class="muted" style="font-size:12px">記法は mermaid（graph TD / sequenceDiagram / stateDiagram-v2 など）。GUI で描きたい図は draw.io の領分</span>
   </div>
@@ -60,12 +61,37 @@ const TOOL = 'diagram';
 let lastSvg = null;        // 直近の成功描画（エラー時はこれを保持 — DG-Q4）
 let renderSeq = 0;         // 遅い描画が新しい描画を上書きしないための世代番号
 
+/* ========== Obsidian との受け渡し（純関数 — spec「Obsidian との受け渡し」DG-Q5） ========== */
+
+// ノートの ```mermaid ブロックから中身を取り出す（フェンス付きは mermaid が解釈できない — 実測）。
+// 入力テキストは書き換えない（描画・コピーの内部だけで使う）
+function extractMermaid(text) {
+  const src = String(text == null ? '' : text);
+  const warnings = [];
+  // 情報文字列つき（```mermaid）を優先。無ければ素の ``` で囲まれたブロック
+  const fences = [/```[ \t]*mermaid[ \t]*\r?\n([\s\S]*?)(?:```|$)/gi, /```[ \t]*\r?\n([\s\S]*?)(?:```|$)/g];
+  for (const re of fences) {
+    const hits = [];
+    let m;
+    while ((m = re.exec(src)) !== null) hits.push(m[1]);
+    if (!hits.length) continue;
+    if (hits.length > 1) warnings.push('mermaid ブロックが' + hits.length + '個あります（最初の1つを描いています）');
+    return { dsl: hits[0].trim(), warnings };
+  }
+  return { dsl: src.trim(), warnings };
+}
+
+// ノートへ貼る形（```mermaid で1重に包む）。既にフェンス付きなら二重にしない
+function toMermaidBlock(text) {
+  return '```mermaid\n' + extractMermaid(text).dsl + '\n```';
+}
+
 /* ========== 描画（フックと UI が同一コードパス） ========== */
 
 // text を描画して出力とバナーを更新する。戻り値 {ok, error|null}
 async function render(text) {
   const seq = ++renderSeq;
-  const value = String(text == null ? '' : text).trim();
+  const { dsl: value, warnings } = extractMermaid(text);
   if (value === '') {
     lastSvg = null;
     el('output').textContent = '';
@@ -79,7 +105,7 @@ async function render(text) {
     lastSvg = svg;
     el('output').textContent = '';
     el('output').appendChild(svg);
-    showBanner('info', '');
+    showBanner(warnings.length ? 'warn' : 'info', warnings.join(' / '));
     return { ok: true, error: null };
   } catch (e) {
     if (seq !== renderSeq) return { ok: false, error: String(e && e.message || e) };
@@ -159,6 +185,16 @@ document.addEventListener('keydown', e => {
   }
 });
 
+// Obsidian のノートに貼る形でコピー（PNG ではなくテキスト — ノート側が正本になる。DG-Q5）
+el('copy-md').addEventListener('click', () => {
+  const src = el('input').value;
+  if (src.trim() === '') { showBanner('info', '先に図を書いてください'); return; }
+  ToolUI.copy(toMermaidBlock(src), { selectEl: el('input') }).then(ok => {
+    if (ok) ToolUI.feedback(el('copy-md'), '✓ コピーしました');
+    else showBanner('warn', 'クリップボードへ書けませんでした');
+  });
+});
+
 el('save-svg').addEventListener('click', () => {
   if (!lastSvg) { showBanner('info', '先に図を描いてください'); return; }
   const xml = new XMLSerializer().serializeToString(lastSvg);
@@ -188,6 +224,8 @@ ToolEdit.mountTodayShortcut();        // Ctrl/Cmd+; = 今日
 // テスト用フック（docs/specs/diagram.md。英名 diagram — window.mermaid はライブラリが占有 DG-Q1）
 window.diagram = {
   render,
+  extractMermaid,
+  toMermaidBlock,
   svgInfo: () => {
     const svg = el('output').querySelector('svg');
     return { present: !!svg, nodes: svg ? svg.querySelectorAll('g, path, rect, text').length : 0 };
