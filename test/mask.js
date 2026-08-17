@@ -4,7 +4,7 @@
    出力: 合否一覧と終了コード（全 pass かつコンソールエラー0件で 0）
    例:   node test/mask.js  /  ./test/run mask
 
-   照合するID: MK-01〜10（操作モデル・選択編集）＋ MK-U1〜U8（UI 経路）＋ハブ導線
+   照合するID: MK-01〜14（操作モデル・選択編集・リサイズ）＋ MK-U1〜U17（UI 経路）＋ハブ導線
    仕様の正本は docs/specs/mask.md。期待値を変えるときは spec を先に直す。
    クリップボードは壊さない: navigator.clipboard.write をスタブして捕捉する。 */
 
@@ -163,6 +163,87 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     && eq(mk10.afterUndoAdd.orig, [30, 30, 100, 255]) && mk10.afterUndoAdd.count === 0,
     JSON.stringify(mk10));
 
+  /* ========== MK-11: 複数行テキスト（v3） ========== */
+  const mk11 = await page.evaluate(() => {
+    const m = window.mask;
+    m.clearOps();
+    m.addOp({ type: 'text', x: 10, y: 30, text: 'AB\nCD' });
+    return {
+      line1: m.countRed(5, 12, 60, 22),
+      line2: m.countRed(5, 38, 60, 22),
+      hit2: m.hitTest(15, 60),
+      out: m.hitTest(15, 70),
+    };
+  });
+  r.check('MK-11（複数行テキスト: 両方の行に赤画素・2行目も hitTest・箱の外は null）',
+    mk11.line1 > 0 && mk11.line2 > 0 && mk11.hit2 === 0 && mk11.out === null,
+    JSON.stringify(mk11));
+
+  /* ========== MK-12: リサイズ（拡大とクランプ） ========== */
+  const mk12 = await page.evaluate(() => {
+    const m = window.mask;
+    if (!m.resizeSelected) return { missing: true };
+    m.clearOps();
+    m.addOp({ type: 'fill', x: 10, y: 10, w: 20, h: 20 });
+    m.selectAt(15, 15);
+    const ok = m.resizeSelected('se', 30, 10);                      // → 10..60 × 10..40
+    const grown = { edge: m.pixelAt(55, 35), out: m.pixelAt(65, 15) };
+    const ok2 = m.resizeSelected('nw', 100, 100);                   // 最小 2px にクランプ → (58,38) 2×2
+    const clamped = { tiny: m.pixelAt(59, 39), freed: m.pixelAt(15, 15), freed2: m.pixelAt(55, 35) };
+    return { ok, ok2, grown, clamped };
+  });
+  r.check('MK-12（リサイズ: se で拡大・過大な nw は最小 2px にクランプ）',
+    !mk12.missing && mk12.ok === true && mk12.ok2 === true
+    && eq(mk12.grown.edge, [0, 0, 0, 255]) && eq(mk12.grown.out, [130, 30, 100, 255])
+    && eq(mk12.clamped.tiny, [0, 0, 0, 255]) && eq(mk12.clamped.freed, [30, 30, 100, 255])
+    && eq(mk12.clamped.freed2, [110, 70, 100, 255]),
+    JSON.stringify(mk12));
+
+  /* ========== MK-13: 矢印の端点リサイズとゼロ長ガード ========== */
+  const mk13 = await page.evaluate(() => {
+    const m = window.mask;
+    if (!m.resizeSelected) return { missing: true };
+    m.clearOps();
+    m.addOp({ type: 'arrow', x1: 10, y1: 50, x2: 50, y2: 50 });
+    m.selectAt(30, 50);
+    const ok = m.resizeSelected('p2', 30, 0);                       // p2 → (80,50)
+    const head = m.countRed(70, 44, 10, 13);
+    const beyond = m.countRed(82, 44, 12, 12);
+    const rejected = m.resizeSelected('p1', 70, 0);                 // p1 が p2 に重なる → 拒否
+    const lineStill = m.countRed(20, 46, 20, 8);
+    return { ok, head, beyond, rejected, lineStill };
+  });
+  r.check('MK-13（矢印: 端点の移動で頭が動く・長さ2px未満は拒否）',
+    !mk13.missing && mk13.ok === true && mk13.head > 0 && mk13.beyond === 0
+    && mk13.rejected === false && mk13.lineStill > 0,
+    JSON.stringify(mk13));
+
+  /* ========== MK-14: handleAt（角優先・小図形は辺を間引き） ========== */
+  const mk14 = await page.evaluate(() => {
+    const m = window.mask;
+    if (!m.handleAt) return { missing: true };
+    m.clearOps();
+    m.addOp({ type: 'fill', x: 30, y: 30, w: 40, h: 40 });
+    const noSel = m.handleAt(70, 70);
+    m.selectAt(50, 50);
+    const se = m.handleAt(70, 70);
+    const nw = m.handleAt(30, 30);
+    const n = m.handleAt(50, 30);
+    const off = m.handleAt(80, 80);
+    m.clearOps();
+    m.addOp({ type: 'fill', x: 10, y: 10, w: 20, h: 20 });          // 画面20px < 24 → 辺なし
+    m.selectAt(20, 20);
+    const smallCorner = m.handleAt(30, 30);
+    const smallEdge = m.handleAt(20, 10);
+    m.clearOps();
+    return { noSel, se, nw, n, off, smallCorner, smallEdge };
+  });
+  r.check('MK-14（handleAt: 未選択 null・se/nw/n・域外 null・小図形は辺ハンドルなし）',
+    !mk14.missing && mk14.noSel === null && mk14.se === 'se' && mk14.nw === 'nw'
+    && mk14.n === 'n' && mk14.off === null
+    && mk14.smallCorner === 'se' && mk14.smallEdge === null,
+    JSON.stringify(mk14));
+
   /* ========== MK-U1: 合成 paste で画像が入る ========== */
   const u1 = await page.evaluate(async () => {
     const c = document.createElement('canvas');
@@ -254,23 +335,9 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     !u6m.missing && u6m.marks > 0 && eq(u6m.ringPixel, [74, 30, 100, 255]),
     JSON.stringify(u6m));
 
-  /* ========== MK-U7: 入力欄フォーカス中の Backspace では消えない ========== */
-  const u7m = await page.evaluate(() => {
-    const m = window.mask;
-    if (!m.selectedIndex) return { missing: true };
-    const before = m.opsCount();
-    const ti = document.getElementById('text-input');
-    ti.focus();
-    ti.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true }));
-    return { before, after: m.opsCount(), sel: m.selectedIndex() };
-  });
-  r.check('MK-U7（テキスト入力中の Backspace で図形が消えない・選択も維持）',
-    !u7m.missing && u7m.before === 1 && u7m.after === 1 && u7m.sel === 0, JSON.stringify(u7m));
-
-  /* ========== MK-U8: Escape で選択解除 ========== */
+  /* ========== MK-U8: Escape で選択解除（編集中でないとき） ========== */
   const u8m = await page.evaluate(() => {
     if (!window.mask.selectedIndex) return { missing: true };
-    document.getElementById('text-input').blur();
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     const overlay = document.getElementById('overlay');
     const od = overlay.getContext('2d').getImageData(0, 0, overlay.width, overlay.height).data;
@@ -291,6 +358,453 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
   });
   r.check('Delete キーで選択図形を削除（画素復元）',
     !u9m.missing && u9m.count === 0 && eq(u9m.restored, [90, 30, 100, 255]), JSON.stringify(u9m));
+
+  /* ========== MK-U7（v3 再定義）: 入力要素フォーカス中の Backspace では消えない ========== */
+  const u7t = await page.evaluate(() => {
+    const m = window.mask;
+    m.clearOps();
+    m.addOp({ type: 'fill', x: 10, y: 10, w: 20, h: 20 });
+    m.selectAt(15, 15);
+    const sel0 = m.selectedIndex();
+    const ms = document.getElementById('mosaic-size');
+    ms.focus();
+    ms.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true }));
+    const res = { sel0, count: m.opsCount(), sel: m.selectedIndex() };
+    ms.blur();
+    return res;
+  });
+  r.check('MK-U7（入力要素フォーカス中の Backspace で図形が消えない・選択も維持）',
+    u7t.sel0 === 0 && u7t.count === 1 && u7t.sel === 0, JSON.stringify(u7t));
+
+  /* ========== MK-U9: テキストのその場編集（クリック → 入力 → blur 確定） ========== */
+  await loadFixture();
+  const u9t = await page.evaluate(async () => {
+    const m = window.mask;
+    const ed = document.getElementById('text-editor');
+    if (!ed) return { missing: true };
+    const setTool = v => {
+      const rd = document.querySelector('input[name="tool"][value="' + v + '"]');
+      rd.checked = true;
+      rd.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    const cv = document.getElementById('canvas');
+    const rect = cv.getBoundingClientRect();
+    const pt = (x, y) => ({ clientX: rect.left + x * rect.width / cv.width,
+                            clientY: rect.top + y * rect.height / cv.height, bubbles: true, pointerId: 1 });
+    setTool('text');
+    cv.dispatchEvent(new PointerEvent('pointerdown', pt(10, 40)));
+    cv.dispatchEvent(new PointerEvent('pointerup', pt(10, 40)));
+    const opened = { hidden: ed.hidden, focused: document.activeElement === ed };
+    ed.value = '機密A\nB\n';
+    ed.dispatchEvent(new Event('input', { bubbles: true }));
+    ed.dispatchEvent(new Event('blur'));
+    await new Promise(d => setTimeout(d, 100));
+    return {
+      opened,
+      count: m.opsCount(),
+      line1: m.countRed(5, 24, 90, 22),
+      line2: m.countRed(5, 50, 90, 22),
+      trimmed: m.hitTest(12, 80) === null && m.hitTest(12, 68) === 0,   // 3行分の高さは無い = 末尾改行除去
+      sel: m.selectedIndex(),
+      tool: document.querySelector('input[name="tool"]:checked').value,
+      edHidden: ed.hidden,
+    };
+  });
+  r.check('MK-U9（その場編集: 開いてフォーカス・blur 確定・末尾改行除去・自動選択＋選択ツール復帰）',
+    !u9t.missing && u9t.opened.hidden === false && u9t.opened.focused === true
+    && u9t.count === 1 && u9t.line1 > 0 && u9t.line2 > 0 && u9t.trimmed === true
+    && u9t.sel === 0 && u9t.tool === 'select' && u9t.edHidden === true,
+    JSON.stringify(u9t));
+
+  /* ========== MK-U10: ダブルクリック再編集（編集中は非描画・Esc 確定・2度目の Esc で解除） ========== */
+  const u10t = await page.evaluate(async () => {
+    const m = window.mask;
+    const ed = document.getElementById('text-editor');
+    if (!ed) return { missing: true };
+    const cv = document.getElementById('canvas');
+    const rect = cv.getBoundingClientRect();
+    const pt = (x, y) => ({ clientX: rect.left + x * rect.width / cv.width,
+                            clientY: rect.top + y * rect.height / cv.height, bubbles: true });
+    const before = m.countRed(5, 20, 90, 55) > 0;
+    cv.dispatchEvent(new MouseEvent('dblclick', pt(12, 38)));
+    const during = {
+      hidden: ed.hidden, value: ed.value,
+      redGone: m.countRed(5, 20, 90, 55) === 0,
+      sel: m.selectedIndex(),
+    };
+    ed.value = '修正済';
+    ed.dispatchEvent(new Event('input', { bubbles: true }));
+    ed.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    await new Promise(d => setTimeout(d, 50));
+    const after = { hidden: ed.hidden, red: m.countRed(5, 24, 90, 22) > 0, sel: m.selectedIndex() };
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    return { before, during, after, sel2: m.selectedIndex() };
+  });
+  r.check('MK-U10（再編集: 既存文言・編集中は非描画/枠なし・Esc 確定＋選択・2度目の Esc で解除）',
+    !u10t.missing && u10t.before === true && u10t.during.hidden === false && u10t.during.value === '機密A\nB'
+    && u10t.during.redGone === true && u10t.during.sel === null
+    && u10t.after.hidden === true && u10t.after.red === true && u10t.after.sel === 0
+    && u10t.sel2 === null,
+    JSON.stringify(u10t));
+
+  /* ========== MK-U11: 空で確定（新規は作らない・既存は削除 → undo で復活） ========== */
+  const u11t = await page.evaluate(async () => {
+    const m = window.mask;
+    const ed = document.getElementById('text-editor');
+    if (!ed) return { missing: true };
+    const cv = document.getElementById('canvas');
+    const rect = cv.getBoundingClientRect();
+    const pt = (x, y) => ({ clientX: rect.left + x * rect.width / cv.width,
+                            clientY: rect.top + y * rect.height / cv.height, bubbles: true, pointerId: 1 });
+    const setTool = v => {
+      const rd = document.querySelector('input[name="tool"][value="' + v + '"]');
+      rd.checked = true;
+      rd.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    const count0 = m.opsCount();
+    setTool('text');
+    cv.dispatchEvent(new PointerEvent('pointerdown', pt(70, 20)));
+    cv.dispatchEvent(new PointerEvent('pointerup', pt(70, 20)));
+    ed.dispatchEvent(new Event('blur'));
+    await new Promise(d => setTimeout(d, 50));
+    const afterNewEmpty = m.opsCount();
+    setTool('select');
+    cv.dispatchEvent(new MouseEvent('dblclick', pt(12, 38)));
+    ed.value = '';
+    ed.dispatchEvent(new Event('input', { bubbles: true }));
+    ed.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    await new Promise(d => setTimeout(d, 50));
+    const afterEmptied = { count: m.opsCount(), sel: m.selectedIndex() };
+    m.undo();
+    const afterUndo = { count: m.opsCount(), red: m.countRed(5, 24, 90, 22) > 0 };
+    return { count0, afterNewEmpty, afterEmptied, afterUndo };
+  });
+  r.check('MK-U11（空で確定: 新規は作らない・既存は削除・undo で復活）',
+    !u11t.missing && u11t.count0 === 1 && u11t.afterNewEmpty === 1
+    && u11t.afterEmptied.count === 0 && u11t.afterEmptied.sel === null
+    && u11t.afterUndo.count === 1 && u11t.afterUndo.red === true,
+    JSON.stringify(u11t));
+
+  /* ========== MK-U12: 描画後の自動選択＋ツール復帰（連続描画オフ/オン） ========== */
+  await loadFixture();
+  const u12t = await page.evaluate(() => {
+    const m = window.mask;
+    if (!document.getElementById('keep-tool')) return { missing: true };
+    const cv = document.getElementById('canvas');
+    const rect = cv.getBoundingClientRect();
+    const pt = (x, y) => ({ clientX: rect.left + x * rect.width / cv.width,
+                            clientY: rect.top + y * rect.height / cv.height, bubbles: true, pointerId: 1 });
+    const setTool = v => {
+      const rd = document.querySelector('input[name="tool"][value="' + v + '"]');
+      rd.checked = true;
+      rd.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    const drag = (a, b) => {
+      cv.dispatchEvent(new PointerEvent('pointerdown', pt(a[0], a[1])));
+      cv.dispatchEvent(new PointerEvent('pointermove', pt(b[0], b[1])));
+      cv.dispatchEvent(new PointerEvent('pointerup', pt(b[0], b[1])));
+    };
+    setTool('fill');
+    drag([60, 60], [80, 80]);
+    const after1 = { tool: document.querySelector('input[name="tool"]:checked').value,
+                     sel: m.selectedIndex(), count: m.opsCount() };
+    document.getElementById('keep-tool').checked = true;
+    setTool('fill');
+    drag([10, 60], [25, 75]);
+    const after2 = { tool: document.querySelector('input[name="tool"]:checked').value,
+                     sel: m.selectedIndex(), count: m.opsCount() };
+    document.getElementById('keep-tool').checked = false;
+    return { after1, after2 };
+  });
+  r.check('MK-U12（描画後: 自動選択＋選択ツール復帰・連続描画オンならツール維持で選択なし）',
+    !u12t.missing
+    && u12t.after1.tool === 'select' && u12t.after1.sel === 0 && u12t.after1.count === 1
+    && u12t.after2.tool === 'fill' && u12t.after2.sel === null && u12t.after2.count === 2,
+    JSON.stringify(u12t));
+
+  /* ========== MK-U13: 矢印キーのナッジ（連続は1手） ========== */
+  const u13t = await page.evaluate(() => {
+    const m = window.mask;
+    m.clearOps();
+    m.addOp({ type: 'fill', x: 10, y: 10, w: 20, h: 20 });
+    m.selectAt(15, 15);
+    const key = (k, shift) => document.dispatchEvent(new KeyboardEvent('keydown',
+      { key: k, shiftKey: !!shift, bubbles: true, cancelable: true }));
+    key('ArrowRight'); key('ArrowRight'); key('ArrowRight', true);   // +12px
+    const afterMove = { at: m.pixelAt(25, 15), old: m.pixelAt(15, 15) };
+    m.undo();
+    const afterUndo = { at: m.pixelAt(15, 15), edge: m.pixelAt(35, 15), count: m.opsCount() };
+    return { afterMove, afterUndo };
+  });
+  r.check('MK-U13（ナッジ: →→Shift+→ で +12px・undo 1回で全部戻る）',
+    eq(u13t.afterMove.at, [0, 0, 0, 255]) && eq(u13t.afterMove.old, [30, 30, 100, 255])
+    && eq(u13t.afterUndo.at, [0, 0, 0, 255]) && eq(u13t.afterUndo.edge, [70, 30, 100, 255])
+    && u13t.afterUndo.count === 1,
+    JSON.stringify(u13t));
+
+  /* ========== MK-U14: Cmd+Z は Undo・Cmd+Shift+Z は発火しない ========== */
+  const u14t = await page.evaluate(() => {
+    const m = window.mask;
+    m.clearOps();
+    m.addOp({ type: 'fill', x: 10, y: 10, w: 20, h: 20 });
+    document.dispatchEvent(new KeyboardEvent('keydown',
+      { key: 'z', metaKey: true, shiftKey: true, bubbles: true, cancelable: true }));
+    const afterShift = m.opsCount();
+    document.dispatchEvent(new KeyboardEvent('keydown',
+      { key: 'z', metaKey: true, bubbles: true, cancelable: true }));
+    const afterZ = m.opsCount();
+    return { afterShift, afterZ };
+  });
+  r.check('MK-U14（Cmd+Shift+Z では Undo しない・Cmd+Z で Undo）',
+    u14t.afterShift === 1 && u14t.afterZ === 0, JSON.stringify(u14t));
+
+  /* ========== MK-U15: カーソル（ハンドル/本体/空白/描画ツール） ========== */
+  const u15t = await page.evaluate(() => {
+    const m = window.mask;
+    m.clearOps();
+    m.addOp({ type: 'fill', x: 30, y: 30, w: 40, h: 40 });
+    const cv = document.getElementById('canvas');
+    const rect = cv.getBoundingClientRect();
+    const pt = (x, y) => ({ clientX: rect.left + x * rect.width / cv.width,
+                            clientY: rect.top + y * rect.height / cv.height, bubbles: true, pointerId: 1 });
+    const setTool = v => {
+      const rd = document.querySelector('input[name="tool"][value="' + v + '"]');
+      rd.checked = true;
+      rd.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    const move = (x, y) => cv.dispatchEvent(new PointerEvent('pointermove', pt(x, y)));
+    setTool('select');
+    m.selectAt(50, 50);
+    move(70, 70); const seCur = cv.style.cursor;
+    move(50, 50); const bodyCur = cv.style.cursor;
+    move(90, 90); const emptyCur = cv.style.cursor;
+    setTool('mosaic'); const drawCur = cv.style.cursor;
+    return { seCur, bodyCur, emptyCur, drawCur };
+  });
+  r.check('MK-U15（カーソル: se=nwse-resize・本体=move・空白=default・描画=crosshair）',
+    u15t.seCur === 'nwse-resize' && u15t.bodyCur === 'move'
+    && u15t.emptyCur === 'default' && u15t.drawCur === 'crosshair',
+    JSON.stringify(u15t));
+
+  /* ========== MK-U17: ハンドルの pointer ドラッグでリサイズ（UI 経路） ========== */
+  const u17t = await page.evaluate(() => {
+    const m = window.mask;
+    const cv = document.getElementById('canvas');
+    const rect = cv.getBoundingClientRect();
+    const pt = (x, y) => ({ clientX: rect.left + x * rect.width / cv.width,
+                            clientY: rect.top + y * rect.height / cv.height, bubbles: true, pointerId: 1 });
+    const setTool = v => {
+      const rd = document.querySelector('input[name="tool"][value="' + v + '"]');
+      rd.checked = true;
+      rd.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    setTool('select');
+    m.selectAt(50, 50);                                   // fill 30..70（MK-U15 の図形）
+    cv.dispatchEvent(new PointerEvent('pointerdown', pt(70, 70)));   // se ハンドル
+    cv.dispatchEvent(new PointerEvent('pointermove', pt(85, 85)));
+    cv.dispatchEvent(new PointerEvent('pointerup', pt(85, 85)));
+    const grown = m.pixelAt(80, 80);
+    const count = m.opsCount();
+    m.undo();
+    const back = m.pixelAt(80, 80);
+    return { grown, count, back };
+  });
+  r.check('MK-U17（ハンドルドラッグで拡大・undo 1回で戻る）',
+    eq(u17t.grown, [0, 0, 0, 255]) && u17t.count === 1 && eq(u17t.back, [160, 160, 100, 255]),
+    JSON.stringify(u17t));
+
+  /* ========== MK-U18: 連続描画オンならテキストの連続配置（確定と同じクリックで次が開く） ========== */
+  const u18t = await page.evaluate(async () => {
+    const m = window.mask;
+    const ed = document.getElementById('text-editor');
+    if (!ed) return { missing: true };
+    const cv = document.getElementById('canvas');
+    const rect = cv.getBoundingClientRect();
+    const pt = (x, y) => ({ clientX: rect.left + x * rect.width / cv.width,
+                            clientY: rect.top + y * rect.height / cv.height, bubbles: true, pointerId: 1 });
+    const setTool = v => {
+      const rd = document.querySelector('input[name="tool"][value="' + v + '"]');
+      rd.checked = true;
+      rd.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    m.clearOps();
+    document.getElementById('keep-tool').checked = true;
+    setTool('text');
+    cv.dispatchEvent(new PointerEvent('pointerdown', pt(10, 40)));
+    cv.dispatchEvent(new PointerEvent('pointerup', pt(10, 40)));
+    ed.value = 'A1';
+    ed.dispatchEvent(new Event('input', { bubbles: true }));
+    cv.dispatchEvent(new PointerEvent('pointerdown', pt(60, 20)));   // 確定＋次のボックス
+    cv.dispatchEvent(new PointerEvent('pointerup', pt(60, 20)));
+    const res = {
+      count: m.opsCount(),
+      red: m.countRed(5, 24, 60, 22) > 0,
+      edVisible: !ed.hidden,
+      edEmpty: ed.value === '',
+      tool: document.querySelector('input[name="tool"]:checked').value,
+    };
+    ed.dispatchEvent(new Event('blur'));   // 空なので何も作らない
+    document.getElementById('keep-tool').checked = false;
+    await new Promise(d => setTimeout(d, 50));
+    return res;
+  });
+  r.check('MK-U18（連続描画オン: 1クリックで前を確定し次の編集ボックスが開く・ツール維持）',
+    !u18t.missing && u18t.count === 1 && u18t.red === true
+    && u18t.edVisible === true && u18t.edEmpty === true && u18t.tool === 'text',
+    JSON.stringify(u18t));
+
+  /* ========== MK-U19: 粒度セレクトは選択中のモザイクに適用 ========== */
+  const u19t = await page.evaluate(() => {
+    const m = window.mask;
+    m.clearOps();
+    m.addOp({ type: 'mosaic', x: 40, y: 40, w: 40, h: 40, size: 8 });
+    m.selectAt(50, 50);
+    // 実セル幅は w / ceil(w/size): size8 → 8px（41 と 55 は別セル）、size24 → 20px（同一セル）
+    const before = [m.pixelAt(41, 41), m.pixelAt(55, 41)];
+    const ms = document.getElementById('mosaic-size');
+    ms.value = '24';
+    ms.dispatchEvent(new Event('change', { bubbles: true }));
+    const after = [m.pixelAt(41, 41), m.pixelAt(55, 41)];
+    const count = m.opsCount();
+    m.undo();
+    const undone = [m.pixelAt(41, 41), m.pixelAt(55, 41)];
+    ms.value = '16';
+    return { before, after, undone, count };
+  });
+  r.check('MK-U19（粒度変更が選択中のモザイクに適用・undo で1手戻る）',
+    !eq(u19t.before[0], u19t.before[1]) && eq(u19t.after[0], u19t.after[1])
+    && !eq(u19t.undone[0], u19t.undone[1]) && u19t.count === 1,
+    JSON.stringify(u19t));
+
+  /* ========== MK-U20: 縮小表示のエディタ（フォント下限・見切れなし・1行の高さ） ========== */
+  const u20t = await page.evaluate(async () => {
+    const m = window.mask;
+    const ed = document.getElementById('text-editor');
+    if (!ed) return { missing: true };
+    const big = document.createElement('canvas');
+    big.width = 3000; big.height = 1200;
+    const bctx = big.getContext('2d');
+    bctx.fillStyle = '#ffffff';
+    bctx.fillRect(0, 0, 3000, 1200);
+    await m.setImage(big.toDataURL('image/png'));
+    const cv = document.getElementById('canvas');
+    const rect = cv.getBoundingClientRect();
+    const pt = (x, y) => ({ clientX: rect.left + x * rect.width / cv.width,
+                            clientY: rect.top + y * rect.height / cv.height, bubbles: true, pointerId: 1 });
+    const setTool = v => {
+      const rd = document.querySelector('input[name="tool"][value="' + v + '"]');
+      rd.checked = true;
+      rd.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    setTool('text');
+    cv.dispatchEvent(new PointerEvent('pointerdown', pt(100, 100)));
+    cv.dispatchEvent(new PointerEvent('pointerup', pt(100, 100)));
+    ed.value = 'スケール確認テキストです長め';
+    ed.dispatchEvent(new Event('input', { bubbles: true }));
+    const er = ed.getBoundingClientRect();
+    const res = {
+      scale: rect.width / cv.width,
+      font: parseFloat(getComputedStyle(ed).fontSize),
+      noClip: ed.scrollWidth <= ed.clientWidth + 1,
+      scrollLeft: ed.scrollLeft,
+      oneLineHeight: er.height < 60,
+    };
+    ed.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    await new Promise(d => setTimeout(d, 50));
+    return res;
+  });
+  r.check('MK-U20（縮小表示: フォント下限12px・見切れなし・1行の箱は1行の高さ）',
+    !u20t.missing && u20t.scale < 0.6 && u20t.font >= 12
+    && u20t.noClip === true && u20t.scrollLeft === 0 && u20t.oneLineHeight === true,
+    JSON.stringify(u20t));
+
+  /* ========== MK-U21: ツールボタンにフォーカスが残っても図形操作が優先 ========== */
+  const u21t = await page.evaluate(() => {
+    const m = window.mask;
+    m.clearOps();
+    m.addOp({ type: 'fill', x: 100, y: 100, w: 200, h: 200 });
+    m.selectAt(150, 150);
+    const radio = document.querySelector('input[name="tool"][value="select"]');
+    radio.checked = true;   // change は発火させない（クリックでフォーカスだけ残った状態を再現）
+    radio.focus();
+    const before = m.pixelAt(100, 150);
+    const ev = new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true });
+    radio.dispatchEvent(ev);
+    const afterMove = { px: m.pixelAt(100, 150), prevented: ev.defaultPrevented, sel: m.selectedIndex() };
+    const kt = document.getElementById('keep-tool');
+    kt.focus();
+    const ev2 = new KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true });
+    kt.dispatchEvent(ev2);
+    const afterDel = { count: m.opsCount(), prevented: ev2.defaultPrevented };
+    kt.blur();
+    return { before, afterMove, afterDel };
+  });
+  r.check('MK-U21（ラジオ/チェックにフォーカスが残っても矢印=ナッジ・Delete=削除が優先）',
+    eq(u21t.before, [0, 0, 0, 255])
+    && eq(u21t.afterMove.px, [255, 255, 255, 255]) && u21t.afterMove.prevented === true
+    && u21t.afterMove.sel === 0
+    && u21t.afterDel.count === 0 && u21t.afterDel.prevented === true,
+    JSON.stringify(u21t));
+
+  /* ========== MK-U16: 編集中のコピーは強制確定・取り込み中止は編集維持・成功は破棄 ========== */
+  const u16t = await page.evaluate(async () => {
+    const m = window.mask;
+    const ed = document.getElementById('text-editor');
+    if (!ed) return { missing: true };
+    const cv = document.getElementById('canvas');
+    const rect = cv.getBoundingClientRect();
+    const pt = (x, y) => ({ clientX: rect.left + x * rect.width / cv.width,
+                            clientY: rect.top + y * rect.height / cv.height, bubbles: true, pointerId: 1 });
+    const setTool = v => {
+      const rd = document.querySelector('input[name="tool"][value="' + v + '"]');
+      rd.checked = true;
+      rd.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    m.clearOps();
+    setTool('text');
+    cv.dispatchEvent(new PointerEvent('pointerdown', pt(100, 120)));
+    cv.dispatchEvent(new PointerEvent('pointerup', pt(100, 120)));
+    ed.value = '確定前';
+    ed.dispatchEvent(new Event('input', { bubbles: true }));
+    let wrote = false;
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { write: async () => { wrote = true; } },
+    });
+    document.dispatchEvent(new KeyboardEvent('keydown',
+      { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
+    await new Promise(d => setTimeout(d, 150));
+    const afterCopy = { count: m.opsCount(), wrote, edHidden: ed.hidden,
+                        red: m.countRed(90, 100, 120, 26) > 0 };
+    // 編集中に上限超過の取り込み → 中止・編集は維持
+    setTool('text');
+    cv.dispatchEvent(new PointerEvent('pointerdown', pt(200, 200)));
+    cv.dispatchEvent(new PointerEvent('pointerup', pt(200, 200)));
+    ed.value = '編集継続中';
+    ed.dispatchEvent(new Event('input', { bubbles: true }));
+    const over = document.createElement('canvas');
+    over.width = 6001; over.height = 10;
+    over.getContext('2d').fillRect(0, 0, 6001, 10);
+    const rejected = await m.setImage(over.toDataURL('image/png')).then(() => false, () => true);
+    const afterReject = { rejected, edVisible: !ed.hidden, val: ed.value };
+    // 成功する取り込み → 破棄
+    const ok = document.createElement('canvas');
+    ok.width = 60; ok.height = 40;
+    ok.getContext('2d').fillRect(0, 0, 60, 40);
+    await m.setImage(ok.toDataURL('image/png'));
+    const afterImage = { count: m.opsCount(), edHidden: ed.hidden,
+                         tool: document.querySelector('input[name="tool"]:checked').value };
+    return { afterCopy, afterReject, afterImage };
+  });
+  r.check('MK-U16（コピー前に強制確定・中止は編集維持・成功は破棄）',
+    !u16t.missing
+    && u16t.afterCopy.count === 1 && u16t.afterCopy.wrote === true
+    && u16t.afterCopy.edHidden === true && u16t.afterCopy.red === true
+    && u16t.afterReject.rejected === true && u16t.afterReject.edVisible === true
+    && u16t.afterReject.val === '編集継続中'
+    && u16t.afterImage.count === 0 && u16t.afterImage.edHidden === true
+    && u16t.afterImage.tool === 'select',
+    JSON.stringify(u16t));
 
   /* ========== ハブ導線 ========== */
   await page.goto(fileUrl('index.html'));
