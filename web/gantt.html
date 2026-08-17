@@ -83,11 +83,36 @@ function normDuration(s) {
   return m ? m[1] + 'd' : null;
 }
 
+function isBusinessDay(ymd) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
+  const w = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).getUTCDay();
+  return w !== 0 && w !== 6;
+}
+
+// 開始日を1日目として N 営業日目の日付（mermaid の週末延長と実測2ケースで一致 — GN-Q7）
+function walkBusinessDays(start, n, excludeWeekends) {
+  if (!excludeWeekends) return addDays(start, n - 1);
+  let d = start;
+  let count = isBusinessDay(d) ? 1 : 0;
+  while (count < n) {
+    d = addDays(d, 1);
+    if (isBusinessDay(d)) count++;
+  }
+  return d;
+}
+
+function nextStart(prevEnd, excludeWeekends) {
+  let d = addDays(prevEnd, 1);
+  if (excludeWeekends) while (!isBusinessDay(d)) d = addDays(d, 1);
+  return d;
+}
+
 function buildDsl(text, opts) {
   const excludeWeekends = !opts || opts.excludeWeekends !== false;
   const warnings = [];
   const body = [];
   let taskN = 0;
+  let prevEnd = null;   // 直前タスクの終了（含む）— チェーン入力の起点
   const lines = String(text == null ? '' : text).split('\n');
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i];
@@ -103,7 +128,15 @@ function buildDsl(text, opts) {
       continue;
     }
     const name = parts[0].trim().replace(/:/g, '：');   // ':' は mermaid の区切りと衝突（spec）
-    const start = normDate(parts[1]);
+    let start = normDate(parts[1]);
+    // チェーン入力: 開始空欄 = 前のタスクの終了の翌営業日（spec「チェーン入力」）
+    if (!start && parts[1].trim() === '') {
+      if (prevEnd === null) {
+        warnings.push((i + 1) + '行目: 開始がありません（先頭のタスクは開始必須）');
+        continue;
+      }
+      start = nextStart(prevEnd, excludeWeekends);
+    }
     let end = normDate(parts[2]) || normDuration(parts[2]);
     if (name === '' || !start || !end) {
       warnings.push((i + 1) + '行目: 解釈できません（開始は YYYY-MM-DD・終了は日付か 5d/5日）');
@@ -115,7 +148,10 @@ function buildDsl(text, opts) {
         warnings.push((i + 1) + '行目: 終了が開始より前です（1日の棒に丸めました）');
         end = start;
       }
+      prevEnd = end;
       end = addDays(end, 1);
+    } else {
+      prevEnd = walkBusinessDays(start, parseInt(end, 10), excludeWeekends);
     }
     taskN++;
     body.push(name + ' :t' + taskN + ', ' + start + ', ' + end);
@@ -124,6 +160,80 @@ function buildDsl(text, opts) {
   const head = ['gantt', 'dateFormat YYYY-MM-DD', 'axisFormat %m/%d'];
   if (excludeWeekends) head.push('excludes weekends');
   return { dsl: head.concat(body).join('\n'), warnings };
+}
+
+/* ========== 取り込み（貼るだけ — spec「取り込み」。純関数） ========== */
+
+const TASK_RE = /^(\t*)- \[(.)\] (.*)$/;
+const DATE_TOKEN = '(\\d{4}-\\d{2}-\\d{2})';
+
+function pickDate(body, emoji) {
+  const m = new RegExp(emoji + '\uFE0F? ' + DATE_TOKEN).exec(body);
+  return m ? m[1] : null;
+}
+
+// tasks.md の本文からメタトークンを除去して表示名にする（タグは残す — spec 変換表）
+function cleanTaskName(body) {
+  return body
+    .replace(/[🛫⏳📅✅❌]\uFE0F? \d{4}-\d{2}-\d{2}/g, '')
+    .replace(/🆔\uFE0F? \S+/g, '')
+    .replace(/⛔\uFE0F? \S+/g, '')
+    .replace(/[🔺⏫🔼🔽⏬]\uFE0F?/g, '')
+    .replace(/\[\[([^\]]+)\]\]/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function importText(raw) {
+  const text = String(raw == null ? '' : raw);
+  const lines = text.split('\n');
+  const first = lines[0] || '';
+  // Excel用コピー形式（状態 が先頭列）は変換しない — 列順が違い全滅する（GN-Q8）
+  if (/^状態\t内容\t/.test(first)) return { text: null, warnings: [], kind: 'excel' };
+  // 「計画をコピー」形式（タイムライン）
+  if (/^内容\t開始日\t期限\t日数\t状態\tセクション$/.test(first)) {
+    const out = [];
+    let done = 0;
+    let section = null;
+    for (const row of lines.slice(1)) {
+      if (row.trim() === '') continue;
+      const c = row.split('\t');
+      if (c.length < 6) continue;
+      const sec = c[5].trim();
+      if (sec !== '' && sec !== section) {
+        section = sec;
+        out.push(section);
+      }
+      if (c[4] === '済' || c[4] === '中止') { done++; continue; }
+      const start = normDate(c[1]);
+      if (!start) continue;
+      const due = normDate(c[2]);
+      out.push(c[0] + '\t' + start + '\t' + (due || '1d'));
+    }
+    const warnings = done > 0 ? ['終わったタスク' + done + '件をスキップしました'] : [];
+    return { text: '# 取り込み: ' + ToolEdit.today() + '\n' + out.join('\n'), warnings, kind: 'plan' };
+  }
+  // tasks.md（Obsidian Tasks 記法）
+  if (!lines.some(l => TASK_RE.test(l))) return { text: null, warnings: [], kind: null };
+  const out = [];
+  let done = 0, dateless = 0;
+  for (const l of lines) {
+    const sec = /^## (.+?)\s*$/.exec(l);
+    if (sec) { out.push(sec[1]); continue; }
+    const m = TASK_RE.exec(l);
+    if (!m) continue;   // メモ行などは捨てる（spec 変換表）
+    if (m[2] === 'x' || m[2] === 'X' || m[2] === '-') { done++; continue; }
+    const start = pickDate(m[3], '🛫');
+    const due = pickDate(m[3], '📅');
+    if (!start && !due) { dateless++; continue; }
+    const name = '\u3000'.repeat(m[1].length) + cleanTaskName(m[3]);
+    if (start && due) out.push(name + '\t' + start + '\t' + due);
+    else out.push(name + '\t' + (start || due) + '\t1d');
+  }
+  const warnings = [];
+  if (done > 0) warnings.push('終わったタスク' + done + '件をスキップしました');
+  if (dateless > 0) warnings.push('日付のない' + dateless + '行をスキップしました');
+  return { text: '# 取り込み: ' + ToolEdit.today() + '\n' + out.join('\n'), warnings, kind: 'tasks' };
 }
 
 /* ========== 描画（フックと UI が同一コードパス。前回の図を保持 — diagram と同じ） ========== */
@@ -217,6 +327,29 @@ el('input').addEventListener('input', () => {
   updateSampleBtn();
   scheduleSave();
 });
+
+// 貼り付けの自動変換（tasks.md / 計画をコピー → 表テキスト。Excel用コピーは案内 — spec「取り込み」）
+el('input').addEventListener('paste', e => {
+  const raw = e.clipboardData ? e.clipboardData.getData('text/plain') : '';
+  if (!raw) return;
+  const r = importText(raw);
+  if (r.kind === 'excel') {
+    e.preventDefault();
+    showBanner('warn', 'これは「Excel用コピー」の形式です — Plan Tasks のタイムライン表示にある「計画をコピー」を貼ってください');
+    return;
+  }
+  if (!r.kind || !r.text) return;   // 知らない形式はブラウザの貼り付けに任せる
+  e.preventDefault();
+  const ta = el('input');
+  const v = ta.value, st = ta.selectionStart, en = ta.selectionEnd;
+  ta.value = v.slice(0, st) + r.text + v.slice(en);
+  ta.selectionStart = ta.selectionEnd = st + r.text.length;
+  updateSampleBtn();
+  scheduleSave();
+  flushRender().then(() => {
+    if (r.warnings.length) showBanner('warn', r.warnings.join('・'));
+  });
+});
 el('exclude-weekends').addEventListener('change', () => {
   scheduleRender();
   scheduleSave();
@@ -258,6 +391,7 @@ ToolEdit.mountTodayShortcut();        // Ctrl/Cmd+; = 今日
 // テスト用フック（docs/specs/gantt.md）
 window.gantt = {
   buildDsl,
+  importText,
   render,
   svgInfo: () => {
     const svg = el('output').querySelector('svg');

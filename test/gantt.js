@@ -86,6 +86,82 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
       JSON.stringify(gn05));
   }
 
+  if (ready) {
+    /* ========== GN-06: tasks.md 記法の取り込み ========== */
+    const gn06 = await page.evaluate(() => {
+      if (!window.gantt.importText) return { missing: true };
+      const raw = [
+        '## 設計',
+        '- [ ] 基本設計 🛫 2026-08-18 📅 2026-08-22 ⏫',
+        '\t- [ ] 子タスク 📅 2026-08-25',
+        '- [x] 済んだやつ 🛫 2026-08-01 📅 2026-08-02',
+        '- [ ] 日付なしタスク',
+        '- [ ] 開始のみ [[設計メモ]] 🛫 2026-08-26',
+      ].join('\n');
+      return window.gantt.importText(raw);
+    });
+    const want06 = [
+      '設計',
+      '基本設計\t2026-08-18\t2026-08-22',
+      '\u3000子タスク\t2026-08-25\t1d',
+      '開始のみ 設計メモ\t2026-08-26\t1d',
+    ].join('\n');
+    r.check('GN-06（tasks.md 直貼り: 変換表どおり・件数集約の警告・取り込みコメント）',
+      !gn06.missing && gn06.kind === 'tasks'
+      && /^# 取り込み: \d{4}-\d{2}-\d{2}\n/.test(gn06.text)
+      && gn06.text.split('\n').slice(1).join('\n') === want06
+      && gn06.warnings.length === 2
+      && gn06.warnings.some(w => w.includes('終わったタスク1件'))
+      && gn06.warnings.some(w => w.includes('日付のない1行')),
+      JSON.stringify(gn06));
+
+    /* ========== GN-07: 「計画をコピー」出力の取り込み ========== */
+    const gn07 = await page.evaluate(() => {
+      if (!window.gantt.importText) return { missing: true };
+      const raw = [
+        '内容\t開始日\t期限\t日数\t状態\tセクション',
+        '基本設計\t2026-08-18\t2026-08-22\t5\t未着手\t設計',
+        '実装\t2026-08-25\t\t3\t着手中\t実装',
+        '古いやつ\t2026-08-01\t2026-08-05\t5\t済\t実装',
+      ].join('\n');
+      return window.gantt.importText(raw);
+    });
+    const want07 = [
+      '設計',
+      '基本設計\t2026-08-18\t2026-08-22',
+      '実装',
+      '実装\t2026-08-25\t1d',
+    ].join('\n');
+    r.check('GN-07（計画をコピー: ヘッダー判別・セクション生成・済スキップ・期限空欄は1日）',
+      !gn07.missing && gn07.kind === 'plan'
+      && gn07.text.split('\n').slice(1).join('\n') === want07
+      && gn07.warnings.length === 1 && gn07.warnings[0].includes('1件'),
+      JSON.stringify(gn07));
+
+    /* ========== GN-08: Excel用コピー形式は変換せず案内 ========== */
+    const gn08 = await page.evaluate(() =>
+      window.gantt.importText ? window.gantt.importText('状態\t内容\t開始日\t期限\t優先度\tタグ\tセクション\n未着手\tX\t2026-08-18\t2026-08-22\t\t\t設計') : { missing: true });
+    r.check('GN-08（Excel用コピー形式: kind excel・変換しない）',
+      !gn08.missing && gn08.kind === 'excel' && gn08.text === null,
+      JSON.stringify(gn08));
+
+    /* ========== GN-09: チェーン入力（開始空欄 = 前行の翌営業日） ========== */
+    const gn09 = await page.evaluate(() => ({
+      chain: window.gantt.buildDsl(
+        'A\t2026-08-20\t2026-08-21\nB\t\t2d\nC\t\t2026-08-26',
+        { excludeWeekends: true }),
+      headEmpty: window.gantt.buildDsl('X\t\t2d', { excludeWeekends: true }),
+    }));
+    r.check('GN-09（チェーン: 金曜終了→月曜開始・日数行の後も営業日ウォークで繋がる・先頭空欄は警告）',
+      gn09.chain.dsl.includes('A :t1, 2026-08-20, 2026-08-22')
+      && gn09.chain.dsl.includes('B :t2, 2026-08-24, 2d')
+      && gn09.chain.dsl.includes('C :t3, 2026-08-26, 2026-08-27')
+      && gn09.chain.warnings.length === 0
+      && gn09.headEmpty.dsl === null && gn09.headEmpty.warnings.length === 1
+      && gn09.headEmpty.warnings[0].includes('開始'),
+      JSON.stringify(gn09));
+  }
+
   /* ========== GN-U1: 自動保存（入力＋チェック） ========== */
   await page.evaluate(() => {
     const input = document.getElementById('input');
@@ -148,6 +224,34 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
   r.check('GN-U4（Ctrl/Cmd+; でキャレット位置に今日の日付）',
     !u4g.missing && /^作業\t\d{4}-\d{2}-\d{2}$/.test(u4g.v) && u4g.prevented === true,
     JSON.stringify(u4g));
+
+  /* ========== GN-U5: paste で自動変換（tasks.md）／Excel形式は案内 ========== */
+  const u5g = await page.evaluate(async () => {
+    if (!window.gantt.importText) return { missing: true };
+    const ta = document.getElementById('input');
+    ta.value = '';
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    ta.focus();
+    const paste = text => {
+      const dt = new DataTransfer();
+      dt.setData('text/plain', text);
+      ta.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+    };
+    paste('- [ ] 貼り付けタスク 🛫 2026-08-18 📅 2026-08-20');
+    await new Promise(d => setTimeout(d, 100));
+    const converted = { v: ta.value, banner: document.getElementById('banner').textContent };
+    paste('状態\t内容\t開始日\n未着手\tX\t2026-08-18');
+    await new Promise(d => setTimeout(d, 100));
+    const excel = { v: ta.value, banner: document.getElementById('banner').textContent };
+    return { converted, excel };
+  });
+  r.check('GN-U5（paste: tasks.md は変換挿入＋コメント・Excel形式は変換せず案内）',
+    !u5g.missing
+    && /# 取り込み: \d{4}-\d{2}-\d{2}/.test(u5g.converted.v)
+    && u5g.converted.v.includes('貼り付けタスク\t2026-08-18\t2026-08-20')
+    && u5g.excel.v === u5g.converted.v
+    && u5g.excel.banner.includes('計画をコピー'),
+    JSON.stringify(u5g));
 
   /* ========== ハブ導線 ========== */
   await page.goto(fileUrl('index.html'));
