@@ -34,6 +34,36 @@
     width: 100%; height: 100%;
     pointer-events: none;
   }
+  /* v4: ツール群のセグメント化 — アイコン＋押下状態で現在ツールを明示（ラジオ構造は不変） */
+  .tool-group { display: inline-flex; align-items: center; flex-wrap: wrap; }
+  .tool-btn, .swatch { position: relative; display: inline-flex; }
+  .tool-btn input, .swatch input {
+    position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none;
+  }
+  .tool-btn .tb-face {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 5px 10px; margin-left: -1px;
+    border: 1px solid var(--border); background: var(--panel); color: var(--text);
+    font-size: 13px; cursor: pointer; user-select: none; white-space: nowrap;
+  }
+  .tool-btn:first-child .tb-face { border-radius: 8px 0 0 8px; margin-left: 0; }
+  .tool-btn:last-child .tb-face { border-radius: 0 8px 8px 0; }
+  .tb-icon { font-size: 14px; line-height: 1; }
+  .tool-btn input:checked + .tb-face {
+    background: var(--accent); border-color: var(--accent); color: var(--accent-text);
+  }
+  .tool-btn input:focus-visible + .tb-face { outline: 2px solid var(--accent); outline-offset: 1px; }
+  /* 色パレット（注釈系のみに効く — MK-Q13） */
+  .fmt-group { margin-left: 10px; gap: 6px; }
+  .swatch .sw {
+    width: 18px; height: 18px; border-radius: 50%;
+    border: 2px solid var(--panel); box-shadow: 0 0 0 1px var(--border);
+    cursor: pointer; display: inline-block;
+  }
+  .swatch input:checked + .sw { box-shadow: 0 0 0 2px var(--accent); }
+  .swatch input:focus-visible + .sw { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .grain { margin-left: 6px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+
   /* テキストのその場編集（v3・MK-Q7）。位置・フォントは表示スケールに JS が追従させる */
   #text-editor {
     position: absolute;
@@ -57,17 +87,26 @@
   <p class="subtitle">スクショのマスキングと注釈 — 貼り付け → モザイク/黒塗り・矢印・枠、テキストはクリックしてその場入力 → 図形は選択で移動・サイズ変更 → PNG コピー。ぼかしは復元リスクがあるため非搭載</p>
 
   <div class="toolbar" id="tools">
-    <label class="toggle"><input type="radio" name="tool" value="select"> 選択</label>
-    <label class="toggle"><input type="radio" name="tool" value="mosaic" checked> モザイク</label>
-    <label class="toggle"><input type="radio" name="tool" value="fill"> 黒塗り</label>
-    <label class="toggle"><input type="radio" name="tool" value="rect"> 枠</label>
-    <label class="toggle"><input type="radio" name="tool" value="arrow"> 矢印</label>
-    <label class="toggle"><input type="radio" name="tool" value="text"> テキスト</label>
-    <label>粒度: <select id="mosaic-size">
-      <option value="8">粗8</option>
-      <option value="16" selected>標準16</option>
-      <option value="24">粗い24</option>
-    </select></label>
+    <span class="tool-group" role="group" aria-label="ツール">
+      <label class="tool-btn" title="図形をクリックで選択。ドラッグで移動・ハンドルでサイズ変更・Delete で削除"><input type="radio" name="tool" value="select"><span class="tb-face"><span class="tb-icon">⌖</span>選択</span></label>
+      <label class="tool-btn" title="ドラッグした範囲をピクセル化して隠す"><input type="radio" name="tool" value="mosaic" checked><span class="tb-face"><span class="tb-icon">▦</span>モザイク</span></label>
+      <label class="tool-btn" title="ドラッグした範囲を黒で塗りつぶして隠す"><input type="radio" name="tool" value="fill"><span class="tb-face"><span class="tb-icon">■</span>黒塗り</span></label>
+      <label class="tool-btn" title="ドラッグで注目箇所を枠で囲む"><input type="radio" name="tool" value="rect"><span class="tb-face"><span class="tb-icon">▢</span>枠</span></label>
+      <label class="tool-btn" title="ドラッグで矢印を引く"><input type="radio" name="tool" value="arrow"><span class="tb-face"><span class="tb-icon">↗</span>矢印</span></label>
+      <label class="tool-btn" title="クリックした場所に文字を直接入力（Esc か外側クリックで確定）"><input type="radio" name="tool" value="text"><span class="tb-face"><span class="tb-icon">T</span>テキスト</span></label>
+    </span>
+    <span class="tool-group fmt-group" role="radiogroup" aria-label="色（枠・矢印・テキストに効く）">
+      <label class="swatch" title="赤"><input type="radio" name="color" value="#dd2222" checked aria-label="赤"><span class="sw" style="background:#dd2222"></span></label>
+      <label class="swatch" title="青"><input type="radio" name="color" value="#2563eb" aria-label="青"><span class="sw" style="background:#2563eb"></span></label>
+      <label class="swatch" title="緑"><input type="radio" name="color" value="#16a34a" aria-label="緑"><span class="sw" style="background:#16a34a"></span></label>
+      <label class="swatch" title="オレンジ"><input type="radio" name="color" value="#f59e0b" aria-label="オレンジ"><span class="sw" style="background:#f59e0b"></span></label>
+      <label class="swatch" title="黒"><input type="radio" name="color" value="#111111" aria-label="黒"><span class="sw" style="background:#111111"></span></label>
+      <label class="grain" title="モザイクの粒の大きさ">粒度 <select id="mosaic-size">
+        <option value="8">細8</option>
+        <option value="16" selected>標準16</option>
+        <option value="24">粗24</option>
+      </select></label>
+    </span>
     <label class="toggle" title="オンの間は描画後もツールを維持（連続でマスクするとき）"><input type="checkbox" id="keep-tool"> 連続描画</label>
     <span class="spacer"></span>
     <button id="undo-btn">元に戻す</button>
@@ -149,12 +188,12 @@ function applyOp(op) {
     ctx.drawImage(tmp, 0, 0, sw, sh, op.x, op.y, op.w, op.h);
     ctx.imageSmoothingEnabled = true;
   } else if (op.type === 'rect') {
-    ctx.strokeStyle = RED;
+    ctx.strokeStyle = op.color || RED;
     ctx.lineWidth = 3;
     ctx.strokeRect(op.x, op.y, op.w, op.h);
   } else if (op.type === 'arrow') {
-    ctx.strokeStyle = RED;
-    ctx.fillStyle = RED;
+    ctx.strokeStyle = op.color || RED;
+    ctx.fillStyle = op.color || RED;
     ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.moveTo(op.x1, op.y1);
@@ -170,7 +209,7 @@ function applyOp(op) {
     ctx.closePath();
     ctx.fill();
   } else if (op.type === 'text') {
-    ctx.fillStyle = RED;
+    ctx.fillStyle = op.color || RED;
     ctx.font = FONT;
     const lines = String(op.text).split('\n');
     for (let i = 0; i < lines.length; i++) ctx.fillText(lines[i], op.x, op.y + i * 26);
@@ -420,13 +459,20 @@ let dragStart = null;   // 新規図形のドラッグ
 let moveDrag = null;    // 選択図形の移動ドラッグ { start, last, moved }
 let resizeDrag = null;  // ハンドルのドラッグ { handle, last, moved }
 
+// パレットの現在色（注釈系にだけ使う — 黒塗りは黒固定 MK-Q13）
+function currentColor() {
+  const sw = document.querySelector('input[name="color"]:checked');
+  return sw ? sw.value : RED;
+}
+
 function opFromDrag(tool, a, b) {
-  if (tool === 'arrow') return { type: 'arrow', x1: a.x, y1: a.y, x2: b.x, y2: b.y };
+  if (tool === 'arrow') return { type: 'arrow', x1: a.x, y1: a.y, x2: b.x, y2: b.y, color: currentColor() };
   const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
   const w = Math.abs(b.x - a.x), h = Math.abs(b.y - a.y);
   if (w < 2 || h < 2) return null;   // クリックだけの誤爆を防ぐ
   const op = { type: tool, x, y, w, h };
   if (tool === 'mosaic') op.size = Number(el('mosaic-size').value);
+  if (tool === 'rect') op.color = currentColor();
   return op;
 }
 
@@ -561,6 +607,17 @@ canvas.addEventListener('dblclick', e => {
 
 // 利用者によるツール切替: 強制確定 → 選択解除（プログラム的復帰 setToolQuiet と区別 — MK-Q8）
 el('tools').addEventListener('change', e => {
+  if (e.target && e.target.name === 'color') {
+    // 書式は選択図形に効く（粒度と同じ規則）。注釈系のみ — モザイク・黒塗りには何もしない
+    const op = selIndex !== null ? ops[selIndex] : null;
+    if (op && (op.type === 'rect' || op.type === 'arrow' || op.type === 'text')) {
+      snapshot();
+      op.color = e.target.value;
+      redraw();
+      drawOverlay();
+    }
+    return;
+  }
   if (!e.target || e.target.name !== 'tool') return;
   commitEdit(true);
   selIndex = null;
@@ -602,7 +659,9 @@ function sizeEditor() {
 
 function openEditor(op, x, y) {
   if (editing) commitEdit(true);
-  editing = op ? { op, x: op.x, y: op.y } : { op: null, x, y };
+  editing = op ? { op, x: op.x, y: op.y, color: op.color || RED }
+               : { op: null, x, y, color: currentColor() };
+  editor.style.color = editing.color;   // 編集ボックスの文字色もパレットに追従（v4）
   selIndex = null;      // 編集中は選択枠を出さない（spec）
   nudgeChain = false;
   redraw();             // 編集中の op を描画から外す
@@ -642,7 +701,7 @@ function commitEdit(quiet) {
   }
   if (text !== '') {
     snapshot();
-    ops.push({ type: 'text', x: cur.x, y: cur.y, text });
+    ops.push({ type: 'text', x: cur.x, y: cur.y, text, color: cur.color });
     if (quiet) { redraw(); drawOverlay(); }
     else finishDraw(ops.length - 1);
     return;
@@ -801,6 +860,16 @@ window.mask = {
     let n = 0;
     for (let i = 0; i < d.length; i += 4) {
       if (d[i] >= 180 && d[i + 1] <= 90 && d[i + 2] <= 90) n++;
+    }
+    return n;
+  },
+  countColor: (x, y, w, h, range) => {   // [rLo,rHi, gLo,gHi, bLo,bHi]
+    const d = ctx.getImageData(x, y, w, h).data;
+    let n = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i] >= range[0] && d[i] <= range[1]
+        && d[i + 1] >= range[2] && d[i + 1] <= range[3]
+        && d[i + 2] >= range[4] && d[i + 2] <= range[5]) n++;
     }
     return n;
   },

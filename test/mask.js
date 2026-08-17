@@ -4,7 +4,7 @@
    出力: 合否一覧と終了コード（全 pass かつコンソールエラー0件で 0）
    例:   node test/mask.js  /  ./test/run mask
 
-   照合するID: MK-01〜14（操作モデル・選択編集・リサイズ）＋ MK-U1〜U17（UI 経路）＋ハブ導線
+   照合するID: MK-01〜15（操作モデル・選択編集・リサイズ・色）＋ MK-U1〜U25（UI 経路）＋ハブ導線
    仕様の正本は docs/specs/mask.md。期待値を変えるときは spec を先に直す。
    クリップボードは壊さない: navigator.clipboard.write をスタブして捕捉する。 */
 
@@ -243,6 +243,31 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     && mk14.n === 'n' && mk14.off === null
     && mk14.smallCorner === 'se' && mk14.smallEdge === null,
     JSON.stringify(mk14));
+
+  /* ========== MK-15: 色付き op と後方互換（v4） ========== */
+  const BLUE = [180, 255, 0, 120, 180, 255];   // 青系（r低・g中・b高）の countColor 範囲
+  const mk15 = await page.evaluate(() => {
+    const m = window.mask;
+    if (!m.countColor) return { missing: true };
+    m.clearOps();
+    m.addOp({ type: 'rect', x: 10, y: 10, w: 30, h: 20, color: '#2563eb' });
+    m.addOp({ type: 'arrow', x1: 10, y1: 60, x2: 60, y2: 60, color: '#2563eb' });
+    m.addOp({ type: 'text', x: 10, y: 95, text: 'B', color: '#2563eb' });
+    const blue = {
+      rect: m.countColor(8, 8, 34, 6, [0, 120, 0, 160, 180, 255]),
+      arrow: m.countColor(15, 56, 40, 8, [0, 120, 0, 160, 180, 255]),
+      text: m.countColor(5, 76, 30, 22, [0, 120, 0, 160, 180, 255]),
+    };
+    m.clearOps();
+    m.addOp({ type: 'rect', x: 10, y: 10, w: 30, h: 20 });   // color なし → 赤（後方互換）
+    const legacyRed = m.countRed(8, 8, 34, 6);
+    m.clearOps();
+    return { blue, legacyRed };
+  });
+  r.check('MK-15（color 指定で青く描ける・省略時は従来どおり赤）',
+    !mk15.missing && mk15.blue.rect > 0 && mk15.blue.arrow > 0 && mk15.blue.text > 0
+    && mk15.legacyRed > 0,
+    JSON.stringify(mk15));
 
   /* ========== MK-U1: 合成 paste で画像が入る ========== */
   const u1 = await page.evaluate(async () => {
@@ -805,6 +830,106 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     && u16t.afterImage.count === 0 && u16t.afterImage.edHidden === true
     && u16t.afterImage.tool === 'select',
     JSON.stringify(u16t));
+
+  /* ========== MK-U22〜U24: 色パレット（描画・選択への適用・テキスト） ========== */
+  await loadFixture();
+  const u22t = await page.evaluate(() => {
+    const m = window.mask;
+    const sw = document.querySelector('input[name="color"][value="#2563eb"]');
+    if (!sw) return { missing: true };
+    const cv = document.getElementById('canvas');
+    const rect = cv.getBoundingClientRect();
+    const pt = (x, y) => ({ clientX: rect.left + x * rect.width / cv.width,
+                            clientY: rect.top + y * rect.height / cv.height, bubbles: true, pointerId: 1 });
+    const setTool = v => {
+      const rd = document.querySelector('input[name="tool"][value="' + v + '"]');
+      rd.checked = true;
+      rd.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    sw.checked = true;
+    sw.dispatchEvent(new Event('change', { bubbles: true }));
+    setTool('rect');
+    cv.dispatchEvent(new PointerEvent('pointerdown', pt(10, 10)));
+    cv.dispatchEvent(new PointerEvent('pointermove', pt(40, 30)));
+    cv.dispatchEvent(new PointerEvent('pointerup', pt(40, 30)));
+    return { blue: m.countColor(8, 8, 36, 6, [0, 120, 0, 160, 180, 255]), count: m.opsCount() };
+  });
+  r.check('MK-U22（青スウォッチを選んで描いた枠が青い）',
+    !u22t.missing && u22t.blue > 0 && u22t.count === 1, JSON.stringify(u22t));
+
+  const u23t = await page.evaluate(() => {
+    const m = window.mask;
+    if (!document.querySelector('input[name="color"]')) return { missing: true };
+    m.clearOps();
+    m.addOp({ type: 'rect', x: 10, y: 10, w: 30, h: 20 });                    // 赤
+    m.addOp({ type: 'mosaic', x: 60, y: 60, w: 30, h: 30, size: 8 });
+    const setColor = v => {
+      const sw = document.querySelector('input[name="color"][value="' + v + '"]');
+      sw.checked = true;
+      sw.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    m.selectAt(11, 15);                                                        // 枠の左辺
+    setColor('#2563eb');
+    const nowBlue = m.countColor(8, 8, 34, 6, [0, 120, 0, 160, 180, 255]) > 0;
+    m.undo();
+    const backRed = m.countRed(8, 8, 34, 6) > 0;
+    // モザイク選択中は何も起きない（履歴も積まない → undo で枠の色変更前まで戻らない）
+    m.selectAt(70, 70);
+    const mosaicBefore = m.pixelAt(65, 65);
+    setColor('#16a34a');
+    const mosaicAfter = m.pixelAt(65, 65);
+    setColor('#dd2222');
+    return { nowBlue, backRed, mosaicUnchanged: JSON.stringify(mosaicBefore) === JSON.stringify(mosaicAfter) };
+  });
+  r.check('MK-U23（色は選択中の枠に適用され undo で戻る・モザイクには無効）',
+    !u23t.missing && u23t.nowBlue === true && u23t.backRed === true && u23t.mosaicUnchanged === true,
+    JSON.stringify(u23t));
+
+  const u24t = await page.evaluate(async () => {
+    const m = window.mask;
+    if (!document.querySelector('input[name="color"]')) return { missing: true };
+    const ed = document.getElementById('text-editor');
+    m.clearOps();
+    const cv = document.getElementById('canvas');
+    const rect = cv.getBoundingClientRect();
+    const pt = (x, y) => ({ clientX: rect.left + x * rect.width / cv.width,
+                            clientY: rect.top + y * rect.height / cv.height, bubbles: true, pointerId: 1 });
+    const setTool = v => {
+      const rd = document.querySelector('input[name="tool"][value="' + v + '"]');
+      rd.checked = true;
+      rd.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    const green = document.querySelector('input[name="color"][value="#16a34a"]');
+    green.checked = true;
+    green.dispatchEvent(new Event('change', { bubbles: true }));
+    setTool('text');
+    cv.dispatchEvent(new PointerEvent('pointerdown', pt(10, 40)));
+    cv.dispatchEvent(new PointerEvent('pointerup', pt(10, 40)));
+    ed.value = 'G';
+    ed.dispatchEvent(new Event('input', { bubbles: true }));
+    ed.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    await new Promise(d => setTimeout(d, 50));
+    const g = m.countColor(5, 24, 30, 22, [0, 120, 120, 220, 0, 140]);   // 緑系
+    document.querySelector('input[name="color"][value="#dd2222"]').checked = true;
+    return { g, count: m.opsCount() };
+  });
+  r.check('MK-U24（緑を選んで確定したテキストが緑）',
+    !u24t.missing && u24t.g > 0 && u24t.count === 1, JSON.stringify(u24t));
+
+  /* ========== MK-U25: 現在ツールの押下状態が視覚的に判別できる ========== */
+  const u25t = await page.evaluate(() => {
+    const face = rd => {
+      const label = rd.closest('label');
+      const f = label && label.querySelector('.tb-face');
+      return f ? getComputedStyle(f).backgroundColor : null;
+    };
+    const checked = document.querySelector('input[name="tool"]:checked');
+    const other = Array.from(document.querySelectorAll('input[name="tool"]')).find(rd => !rd.checked);
+    return { checkedBg: face(checked), otherBg: face(other) };
+  });
+  r.check('MK-U25（チェック中のツールの背景が未チェックと異なる）',
+    u25t.checkedBg !== null && u25t.otherBg !== null && u25t.checkedBg !== u25t.otherBg,
+    JSON.stringify(u25t));
 
   /* ========== ハブ導線 ========== */
   await page.goto(fileUrl('index.html'));
