@@ -1087,6 +1087,124 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     && u29t.moved.x === 35 && u29t.moved.y === 10,
     JSON.stringify(u29t));
 
+  /* ========== MK-17: 番号スタンプ（採番・色・選択移動） ========== */
+  await loadFixture();
+  const mk17 = await page.evaluate(() => {
+    const m = window.mask;
+    if (!document.querySelector('input[name="tool"][value="badge"]')) return { missing: true };
+    const cv = document.getElementById('canvas');
+    const rect = cv.getBoundingClientRect();
+    const pt = (x, y) => ({ clientX: rect.left + x * rect.width / cv.width,
+                            clientY: rect.top + y * rect.height / cv.height, bubbles: true, pointerId: 1 });
+    const setTool = v => {
+      const rd = document.querySelector('input[name="tool"][value="' + v + '"]');
+      rd.checked = true;
+      rd.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    document.getElementById('keep-tool').checked = true;   // 連続で置く
+    setTool('badge');
+    const click = (x, y) => {
+      cv.dispatchEvent(new PointerEvent('pointerdown', pt(x, y)));
+      cv.dispatchEvent(new PointerEvent('pointerup', pt(x, y)));
+    };
+    click(30, 30);
+    click(70, 30);
+    const n12 = [m.opAt(0).n, m.opAt(1).n];
+    // 円がパレット色（既定の赤）で塗られている（中心の少し上 — 数字の白を避ける）
+    const circleRed = m.countRed(22, 14, 16, 10);
+    // 1番を削除 → 次に置くのは 3（振り直さない — MK-Q16）
+    setTool('select');
+    m.selectAt(30, 30);
+    m.deleteSelected();
+    document.getElementById('keep-tool').checked = true;
+    setTool('badge');
+    click(30, 70);
+    const nextN = m.opAt(1).n;
+    // 選択・移動が効く
+    setTool('select');
+    const sel = m.selectAt(70, 30);
+    const moved = m.moveSelected(10, 0);
+    document.getElementById('keep-tool').checked = false;
+    return { n12, circleRed, nextN, sel, moved, x: m.opAt(0).x };
+  });
+  r.check('MK-17（番号: 採番1,2・削除後は3・円は赤・選択/移動できる）',
+    !mk17.missing && eq(mk17.n12, [1, 2]) && mk17.circleRed > 0 && mk17.nextN === 3
+    && mk17.sel === 0 && mk17.moved === true && mk17.x === 80,
+    JSON.stringify(mk17));
+
+  /* ========== MK-U30: 切り抜き（プレビュー → 確定・Undo 対象外） ========== */
+  await loadFixture();
+  const u30t = await page.evaluate(async () => {
+    const m = window.mask;
+    if (!document.querySelector('input[name="tool"][value="crop"]')) return { missing: true };
+    m.addOp({ type: 'fill', x: 30, y: 30, w: 10, h: 10 });
+    const cv = document.getElementById('canvas');
+    const overlay = document.getElementById('overlay');
+    const rect = cv.getBoundingClientRect();
+    const pt = (x, y) => ({ clientX: rect.left + x * rect.width / cv.width,
+                            clientY: rect.top + y * rect.height / cv.height, bubbles: true, pointerId: 1 });
+    const setTool = v => {
+      const rd = document.querySelector('input[name="tool"][value="' + v + '"]');
+      rd.checked = true;
+      rd.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    setTool('crop');
+    cv.dispatchEvent(new PointerEvent('pointerdown', pt(20, 20)));
+    cv.dispatchEvent(new PointerEvent('pointermove', pt(80, 70)));
+    cv.dispatchEvent(new PointerEvent('pointerup', pt(80, 70)));
+    // プレビューはオーバーレイのみ（メインキャンバスは不変）＋確定ボタンが出る
+    const od = overlay.getContext('2d').getImageData(0, 0, overlay.width, overlay.height).data;
+    let marks = 0;
+    for (let i = 3; i < od.length; i += 4) if (od[i] > 0) marks++;
+    const btn = document.getElementById('crop-confirm');
+    const preview = { marks, mainUntouched: JSON.stringify(m.pixelAt(10, 10)) === JSON.stringify([20, 20, 100, 255]),
+                      hasBtn: !!btn, sizeBefore: m.size() };
+    btn.click();
+    await new Promise(d => setTimeout(d, 50));
+    const afterCrop = {
+      size: m.size(),
+      opShifted: m.opAt(0).x === 10 && m.opAt(0).y === 10,   // 30,30 − 20,20
+      pixel: m.pixelAt(15, 15),                               // 移動後の fill 内 → 黒
+    };
+    m.undo();   // 履歴リセット済み → 何も起きない
+    const afterUndo = { size: m.size(), count: m.opsCount() };
+    return { preview, afterCrop, afterUndo };
+  });
+  r.check('MK-U30（切り抜き: プレビューはオーバーレイのみ → 確定で縮み座標シフト・Undo 対象外）',
+    !u30t.missing && u30t.preview.marks > 0 && u30t.preview.mainUntouched === true
+    && u30t.preview.hasBtn === true && eq(u30t.preview.sizeBefore, { w: 100, h: 100 })
+    && eq(u30t.afterCrop.size, { w: 60, h: 50 }) && u30t.afterCrop.opShifted === true
+    && eq(u30t.afterCrop.pixel, [0, 0, 0, 255])
+    && eq(u30t.afterUndo.size, { w: 60, h: 50 }) && u30t.afterUndo.count === 1,
+    JSON.stringify(u30t));
+
+  /* ========== MK-U31: 切り抜きのキャンセル（Esc） ========== */
+  await loadFixture();
+  const u31t = await page.evaluate(() => {
+    const m = window.mask;
+    if (!document.querySelector('input[name="tool"][value="crop"]')) return { missing: true };
+    const cv = document.getElementById('canvas');
+    const overlay = document.getElementById('overlay');
+    const rect = cv.getBoundingClientRect();
+    const pt = (x, y) => ({ clientX: rect.left + x * rect.width / cv.width,
+                            clientY: rect.top + y * rect.height / cv.height, bubbles: true, pointerId: 1 });
+    const rd = document.querySelector('input[name="tool"][value="crop"]');
+    rd.checked = true;
+    rd.dispatchEvent(new Event('change', { bubbles: true }));
+    cv.dispatchEvent(new PointerEvent('pointerdown', pt(20, 20)));
+    cv.dispatchEvent(new PointerEvent('pointermove', pt(80, 70)));
+    cv.dispatchEvent(new PointerEvent('pointerup', pt(80, 70)));
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    const od = overlay.getContext('2d').getImageData(0, 0, overlay.width, overlay.height).data;
+    let marks = 0;
+    for (let i = 3; i < od.length; i += 4) if (od[i] > 0) marks++;
+    return { size: m.size(), marks, bannerHidden: document.getElementById('banner').hidden };
+  });
+  r.check('MK-U31（切り抜き: Esc でキャンセル — プレビューとバナーが消え画像は不変）',
+    !u31t.missing && eq(u31t.size, { w: 100, h: 100 }) && u31t.marks === 0
+    && u31t.bannerHidden === true,
+    JSON.stringify(u31t));
+
   /* ========== ハブ導線 ========== */
   await page.goto(fileUrl('index.html'));
   const hubCats = await page.evaluate(() =>

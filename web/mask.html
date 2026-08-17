@@ -84,7 +84,7 @@
 <main class="app-wide">
   <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">画像は保存されません（この画面の中だけ・機密画像を残さない）</span></p>
   <h1>Mask</h1>
-  <p class="subtitle">スクショのマスキングと注釈 — 貼り付け → モザイク/黒塗り・矢印・枠、テキストはクリックしてその場入力 → 図形は選択で移動・サイズ変更 → PNG コピー。ぼかしは復元リスクがあるため非搭載</p>
+  <p class="subtitle">スクショのマスキングと注釈 — モザイク/黒塗り/白塗りで隠す・枠/矢印/テキスト/番号で説明・切り抜き → 図形は選択で移動・サイズ変更・色変え → PNG コピー。ぼかしは復元リスクがあるため非搭載</p>
 
   <div class="toolbar" id="tools">
     <span class="tool-group" role="group" aria-label="ツール">
@@ -95,6 +95,8 @@
       <label class="tool-btn" title="ドラッグで注目箇所を枠で囲む"><input type="radio" name="tool" value="rect"><span class="tb-face"><span class="tb-icon">▢</span>枠</span></label>
       <label class="tool-btn" title="ドラッグで矢印を引く"><input type="radio" name="tool" value="arrow"><span class="tb-face"><span class="tb-icon">↗</span>矢印</span></label>
       <label class="tool-btn" title="クリックした場所に文字を直接入力（Esc か外側クリックで確定）"><input type="radio" name="tool" value="text"><span class="tb-face"><span class="tb-icon">T</span>テキスト</span></label>
+      <label class="tool-btn" title="クリックで番号入りの丸を順に置く（手順の説明に）"><input type="radio" name="tool" value="badge"><span class="tb-face"><span class="tb-icon">①</span>番号</span></label>
+      <label class="tool-btn" title="ドラッグで範囲を指定して画像を切り抜く（バナーのボタンで確定）"><input type="radio" name="tool" value="crop"><span class="tb-face"><span class="tb-icon">✂</span>切り抜き</span></label>
     </span>
     <span class="tool-group fmt-group" role="radiogroup" aria-label="色（枠・矢印・テキストに効く）">
       <label class="swatch" title="赤"><input type="radio" name="color" value="#dd2222" checked aria-label="赤"><span class="sw" style="background:#dd2222"></span></label>
@@ -141,6 +143,7 @@ function showBanner(kind, text) { ToolUI.banner(el('banner'), kind, text); }
 
 const MAX_SIDE = 6000;   // 取り込みガード（canvas メモリ保護。超過は中止して理由表示）
 const RED = '#dd2222';   // 注釈色（枠・矢印・テキストで共通）
+const BADGE_R = 14;      // 番号スタンプの半径（v5）
 
 /* ========== 操作モデル（元画像 + ops。再描画 = 元画像から順に適用 — 非破壊） ========== */
 
@@ -219,6 +222,18 @@ function applyOp(op) {
     ctx.font = FONT;
     const lines = String(op.text).split('\n');
     for (let i = 0; i < lines.length; i++) ctx.fillText(lines[i], op.x, op.y + i * 26);
+  } else if (op.type === 'badge') {
+    ctx.fillStyle = op.color || RED;
+    ctx.beginPath();
+    ctx.arc(op.x, op.y, BADGE_R, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 16px -apple-system, "Hiragino Sans", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(String(op.n), op.x, op.y + 1);
+    ctx.textAlign = 'left';        // 他の描画（text op）へ波及させない
+    ctx.textBaseline = 'alphabetic';
   }
 }
 
@@ -228,6 +243,9 @@ function opBounds(op) {
   if (op.type === 'arrow') {
     return { x: Math.min(op.x1, op.x2) - 6, y: Math.min(op.y1, op.y2) - 6,
              w: Math.abs(op.x2 - op.x1) + 12, h: Math.abs(op.y2 - op.y1) + 12 };
+  }
+  if (op.type === 'badge') {
+    return { x: op.x - BADGE_R - 2, y: op.y - BADGE_R - 2, w: BADGE_R * 2 + 4, h: BADGE_R * 2 + 4 };
   }
   if (op.type === 'text') {
     ctx.font = FONT;
@@ -295,7 +313,7 @@ const HANDLE_CURSORS = {
 
 // 角を先に並べる = handleAt の走査順が角優先になる（spec）
 function getHandles(op) {
-  if (op.type === 'text') return [];   // text はハンドルなし（移動＋再編集のみ — MK-Q10）
+  if (op.type === 'text' || op.type === 'badge') return [];   // text/badge はハンドルなし（固定サイズ）
   if (op.type === 'arrow') {
     return [{ id: 'p1', x: op.x1, y: op.y1 }, { id: 'p2', x: op.x2, y: op.y2 }];
   }
@@ -352,6 +370,21 @@ function applyResize(op, handle, dx, dy) {
 // 選択枠はオーバーレイにだけ描く — メインキャンバス（= 出力 PNG）に混入させない（MK-Q5）
 function drawOverlay() {
   octx.clearRect(0, 0, overlay.width, overlay.height);
+  if (cropPending) {   // 切り抜きプレビュー（オーバーレイのみ — 確定前の PNG に混入しない）
+    const c = cropPending;
+    const sc = dispScale();
+    octx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+    octx.fillRect(0, 0, overlay.width, c.y);
+    octx.fillRect(0, c.y, c.x, c.h);
+    octx.fillRect(c.x + c.w, c.y, overlay.width - c.x - c.w, c.h);
+    octx.fillRect(0, c.y + c.h, overlay.width, overlay.height - c.y - c.h);
+    octx.strokeStyle = '#ffffff';
+    octx.lineWidth = 2 * sc;
+    octx.setLineDash([6 * sc, 4 * sc]);
+    octx.strokeRect(c.x, c.y, c.w, c.h);
+    octx.setLineDash([]);
+    return;
+  }
   if (selIndex === null || !ops[selIndex]) return;
   const op = ops[selIndex];
   const b = opBounds(op);
@@ -375,6 +408,55 @@ function nextBadgeN() {
   let n = 0;
   for (const op of ops) if (op.type === 'badge' && op.n > n) n = op.n;
   return n + 1;
+}
+
+/* ========== 切り抜き（v5 — spec「切り抜き」・MK-Q17: 確定式・Undo 対象外） ========== */
+
+function normCropRect(a, b) {
+  let x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
+  let w = Math.abs(b.x - a.x), h = Math.abs(b.y - a.y);
+  x = Math.max(0, x); y = Math.max(0, y);
+  w = Math.min(w, canvas.width - x);
+  h = Math.min(h, canvas.height - y);
+  return { x, y, w, h };
+}
+
+function cancelCrop() {
+  if (!cropDrag && !cropPending) return;
+  cropDrag = null;
+  cropPending = null;
+  showBanner('info', '');
+  drawOverlay();
+}
+
+function offerCrop() {
+  const b = ToolUI.banner(el('banner'), 'info',
+    '選択した範囲に切り抜きますか？（切り抜きは元に戻せません — 必要なら先に PNG 保存を） ');
+  const btn = document.createElement('button');
+  btn.id = 'crop-confirm';
+  btn.type = 'button';
+  btn.textContent = '切り抜く';
+  btn.addEventListener('click', confirmCrop);
+  b.appendChild(btn);
+}
+
+function confirmCrop() {
+  if (!cropPending) return;
+  const { x, y, w, h } = cropPending;
+  const tmp = document.createElement('canvas');
+  tmp.width = w; tmp.height = h;
+  tmp.getContext('2d').drawImage(orig, x, y, w, h, 0, 0, w, h);
+  orig.width = w; orig.height = h;
+  orig.getContext('2d').drawImage(tmp, 0, 0);
+  canvas.width = w; canvas.height = h;
+  overlay.width = w; overlay.height = h;
+  for (const op of ops) moveOpBy(op, -x, -y);   // 全 op を新原点へシフト
+  history = [];        // Undo 対象外 — 画像履歴は機密画像の複製保持になる（MK-Q17）
+  selIndex = null;
+  cropPending = null;
+  showBanner('info', '');
+  redraw();
+  drawOverlay();
 }
 
 function deleteSelected() {
@@ -410,6 +492,9 @@ function setImage(dataUrl) {
       }
       // 差し替え成功時のみ破棄 — 旧画像座標の op を新画像に確定させない（MK-Q9）
       discardEdit();
+      cropDrag = null;
+      cropPending = null;
+      showBanner('info', '');
       orig.width = img.width;
       orig.height = img.height;
       orig.getContext('2d').drawImage(img, 0, 0);
@@ -536,13 +621,16 @@ function finishDraw(index) {
   drawOverlay();
 }
 
-let pendingText = false;   // text ツールの押下 → 配置は pointerup で開く（focus の奪い返し回避）
+let pendingClick = null;   // 'text'|'badge' — クリック型ツールの配置は pointerup で（focus の奪い返し回避）
+let cropDrag = null;       // 切り抜きドラッグの開始点
+let cropPending = null;    // 確定待ちの切り抜き範囲 {x,y,w,h}（プレビューはオーバーレイのみ — MK-Q17）
 
 canvas.addEventListener('pointerdown', e => {
   if (!hasImage) return;
   const tool = toolOf();       // 確定より前に読む — 確定がツールを復帰させても、この操作は押下時のツールで解釈（レビュー指摘1）
-  pendingText = false;
+  pendingClick = null;
   if (editing) commitEdit();   // 外側クリック確定 — pointerdown は blur より先に発火する（実測）
+  if (cropPending && tool !== 'crop') cancelCrop();
   const p = scale(e);
   if (tool === 'select') {
     const h = handleAt(p.x, p.y);   // ハンドル > 図形本体 > 背後（spec）
@@ -560,7 +648,13 @@ canvas.addEventListener('pointerdown', e => {
     }
     return;
   }
-  if (tool === 'text') { pendingText = true; return; }   // 配置は pointerup で
+  if (tool === 'text' || tool === 'badge') { pendingClick = tool; return; }   // 配置は pointerup で
+  if (tool === 'crop') {
+    cancelCrop();
+    cropDrag = p;
+    try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
+    return;
+  }
   dragStart = p;
   try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
 });
@@ -597,6 +691,11 @@ canvas.addEventListener('pointermove', e => {
     drawOverlay();
     return;
   }
+  if (cropDrag) {
+    cropPending = normCropRect(cropDrag, scale(e));
+    drawOverlay();
+    return;
+  }
   if (dragStart) {
     const op = opFromDrag(toolOf(), dragStart, scale(e), e.shiftKey);
     redraw(op || undefined);
@@ -618,11 +717,25 @@ canvas.addEventListener('pointerup', e => {
     return;
   }
   if (moveDrag) { moveDrag = null; return; }
-  if (pendingText) {
-    pendingText = false;
+  if (cropDrag) {
+    cropDrag = null;
+    if (cropPending && cropPending.w >= 8 && cropPending.h >= 8) offerCrop();
+    else cancelCrop();
+    return;
+  }
+  if (pendingClick) {
+    const kind = pendingClick;
+    pendingClick = null;
     if (!hasImage) return;
     const p = scale(e);
-    openEditor(null, p.x, p.y);   // クリック位置でその場編集（MK-Q7）
+    if (kind === 'text') {
+      openEditor(null, p.x, p.y);   // クリック位置でその場編集（MK-Q7）
+      return;
+    }
+    // badge: クリックで番号を置く（採番 = 最大値+1 — MK-Q16）
+    snapshot();
+    ops.push({ type: 'badge', x: p.x, y: p.y, n: nextBadgeN(), color: currentColor() });
+    finishDraw(ops.length - 1);
     return;
   }
   if (!dragStart) return;
@@ -653,7 +766,7 @@ el('tools').addEventListener('change', e => {
   if (e.target && e.target.name === 'color') {
     // 書式は選択図形に効く（粒度と同じ規則）。注釈系のみ — モザイク・黒塗りには何もしない
     const op = selIndex !== null ? ops[selIndex] : null;
-    if (op && (op.type === 'rect' || op.type === 'arrow' || op.type === 'text')) {
+    if (op && (op.type === 'rect' || op.type === 'arrow' || op.type === 'text' || op.type === 'badge')) {
       snapshot();
       op.color = e.target.value;
       redraw();
@@ -663,10 +776,11 @@ el('tools').addEventListener('change', e => {
   }
   if (!e.target || e.target.name !== 'tool') return;
   commitEdit(true);
+  cancelCrop();
   selIndex = null;
   moveDrag = null;
   resizeDrag = null;
-  pendingText = false;
+  pendingClick = null;
   nudgeChain = false;
   drawOverlay();
   canvas.style.cursor = toolOf() === 'select' ? 'default' : 'crosshair';
@@ -773,9 +887,10 @@ editor.addEventListener('blur', () => commitEdit());
 
 /* ========== 出力・操作ボタン ========== */
 
-el('undo-btn').addEventListener('click', () => { commitEdit(true); undo(); });
+el('undo-btn').addEventListener('click', () => { commitEdit(true); cancelCrop(); undo(); });
 el('clear-btn').addEventListener('click', () => {
   commitEdit(true);
+  cancelCrop();
   if (ops.length === 0) return;
   snapshot();
   ops = [];
@@ -840,6 +955,11 @@ document.addEventListener('keydown', e => {
     if (inField) return;
     e.preventDefault();
     undo();
+    return;
+  }
+  // Esc: 切り抜きの確定待ちがあればキャンセル（選択解除より優先）
+  if (e.key === 'Escape' && (cropPending || cropDrag)) {
+    cancelCrop();
     return;
   }
   // Esc = 選択解除（非破壊なのでガード不要 — coding-rules「文字の扱い」。編集中の Esc は
