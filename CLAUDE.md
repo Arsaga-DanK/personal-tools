@@ -9,8 +9,7 @@ CLI（`bin/`）は形態として認めているが、まだ1本も無い（→�
 - 依頼された1ツールのみ実装する。改善案は実装せず、作業終了時に箇条書きで提案する
 - 不明点は実装前に質問する。仕様を勝手に補完して進めない
 - 新しいツールを作る前に `docs/tool-backlog.md` の着手ルールを確認する
-- 大きめの計画は実装前に `~/Personal/vault/_prompts/plan-review.md` でセルフ監査する。
-  **このファイルはリポジトリ外にあり、エディタから読めない場合がある。核心は次の4点**:
+- 大きめの計画は実装前にセルフ監査する。**核心は次の4点**:
   ①記憶ではなく一次情報（公式ドキュメント・実際の出力・実行結果）で検証する
   ②各観点で最低2件の問題または懸念を挙げる（0件なら「なぜ0件か」を根拠付きで説明する）
   ③確信を持てていない箇所を正直に全部列挙する
@@ -23,7 +22,7 @@ CLI（`bin/`）は形態として認めているが、まだ1本も無い（→�
 ```
 index.html   ハブ。web/ツール一覧（内部のTOOLS配列に1行足すと追加される）
 web/         ブラウザツール12本。1ツール=1HTML完結
-lib/         web ツールの共通コード。ui.css / ui.js / storage.js / sql.js / excel.js
+lib/         web ツールの共通コード。ui.css / ui.js / storage.js / config.js / sql.js / excel.js
 docs/        coding-rules.md（実装規約の正本）/ verification-notes.md（検証の罠）/
              ux-backlog.md / tool-backlog.md
 docs/specs/  ツールごとの仕様書兼テストケース（12本）
@@ -34,7 +33,7 @@ test/        検証ハーネス（`./test/run [ツール名]`。書き方は tes
   作るときは下の「CLI の制約」に従い `bin/` を使う。**空のまま構成表に並べない**
   （「CLI もある」と誤解して探す時間が生まれる）
 - `excel2md/` は旧ツールの独立リポジトリ。**.gitignore 済みで追跡外**。
-  `~/Personal/archive/` への移動は 2026-09 上旬の予定（→ `docs/ux-backlog.md`）
+  リポジトリ外のアーカイブ領域への移動は 2026-09 上旬の予定（→ `docs/ux-backlog.md`）
 - `lib/` に CLI 用の共通コード（`common.zsh` 等）は**まだ無い**。CLI を作るときに置く
 
 ## 命名規約
@@ -77,7 +76,8 @@ test/        検証ハーネス（`./test/run [ツール名]`。書き方は tes
   不正入力でも落ちず警告表示して最善の出力を出す
 - 完成したら index.html の TOOLS 配列に登録する
 - 各ツールは `<main>` 直下に `.tool-header`（「← ツール一覧」リンク＋自動保存の注記）を置く
-- ブラウザツールの永続データの正本は `~/Personal/vault` に置く（第一号: `03_Tasks/tasks.md`）。localStorage は UI 状態（オプション・タブ等）のみ
+- ブラウザツールの永続データの正本は Obsidian vault 側のファイルに置く（第一号: `tasks.md`）。localStorage は UI 状態（オプション・タブ等）と環境依存の設定（`lib/config.js`）のみ
+- **vault のフォルダ名・vault 名をコードに書かない**（利用者ごとに違う）。`lib/config.js` に置き、画面の設定欄で編集させる（作法は `docs/coding-rules.md`「vault 連携」）
 
 ## CLI の制約（bin/ — 最初の1本を作るときの規約。現在 bin/ は空）
 

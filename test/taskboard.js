@@ -2280,11 +2280,28 @@ const F5 = [
     JSON.stringify(r20));
 
   // TB-R21: 関連ノートの obsidian:// リンク（リスト列は TB-Q1 既存挙動の回帰固定・モーダルは 2026-08-13 拡張）
+  // vault 名は設定値（lib/config.js）。**未設定ならリンクを作らない**ので両方の状態を見る
   const r21 = await page.evaluate((today) => {
     window.taskboard.test.setToday(today);
     const f = ['# tasks', '', '## PEW', '', '- [ ] 設計する #design [[設計 メモ]]', '', ''].join('\n');
-    const s = window.taskboard.test.newSession(f);
-    s.setView('list');
+    const setVault = v => {
+      document.getElementById('cfg-vault').value = v;
+      document.getElementById('cfg-vault').dispatchEvent(new Event('change'));
+    };
+    // タグのチップ（#design）と区別するため、関連ノート名でチップを引く
+    const chipOf = name => Array.from(document.querySelectorAll('td .chip'))
+      .find(e => e.textContent === name) || null;
+
+    // ① vault 名が未設定 → 押しても開かないリンクを作らず、名前だけ出す
+    localStorage.removeItem('tools:config');
+    setVault('');
+    window.taskboard.test.newSession(f).setView('list');
+    const unsetChip = chipOf('設計 メモ');
+    const unset = { tag: unsetChip ? unsetChip.tagName : null, hasHref: !!(unsetChip && unsetChip.getAttribute('href')) };
+
+    // ② vault 名を設定 → obsidian:// リンクになる
+    setVault('vault');
+    window.taskboard.test.newSession(f).setView('list');
     const listA = document.querySelector('td a.chip');
     const listHref = listA ? listA.getAttribute('href') : null;
     window.__h.openEdit('設計する');
@@ -2293,13 +2310,16 @@ const F5 = [
     const tagHasA = !!document.querySelector('#modal-tag-list a');
     const depHasA = !!document.querySelector('#modal-dep-field a');
     document.getElementById('modal-cancel').click();
-    return { listHref, modalHref, tagHasA, depHasA };
+    localStorage.removeItem('tools:config');   // 後続のケースに設定を持ち越さない
+    return { unset, listHref, modalHref, tagHasA, depHasA };
   }, TODAY);
   const wantHref = 'obsidian://open?vault=vault&file=' + encodeURIComponent('設計 メモ');
   r.check('TB-R21（関連ノートのチップが obsidian:// リンク・タグ/依存はリンクにしない）',
     r21.listHref === wantHref && r21.modalHref === wantHref
     && r21.tagHasA === false && r21.depHasA === false,
     JSON.stringify([r21, wantHref]));
+  r.check('TB-R25（vault 名が未設定なら関連ノートをリンクにせず名前だけ表示する）',
+    r21.unset.tag === 'SPAN' && r21.unset.hasHref === false, JSON.stringify(r21.unset));
 
   // TB-R22: 🏁（On Completion）付きタスクの完了は警告するが止めない（TB-Q55 と同じ扱い）
   const r22 = await page.evaluate((today) => {

@@ -18,6 +18,7 @@ CLAUDE.md（作業原則）と `docs/specs/`（ツール別契約）の間を埋
 |---|---|---|
 | ui.js | `banner(el, kind, text)` / `copy(text, {selectEl})` / `feedback(btn, label)` | 引数順は **(要素, 種別, 文字列)**。ツール固有の引数差はラッパ（各ツールの `showBanner`）で吸収し、共通核は class+role+textContent+hidden だけ |
 | storage.js | `save/load/mountWarning`（export/import は必要なら） | キー `tools:<英名>`。**save 失敗の可視化は共通核がやる**（呼び出し側で戻り値チェック不要） |
+| config.js | `ToolConfig.get/set/all` ＋ `normDir/normDirList` | **環境依存の設定**（vault 名・フォルダ構成）だけを置く。キーは `tools:config` 固定で全ツール共有。**ui.js → storage.js の後に読む**。追加した設定キーは既定を「無効」側に倒す（下記） |
 | excel.js | `copy(html, text)` / `cellStyle(value, {header, align})` / `MANGLE_RES` | Excel 向けコピーは**必ず二重フレーバー**（execCommand 先行 — async clipboard は mso- 系をサニタイズする）。文字列化ガードの正本はここ。**表の組み立て（th/td・rowspan）は各ツールに書く** |
 | sql.js | `SqlLex.tokenize` | 字句解析のみ共有。整形・キーワードは devpad 側 |
 
@@ -75,7 +76,8 @@ CLAUDE.md（作業原則）と `docs/specs/`（ツール別契約）の間を埋
 
 ## 保存（localStorage）
 
-- **正本は vault 側**（永続データ）。localStorage は UI 状態と「その場の入力」だけ
+- **正本は vault 側**（永続データ）。localStorage は UI 状態・「その場の入力」・
+  **環境依存の設定**（lib/config.js）の3種だけ
 - payload の復元は**キーごとに型・値域ガード**（boolean 判定・列挙 includes）。未知値は既定へ
 - 1フィールド 100KB 超は保存せず `{omitted: true}` を入れて**次回起動時に通知**（黙って捨てない）
 - 入力を保存するツールはデバウンス保存＋ **pagehide / visibilitychange(hidden) でフラッシュ**
@@ -119,7 +121,15 @@ CLAUDE.md（作業原則）と `docs/specs/`（ツール別契約）の間を埋
 
 ## vault 連携（該当ツールのみ）
 
-- 読むだけでも **`91_Private/` はコードで除外**（vault の掟①）。`.obsidian/` `.git/` `.trash/` も
+- **vault のフォルダ名・vault 名をコードに書かない**（利用者ごとに違う）。
+  `lib/config.js` に置き、画面上の設定欄で編集させる
+- **既定は「無効」側に倒す**。設定が無いときは、機能を推測で動かさず
+  「やらない」か「開始させない」を選ぶ:
+  - **非公開フォルダは「未設定（`null`）」と「除外なし（`[]`）」を型で区別する。**
+    未設定のうちは走査を開始させない（読むだけでも事故になるため）
+  - 検査していない項目を「問題なし ✅」と表示しない（クラスごと出さない）
+  - vault 名が未設定なら `obsidian://` リンクを作らない（押しても開かないリンクを作らない）
+- `.obsidian/` `.git/` `.trash/` は**設定に関係なく常に除外**（設定可能にしない）
 - 書き込みツールは**保存前に再読して NFC 比較**（外部変更検知。taskboard が正本実装）
 - ノートの削除・一括リネームに相当する操作は作らない（**提案表示まで** — 掟②）
 - Obsidian で開くリンクは `obsidian://open?vault=<名>&file=<encodeURIComponent(名前)>`

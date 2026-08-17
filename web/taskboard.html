@@ -198,6 +198,9 @@
     <span id="file-actions"></span>
     <span id="file-name" class="muted mono"></span>
     <span class="spacer"></span>
+    <label class="opts" title="Obsidian の vault 名。関連ノートを obsidian:// で開くリンクに使います（空ならリンクを作らず名前だけ表示します）">
+      vault 名 <input type="text" id="cfg-vault" size="10" placeholder="未設定">
+    </label>
     <span class="summary" id="summary"></span>
   </div>
 
@@ -349,14 +352,20 @@
 
 <script src="../lib/ui.js"></script>
 <script src="../lib/storage.js"></script>
+<script src="../lib/config.js"></script>
 <script>
 'use strict';
 
 const TOOL = 'taskboard';
-const VAULT_NAME = 'vault';        // obsidian:// リンク用（TB-Q1 決定。vault のフォルダ名を変えたら更新）
-// 関連ノートを Obsidian で開くリンク（リスト列とモーダルのチップで共用 — TB-R21）
-const obsidianHref = name =>
-  'obsidian://open?vault=' + encodeURIComponent(VAULT_NAME) + '&file=' + encodeURIComponent(name);
+/* obsidian:// リンク用の vault 名（TB-Q1 決定。値は lib/config.js が持つ — vault のフォルダ名は
+   利用者ごとに違うためコードに書かない）。**空 = 未設定なら リンク自体を作らない** —
+   間違った vault 名のリンクは押しても黙って何も起きず、原因が分からないため。 */
+// 宣言時に読む（render() は初期化中にも走るため、後から代入すると1回目だけリンクが消える）
+let VAULT_NAME = ToolConfig.get('vaultName');
+// 関連ノートを Obsidian で開くリンク（リスト列とモーダルのチップで共用 — TB-R21）。未設定なら null
+const obsidianHref = name => (VAULT_NAME
+  ? 'obsidian://open?vault=' + encodeURIComponent(VAULT_NAME) + '&file=' + encodeURIComponent(name)
+  : null);
 const MAX_CHARS = 2000000;         // 読込上限
 const IDB_NAME = 'tools-taskboard';// file:// は全ページ同一オリジンのため db 名で衝突防止
 const IDB_STORE = 'handles';
@@ -3016,12 +3025,14 @@ function renderRow(t, today) {
 
   const tdLinks = document.createElement('td');
   for (const name of t.links) {
-    const a = document.createElement('a');
-    a.className = 'chip';
-    a.textContent = name;
-    a.href = obsidianHref(name);
-    a.title = 'Obsidian で開く';
-    tdLinks.appendChild(a);
+    // vault 名が未設定のときはリンクにせず名前だけ出す（押しても開かないリンクを作らない）
+    const href = obsidianHref(name);
+    const chip = document.createElement(href ? 'a' : 'span');
+    chip.className = 'chip';
+    chip.textContent = name;
+    if (href) { chip.href = href; chip.title = 'Obsidian で開く'; }
+    else chip.title = 'Obsidian で開くにはツールバーの「vault 名」を設定してください';
+    tdLinks.appendChild(chip);
   }
   tr.appendChild(tdLinks);
 
@@ -3388,7 +3399,9 @@ function refreshModalLinks() {
   renderModalChips('modal-link-list', modalState.links.map(l => '[[' + l + ']]'), (i) => {
     modalState.links.splice(i, 1);
     refreshModalLinks();
-  }, (v, i) => obsidianHref(modalState.links[i]));   // 表示は [[名前]]・href は素の名前から
+    // 第4引数 = href の作り方。表示は [[名前]] だが href は素の名前から作る。
+    // vault 名が未設定なら null を渡してリンクにしない（renderModalChips が span で出す）
+  }, VAULT_NAME ? (v, i) => obsidianHref(modalState.links[i]) : null);
 }
 
 function readModal() {
@@ -3838,6 +3851,17 @@ el('f-groupby').addEventListener('change', () => {
   state.ui.board.groupBy = el('f-groupby').value;
   persistUi();
   render();
+});
+
+/* vault 名の設定（lib/config.js）。効くのは obsidian:// リンクだけで、tasks.md の読み書きには
+   関係しない。保存は change（blur / Enter）で行う — 1文字ごとに保存すると、入力途中の
+   半端な vault 名でリンクが作られる */
+el('cfg-vault').value = VAULT_NAME;
+el('cfg-vault').addEventListener('change', () => {
+  ToolConfig.set({ vaultName: el('cfg-vault').value });
+  VAULT_NAME = ToolConfig.get('vaultName');
+  el('cfg-vault').value = VAULT_NAME;   // 正規化（前後の空白除去）の結果を画面へ戻す
+  if (state.doc) render();              // 既に表示中のチップをリンク有無に追随させる
 });
 el('view-tabs').addEventListener('click', (e) => {
   const v = e.target.dataset && e.target.dataset.view;

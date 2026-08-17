@@ -18,6 +18,11 @@
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
   .issue-block th { background: var(--panel); font-family: inherit; }
+  /* vault のフォルダ構成の設定（利用者ごとに違うためコードに持たない） */
+  #settings { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: flex-end; margin: 10px 0; }
+  #settings label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
+  #settings input { min-width: 200px; }
+  #settings .note { flex-basis: 100%; font-size: 12px; color: var(--muted); margin: 0; }
 </style>
 </head>
 <body>
@@ -36,6 +41,20 @@
     <span class="muted" id="env-note" hidden></span>
   </div>
 
+  <div id="settings">
+    <label>非公開フォルダ（読み込まない）
+      <input type="text" id="cfg-private" placeholder="例: 91_Private, Personal（カンマ区切り）">
+    </label>
+    <label>Inbox フォルダ
+      <input type="text" id="cfg-inbox" placeholder="例: 00_Inbox（空なら棚卸ししない）">
+    </label>
+    <label>アーカイブ先
+      <input type="text" id="cfg-archive" placeholder="例: 90_Archive/daily（空なら移動しない）">
+    </label>
+    <button id="cfg-save">設定を保存</button>
+    <p class="note">vault のフォルダ構成は人によって違うため設定で持ちます。<code>.obsidian</code> <code>.git</code> <code>.trash</code> は設定に関係なく常に除外します。</p>
+  </div>
+
   <div class="banner" id="banner" hidden></div>
   <div id="runlog" class="issue-block" hidden></div>
   <p class="summary" id="summary"></p>
@@ -43,6 +62,8 @@
 </main>
 
 <script src="../lib/ui.js"></script>
+<script src="../lib/storage.js"></script>
+<script src="../lib/config.js"></script>
 <script>
 'use strict';
 
@@ -50,8 +71,21 @@
 
 const MAX_FILES = 20000;        // 性能ガード: ファイル総数
 const MAX_MD_CHARS = 2000000;   // 性能ガード: 1ファイル。超過はその場で読み飛ばして警告
-// 読み込み自体しない除外（91_Private は vault の掟①。コードで強制）
-const EXCLUDE_DIRS = new Set(['91_Private', '.obsidian', '.git', '.trash']);
+// 設定に関係なく常に除外する（Obsidian と Git の内部データ。読む意味が無く、壊すと危険）
+const ALWAYS_EXCLUDE = new Set(['.obsidian', '.git', '.trash']);
+
+/* 利用者ごとの設定（lib/config.js）。vault のフォルダ構成は人によって違うのでコードに持たない。
+   **privateDirs === null は「未設定」**で、空配列（＝除外なしと決めた）とは区別する —
+   未設定のまま走査すると非公開ノートを読み込む事故になるため、設定が済むまで
+   フォルダ選択を無効化する（旧「91_Private をコードで強制除外」の一般化）。 */
+let CFG = { privateDirs: null, inboxDir: '', archiveDir: '' };
+
+// 読み込み自体しないディレクトリ名の集合（常時除外 ＋ 設定した非公開フォルダ）
+function excludeDirSet() {
+  const s = new Set(ALWAYS_EXCLUDE);
+  for (const d of (CFG.privateDirs || [])) s.add(d);
+  return s;
+}
 
 const nfcLower = s => s.normalize('NFC').toLowerCase();
 const basenameOf = path => path.slice(path.lastIndexOf('/') + 1);
@@ -191,17 +225,21 @@ function lint(files, today) {
     });
   }
 
-  // Inbox 棚卸し（VL-14）: 00_Inbox 直下の純デイリーだけ。7日より古いものを候補に出す
+  // Inbox 棚卸し（VL-14）: 設定した Inbox フォルダ**直下**の純デイリーだけ。7日より古いものを候補に出す
   // （週次の成果物はノートとして残らないため「週次より古い」は判定できない — 日数ルール）。
-  // トピックノートは件数のみ（内容判断は /inbox-clean の領分）
-  const INBOX_DAILY_RE = /^00_Inbox\/(\d{4}-\d{2}-\d{2})\.md$/;
+  // トピックノートは件数のみ（内容判断はツールの領分外）。
+  // **CFG.inboxDir が空なら検査自体をしない** — フォルダ構成は利用者ごとに違うため
+  const DAILY_RE = /^(\d{4}-\d{2}-\d{2})\.md$/;
   const AGE_DAYS = 7;
   const dayOf = ymd => Date.UTC(+ymd.slice(0, 4), +ymd.slice(5, 7) - 1, +ymd.slice(8, 10)) / 86400000;
   let inboxOthers = 0;
-  if (today) {
+  if (today && CFG.inboxDir) {
+    const prefix = CFG.inboxDir + '/';
     for (const f of files) {
-      if (!/^00_Inbox\//.test(f.path)) continue;
-      const m = INBOX_DAILY_RE.exec(f.path);
+      if (!f.path.startsWith(prefix)) continue;
+      const rest = f.path.slice(prefix.length);
+      // 直下のみ対象（サブフォルダのノートは純デイリーとして扱わない）
+      const m = rest.includes('/') ? null : DAILY_RE.exec(rest);
       if (!m) { if (/\.md$/i.test(f.path)) inboxOthers++; continue; }
       const age = dayOf(today) - dayOf(m[1]);
       if (age <= AGE_DAYS) continue;
@@ -214,10 +252,11 @@ function lint(files, today) {
 
 // アダプタ層の除外（UI/テスト経路の共通入口。FSA 走査は同じ集合をディレクトリ単位で飛ばす）
 function excludeFiles(files) {
+  const ex = excludeDirSet();
   let excluded = 0;
   const kept = [];
   for (const f of files) {
-    if (f.path.split('/').some(seg => EXCLUDE_DIRS.has(seg))) { excluded++; continue; }
+    if (f.path.split('/').some(seg => ex.has(seg))) { excluded++; continue; }
     kept.push(f);
   }
   return { kept, excluded };
@@ -286,7 +325,11 @@ function planFixes(files, selections) {
     } else if (sel.type === 'rename') {
       planRename(sel, byPath, moves, skipped, getText, texts, files);
     } else if (sel.type === 'archiveDaily') {
-      const to = '90_Archive/daily/' + basenameOf(sel.from);
+      if (!CFG.archiveDir) {
+        skipped.push({ path: sel.from, reason: 'アーカイブ先フォルダが未設定です' });
+        continue;
+      }
+      const to = CFG.archiveDir + '/' + basenameOf(sel.from);
       if (byPath.has(to) || moves.some(mv => mv.to === to)) {
         skipped.push({ path: sel.from, reason: '移動先に同名があります: ' + to });
       } else {
@@ -437,18 +480,23 @@ const CLASS_DEFS = [
   { key: 'inbox', title: 'Inbox 棚卸し（7日より古いデイリー）', cols: ['ファイル', '経過', '未転記タスク'],
     row: i => [i.path, i.age + '日', i.pending ? i.pending + '件' : '—'],
     md: i => i.path + '（' + i.age + '日' + (i.pending ? '・未転記 ' + i.pending + '件' : '') + '）',
-    fix: i => ({
-      options: [{ value: 'archive', label: '90_Archive/daily/ へ移動' }, { value: 'none', label: 'しない' }],
+    // アーカイブ先が未設定なら移動を提案しない（移動先が決まらないため）
+    fix: i => (CFG.archiveDir ? {
+      options: [{ value: 'archive', label: CFG.archiveDir + '/ へ移動' }, { value: 'none', label: 'しない' }],
       value: i.pending ? 'none' : 'archive',   // 未転記タスクが残るものは既定で動かさない
-    }),
+    } : null),
     selectionOf: (i, v) => (v === 'archive' ? { type: 'archiveDaily', from: i.path } : null) },
 ];
+
+/* 実際に検査したクラスだけを出す。Inbox 棚卸しは対象フォルダが未設定なら**検査していない**ので
+   一覧から外す — 検査していないものを「問題なし ✅」と表示すると嘘になる。 */
+const activeClasses = () => CLASS_DEFS.filter(d => d.key !== 'inbox' || CFG.inboxDir !== '');
 
 let lastReport = '';
 
 function buildReport(res) {
   const out = ['# vault-lint 報告', ''];
-  for (const def of CLASS_DEFS) {
+  for (const def of activeClasses()) {
     const list = res.issues[def.key];
     out.push('## ' + def.title + '（' + list.length + '件）', '');
     for (const i of list) out.push('- ' + def.md(i));
@@ -474,13 +522,13 @@ function render(res, excluded, files) {
   }
   lastScan = { files: files || [], excluded };
   const ctx = { files: lastScan.files, byPath: new Map(lastScan.files.map(f => [f.path, f])) };
-  const total = CLASS_DEFS.reduce((n, d) => n + res.issues[d.key].length, 0);
+  const total = activeClasses().reduce((n, d) => n + res.issues[d.key].length, 0);
   el('summary').textContent = 'ファイル ' + res.stats.files + '・ノート ' + res.stats.notes +
     '・リンク ' + res.stats.links + '・除外 ' + excluded +
     (res.stats.inboxOthers ? '・Inbox の非デイリー ' + res.stats.inboxOthers + '件（/inbox-clean へ）' : '') +
     ' ／ 問題 ' + total + ' 件';
   showBanner('warn', res.warnings.join(' / '));   // 空なら hidden
-  for (const def of CLASS_DEFS) {
+  for (const def of activeClasses()) {
     const list = res.issues[def.key];
     const block = document.createElement('section');
     block.className = 'issue-block';
@@ -551,10 +599,11 @@ let dirHandle = null;
 async function scanVault(handle) {
   const files = [];
   let excluded = 0;
+  const ex = excludeDirSet();   // 走査開始時に固定（途中で設定が変わっても1回の走査は一貫させる）
   async function walk(h, prefix) {
     for await (const entry of h.values()) {
       if (entry.kind === 'directory') {
-        if (EXCLUDE_DIRS.has(entry.name)) { excluded++; continue; }   // 読み込み自体しない
+        if (ex.has(entry.name)) { excluded++; continue; }   // 読み込み自体しない
         await walk(entry, prefix + entry.name + '/');
       } else {
         const path = prefix + entry.name;
@@ -743,12 +792,43 @@ el('copy-btn').addEventListener('click', () => {
 });
 el('fix-btn').addEventListener('click', executeFixes);
 
-// showDirectoryPicker が無いブラウザ（Safari / Firefox）は理由を出して無効化
-if (!window.showDirectoryPicker) {
-  el('pick').disabled = true;
-  el('env-note').hidden = false;
-  el('env-note').textContent = 'このブラウザは対応していません（showDirectoryPicker が必要 — Chrome 系で開いてください）';
+/* ---------- 設定（lib/config.js。vault のフォルダ構成は利用者ごとに違う） ---------- */
+
+// 設定を反映する唯一の経路（UI・起動時・テストが同じここを通る）
+function applyConfig(cfg) {
+  CFG = { privateDirs: cfg.privateDirs, inboxDir: cfg.inboxDir, archiveDir: cfg.archiveDir };
+  el('cfg-private').value = (CFG.privateDirs || []).join(', ');
+  el('cfg-inbox').value = CFG.inboxDir;
+  el('cfg-archive').value = CFG.archiveDir;
+  updatePickState();
 }
+
+/* 非公開フォルダが**未設定**のうちはフォルダ選択をさせない（旧「91_Private をコードで強制除外」
+   の一般化）。「除外なし」でよければ空欄のまま［設定を保存］を押せば決定済みになる —
+   未設定（null）と除外なし（[]）を区別しているのはこの分岐のため。 */
+function updatePickState() {
+  const noApi = !window.showDirectoryPicker;   // Safari / Firefox
+  const unset = CFG.privateDirs === null;
+  el('pick').disabled = noApi || unset;
+  const msg = noApi
+    ? 'このブラウザは対応していません（showDirectoryPicker が必要 — Chrome 系で開いてください）'
+    : (unset ? '先に「非公開フォルダ」を決めて［設定を保存］を押してください（除外なしでよければ空欄のまま保存）' : '');
+  el('env-note').textContent = msg;
+  el('env-note').hidden = msg === '';
+}
+
+el('cfg-save').addEventListener('click', () => {
+  ToolConfig.set({
+    privateDirs: el('cfg-private').value,   // 空欄 → [] （＝「除外なし」と決めた状態）
+    inboxDir: el('cfg-inbox').value,
+    archiveDir: el('cfg-archive').value,
+  });
+  applyConfig(ToolConfig.all());
+  showBanner('success', '設定を保存しました');
+});
+
+ToolStorage.mountWarning();
+applyConfig(ToolConfig.all());
 
 /* ========== テスト用フック ========== */
 
@@ -759,9 +839,21 @@ window.vaultlint = {
   applyFixes,
   canDeleteLine,
   test: {
+    /* 設定を差し込む（**保存はしない** — テスト間で localStorage を汚さない）。
+       省略したキーは「未設定」に戻るので、各テストは前提とする構成を明示的に宣言する。
+       正規化は lib/config.js と同じ関数を通す（UI 経由と同じ値になることを保証する） */
+    setConfig(cfg) {
+      const c = cfg || {};
+      applyConfig({
+        privateDirs: ToolConfig.normDirList(c.privateDirs),   // undefined → null（未設定）
+        inboxDir: ToolConfig.normDir(c.inboxDir),
+        archiveDir: ToolConfig.normDir(c.archiveDir),
+      });
+    },
     // FSA を通さず、アダプタ層の除外 → lint → 描画 → （実行ボタンは）メモリ適用まで通す
-    // （VL-U1〜U3・U5。today 省略時は Inbox 棚卸しなし = 旧テストの互換）
-    run(files, today) {
+    // （VL-U1〜U3・U5。today 省略時は Inbox 棚卸しなし。cfg 省略時は全て未設定）
+    run(files, today, cfg) {
+      window.vaultlint.test.setConfig(cfg);
       const disk = new Map(files.map(f => [f.path, typeof f.text === 'string' ? f.text : null]));
       const scan = () => {
         const fs = [...disk.entries()].map(([path, text]) => (text === null ? { path } : { path, text }));

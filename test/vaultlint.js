@@ -21,7 +21,9 @@ const IDEO_SPACE = '\u3000';
   const page = r.watch(await browser.newPage());
   await page.goto(fileUrl('web/vaultlint.html'));
 
-  const lint = (files, today) => page.evaluate(([fs, td]) => {
+  // cfg = vault のフォルダ構成（lib/config.js）。省略時は「未設定」— 各ケースが前提を明示する
+  const lint = (files, today, cfg) => page.evaluate(([fs, td, cf]) => {
+    window.vaultlint.test.setConfig(cf);
     const res = window.vaultlint.lint(fs, td);
     // 照合しやすい形に要約（issues は件数と主要フィールドだけ）
     if (!res.ok) return { ok: false, error: res.error };
@@ -35,7 +37,7 @@ const IDEO_SPACE = '\u3000';
       stats: res.stats,
       warnings: res.warnings,
     };
-  }, [files, today || null]);
+  }, [files, today || null, cfg || null]);
 
   /* ========== VL-01〜05: リンク解決 ========== */
   const v01 = await lint([{ path: 'a.md', text: '[[b]]' }, { path: 'b.md', text: '' }]);
@@ -137,12 +139,29 @@ const IDEO_SPACE = '\u3000';
     { path: '00_Inbox/2026-08-12.md', text: '## ログ\n直近。' },                        // 2日前 → 出ない
     { path: '00_Inbox/2026-08-03.md', text: '- [ ] 未転記1\n本文\n- [ ] 未転記2' },     // 11日前・生タスク2
     { path: '00_Inbox/2026-08-01_打合せ.md', text: 'トピックノート' },                  // 純デイリーではない
-  ], '2026-08-14');
+  ], '2026-08-14', { inboxDir: '00_Inbox' });
   r.check('VL-14（7日超の純デイリーのみ・pending 計上・トピックは件数のみ）',
     eq(v14.inbox, [['00_Inbox/2026-08-04.md', '2026-08-04', 10, 0],
       ['00_Inbox/2026-08-03.md', '2026-08-03', 11, 2]])
     && v14.stats.inboxOthers === 1,
     JSON.stringify([v14.inbox, v14.stats]));
+
+  /* ========== VL-20: Inbox フォルダが未設定なら棚卸し自体をしない ========== */
+  const v20 = await lint([
+    { path: '00_Inbox/2026-08-04.md', text: '## ログ\n作業した。' },
+  ], '2026-08-14');   // cfg 省略 = inboxDir 未設定
+  r.check('VL-20（Inbox フォルダ未設定なら棚卸しをせず inboxOthers も数えない）',
+    v20.inbox.length === 0 && v20.stats.inboxOthers === 0, JSON.stringify([v20.inbox, v20.stats]));
+
+  /* ========== VL-21: Inbox フォルダは設定した名前で照合する（00_Inbox 固定ではない） ========== */
+  const v21 = await lint([
+    { path: 'Journal/2026-08-04.md', text: '## ログ' },       // 設定した Inbox 直下 → 対象
+    { path: '00_Inbox/2026-08-04.md', text: '## ログ' },      // 別フォルダ → 対象外
+    { path: 'Journal/sub/2026-08-04.md', text: '## ログ' },   // サブフォルダ → 純デイリー扱いしない
+  ], '2026-08-14', { inboxDir: 'Journal' });
+  r.check('VL-21（Inbox は設定した名前で照合・直下のみ・他フォルダは対象外）',
+    eq(v21.inbox, [['Journal/2026-08-04.md', '2026-08-04', 10, 0]]) && v21.stats.inboxOthers === 1,
+    JSON.stringify([v21.inbox, v21.stats]));
 
   /* ========== VL-15〜18: planFixes（計画の純関数） ========== */
   const v15 = await page.evaluate(() => {
@@ -253,25 +272,26 @@ const IDEO_SPACE = '\u3000';
     && u1.copied.includes('## リンク切れ（1件）') && u1.copied.includes('a.md:1 → c'),
     JSON.stringify(u1));
 
-  /* ========== VL-U2: 91_Private の除外（アダプタ層） ========== */
+  /* ========== VL-U2: 設定した非公開フォルダの除外（アダプタ層） ========== */
   const u2 = await page.evaluate(() => {
     window.vaultlint.test.run([
       { path: 'a.md', text: '[[b]]' },
       { path: 'b.md', text: '' },
       { path: '91_Private/secret.md', text: '[[存在しない]]' },
-    ]);
+    ], null, { privateDirs: ['91_Private'] });
     return {
       summary: document.getElementById('summary').textContent,
       leaked: document.getElementById('results').textContent.includes('91_Private'),
     };
   });
-  r.check('VL-U2（91_Private はアダプタ層で除外・統計に計上・結果に現れない）',
+  r.check('VL-U2（設定した非公開フォルダはアダプタ層で除外・統計に計上・結果に現れない）',
     u2.summary.includes('除外 1') && u2.summary.includes('問題 0 件') && u2.leaked === false,
     JSON.stringify(u2));
 
   /* ========== VL-U3: 全て健全 ========== */
   const u3 = await page.evaluate(() => {
-    window.vaultlint.test.run([{ path: 'a.md', text: '[[b]]' }, { path: 'b.md', text: '' }]);
+    window.vaultlint.test.run([{ path: 'a.md', text: '[[b]]' }, { path: 'b.md', text: '' }],
+      null, { privateDirs: [], inboxDir: '00_Inbox' });
     return {
       summary: document.getElementById('summary').textContent,
       okCount: document.querySelectorAll('.issue-ok').length,
@@ -279,6 +299,18 @@ const IDEO_SPACE = '\u3000';
   });
   r.check('VL-U3（健全な vault は全クラス「問題なし」）',
     u3.summary.includes('問題 0 件') && u3.okCount === 5, JSON.stringify(u3));   // Inbox 棚卸しで5クラス
+
+  /* ========== VL-U6: Inbox 未設定なら「問題なし」ではなくクラス自体を出さない ========== */
+  const u6 = await page.evaluate(() => {
+    window.vaultlint.test.run([{ path: 'a.md', text: '[[b]]' }, { path: 'b.md', text: '' }],
+      null, { privateDirs: [] });   // inboxDir 未設定
+    return {
+      okCount: document.querySelectorAll('.issue-ok').length,
+      hasInboxHeading: document.getElementById('results').textContent.includes('Inbox 棚卸し'),
+    };
+  });
+  r.check('VL-U6（Inbox 未設定時は棚卸しクラスを表示しない — 未検査を「問題なし」と偽らない）',
+    u6.okCount === 4 && u6.hasInboxHeading === false, JSON.stringify(u6));
 
   /* ========== VL-U5: 修復の UI フロー（選択 → コミット確認 → 実行 → ログ → 再スキャン） ========== */
   const u5 = await page.evaluate(async () => {
@@ -316,6 +348,48 @@ const IDEO_SPACE = '\u3000';
     && u5.guardMsg.includes('コミット')
     && u5.log.includes('書き換え 1') && u5.summary.includes('問題 0 件'),
     JSON.stringify(u5));
+
+  /* ========== VL-U7: 非公開フォルダが未設定のうちはスキャンを始めない ========== */
+  // showDirectoryPicker の有無は実行環境で変わるが、ここで見たいのは**設定ゲート**の方なので固定する
+  await page.addInitScript(() => { window.showDirectoryPicker = () => Promise.reject(new Error('stub')); });
+  await page.evaluate(() => localStorage.removeItem('tools:config'));
+  await page.reload();
+  const u7a = await page.evaluate(() => ({
+    disabled: document.getElementById('pick').disabled,
+    note: document.getElementById('env-note').textContent,
+    noteHidden: document.getElementById('env-note').hidden,
+  }));
+  const u7b = await page.evaluate(() => {
+    document.getElementById('cfg-private').value = '91_Private, Personal';
+    document.getElementById('cfg-inbox').value = '00_Inbox';
+    document.getElementById('cfg-archive').value = '/90_Archive/daily/';   // 前後の / は正規化される
+    document.getElementById('cfg-save').click();
+    return {
+      disabled: document.getElementById('pick').disabled,
+      saved: JSON.parse(localStorage.getItem('tools:config')).data,
+    };
+  });
+  r.check('VL-U7（非公開フォルダ未設定ならフォルダ選択が無効・理由を表示・保存で有効化）',
+    u7a.disabled === true && u7a.noteHidden === false && u7a.note.includes('非公開フォルダ')
+    && u7b.disabled === false
+    && eq(u7b.saved.privateDirs, ['91_Private', 'Personal'])
+    && u7b.saved.archiveDir === '90_Archive/daily',
+    JSON.stringify([u7a, u7b]));
+
+  /* ========== VL-U8: 「除外なし」は空欄のまま保存で明示的に決められる ========== */
+  await page.evaluate(() => localStorage.removeItem('tools:config'));
+  await page.reload();
+  const u8 = await page.evaluate(() => {
+    const before = document.getElementById('pick').disabled;
+    document.getElementById('cfg-save').click();   // 空欄のまま保存 = 「除外なし」と決めた
+    return {
+      before,
+      after: document.getElementById('pick').disabled,
+      saved: JSON.parse(localStorage.getItem('tools:config')).data.privateDirs,
+    };
+  });
+  r.check('VL-U8（空欄のまま保存すれば「除外なし」として決定され、スキャンが有効になる）',
+    u8.before === true && u8.after === false && eq(u8.saved, []), JSON.stringify(u8));
 
   /* ========== VL-U4: 幅390px ========== */
   await page.setViewportSize({ width: 390, height: 800 });
