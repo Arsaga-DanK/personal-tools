@@ -38,12 +38,12 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
       'axisFormat %m/%d',
       'excludes weekends',
       'section 設計フェーズ',
-      '基本設計 :t1, 2026-08-18, 2026-08-22',
+      '基本設計 :t1, 2026-08-18, 2026-08-23',   // 終了日は含む — mermaid の排他仕様を +1 日で吸収（GN-Q4）
       '詳細設計 :t2, 2026-08-25, 5d',
       'レビュー :t3, 2026-09-01, 3d',
       'DB：定義 :t4, 2026-09-04, 1d',
     ].join('\n');
-    r.check('GN-01（DSL: 正規化・日数・全角コロン・不正行は行番号つき警告）',
+    r.check('GN-01（DSL: 終了日+1で排他吸収・正規化・日数・全角コロン・不正行は警告）',
       gn01.dsl === wantDsl && gn01.warnings.length === 1 && gn01.warnings[0].includes('7行目'),
       JSON.stringify(gn01));
 
@@ -73,6 +73,17 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     r.check('GN-04（正常な表が SVG になる）',
       gn04.res.ok === true && gn04.info.present === true && gn04.info.nodes > 0,
       JSON.stringify(gn04));
+  }
+
+  if (ready) {
+    /* ========== GN-05: 終了 < 開始 は警告して1日バー ========== */
+    const gn05 = await page.evaluate(() =>
+      window.gantt.buildDsl('逆転\t2026-08-21\t2026-08-17', { excludeWeekends: false }));
+    r.check('GN-05（終了<開始: 警告・1日バーに丸め）',
+      gn05.dsl.includes('逆転 :t1, 2026-08-21, 2026-08-22')
+      && gn05.warnings.length === 1 && gn05.warnings[0].includes('1行目')
+      && gn05.warnings[0].includes('終了が開始より前'),
+      JSON.stringify(gn05));
   }
 
   /* ========== GN-U1: 自動保存（入力＋チェック） ========== */

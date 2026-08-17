@@ -60,6 +60,13 @@ const TOOL = 'gantt';
 
 /* ========== 純関数: 表テキスト → mermaid gantt DSL（spec「変換」） ========== */
 
+// 'YYYY-MM-DD' に +n 日（内部は Date.UTC — TZ 事故防止。dates と同じ流儀）
+function addDays(ymd, n) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
+  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]) + n * 86400000);
+  return d.toISOString().slice(0, 10);
+}
+
 // 'YYYY-MM-DD' / 'YYYY/M/D' → 'YYYY-MM-DD'（それ以外は null）
 function normDate(s) {
   const m = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/.exec(String(s).trim());
@@ -97,10 +104,18 @@ function buildDsl(text, opts) {
     }
     const name = parts[0].trim().replace(/:/g, '：');   // ':' は mermaid の区切りと衝突（spec）
     const start = normDate(parts[1]);
-    const end = normDate(parts[2]) || normDuration(parts[2]);
+    let end = normDate(parts[2]) || normDuration(parts[2]);
     if (name === '' || !start || !end) {
       warnings.push((i + 1) + '行目: 解釈できません（開始は YYYY-MM-DD・終了は日付か 5d/5日）');
       continue;
+    }
+    if (/^\d{4}-/.test(end)) {
+      // 終了日は「含む」— mermaid の排他仕様を +1 日で吸収（GN-Q4・2026-08-17 実測）
+      if (end < start) {
+        warnings.push((i + 1) + '行目: 終了が開始より前です（1日の棒に丸めました）');
+        end = start;
+      }
+      end = addDays(end, 1);
     }
     taskN++;
     body.push(name + ' :t' + taskN + ', ' + start + ', ' + end);
