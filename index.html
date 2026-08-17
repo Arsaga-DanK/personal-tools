@@ -69,6 +69,7 @@ const TOOLS = [
   { name: 'Mask', alias: 'mask', path: 'web/mask.html', desc: 'スクショのマスキングと注釈 — 貼り付け → モザイク/黒塗り/白塗り・枠・矢印・テキスト・番号スタンプ・切り抜き → PNG コピー（画像は保存しない）', category: '画像', when: 'スクショを Teams・設計書に貼る前の機密隠しと説明入れ' },
   { name: 'Lint', alias: 'vaultlint', path: 'web/vaultlint.html', desc: 'Obsidian vault の健全性チェック — リンク切れ・添付消失・ファイル名の罠・Inbox のデイリーを検出し、承認した修復（テキスト化・リネーム追随・アーカイブ移動）まで実行（Chrome 限定）', category: '整理', when: 'vault の棚卸しと掃除に。設定した非公開フォルダは読み込まない・実行前に git コミット' },
   { name: 'Dates', alias: 'dates', path: 'web/dates.html', desc: '日付・営業日・工数の計算 — N営業日後・期限の逆算・期間の営業日数・和暦/年度・人日⇄時間⇄人月換算（祝日2020〜2027年を同梱）', category: 'PM', when: '納期やレビュー期限の逆算と、見積の工数換算に' },
+  { name: 'Gantt', alias: 'gantt', path: 'web/gantt.html', desc: 'タスクと期間の表 → ガントチャート画像（PNG コピー・mermaid 同梱）— 管理はしない・資料貼り付け用', category: 'PM', when: 'スケジュール感を資料や Teams でさっと共有したいとき' },
 ];
 
 // カテゴリの表示順。最も使う「タスク」を先頭に置く。

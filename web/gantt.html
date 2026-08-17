@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gantt</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E📊%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../lib/ui.css">
+<style>
+  /* gantt 固有: 出力ペインは白背景固定（出力 PNG と同じ見た目 — diagram と同じ） */
+  #output {
+    min-height: 220px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: #ffffff;
+    padding: 12px;
+    overflow: auto;
+  }
+  #output svg { max-width: 100%; height: auto; }
+</style>
+</head>
+<body>
+<main class="app-wide">
+  <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">入力とオプションは自動保存されます</span></p>
+  <h1>Gantt</h1>
+  <p class="subtitle">タスクと期間の表 → ガントチャート画像（PNG コピー）— 管理はしない・資料貼り付け用。1行「タスク名、開始、終了か日数」・区切りのない行はセクション見出し</p>
+
+  <div class="toolbar">
+    <button class="primary" id="copy-btn" title="Cmd/Ctrl+Enter">PNG をコピー</button>
+    <label class="toggle"><input type="checkbox" id="exclude-weekends" checked> 土日を除外</label>
+    <span class="muted" style="font-size:12px">例: 基本設計⇥2026-08-18⇥2026-08-22（タブかカンマ区切り。日数は 5d / 5日）</span>
+  </div>
+
+  <div class="banner" id="banner" hidden></div>
+
+  <div class="panes">
+    <div class="pane">
+      <p class="pane-title">タスク表<button type="button" class="sample-btn" id="sample-btn">サンプルを入れる</button></p>
+      <textarea id="input" spellcheck="false" placeholder="設計フェーズ&#10;基本設計&#9;2026-08-18&#9;2026-08-22&#10;詳細設計&#9;2026-08-25&#9;5d"></textarea>
+    </div>
+    <div class="pane">
+      <p class="pane-title">チャート（プレビュー）</p>
+      <div id="output" aria-live="polite"></div>
+    </div>
+  </div>
+</main>
+
+<script src="../lib/ui.js"></script>
+<script src="../lib/storage.js"></script>
+<script src="../lib/vendor/mermaid.min.js"></script>
+<script src="../lib/mmd.js"></script>
+<script>
+'use strict';
+
+const el = id => document.getElementById(id);
+function showBanner(kind, text) { ToolUI.banner(el('banner'), kind, text); }
+
+const TOOL = 'gantt';
+
+/* ========== 純関数: 表テキスト → mermaid gantt DSL（spec「変換」） ========== */
+
+// 'YYYY-MM-DD' / 'YYYY/M/D' → 'YYYY-MM-DD'（それ以外は null）
+function normDate(s) {
+  const m = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/.exec(String(s).trim());
+  if (!m) return null;
+  const mm = m[2].padStart(2, '0'), dd = m[3].padStart(2, '0');
+  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+  if (d.getUTCMonth() !== +m[2] - 1 || d.getUTCDate() !== +m[3]) return null;   // 実在しない日付
+  return m[1] + '-' + mm + '-' + dd;
+}
+
+// '5d' / '5日' → '5d'（それ以外は null）
+function normDuration(s) {
+  const m = /^(\d+)\s*(d|日)$/.exec(String(s).trim());
+  return m ? m[1] + 'd' : null;
+}
+
+function buildDsl(text, opts) {
+  const excludeWeekends = !opts || opts.excludeWeekends !== false;
+  const warnings = [];
+  const body = [];
+  let taskN = 0;
+  const lines = String(text == null ? '' : text).split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+    const line = raw.trim();
+    if (line === '' || line.startsWith('#')) continue;
+    const parts = raw.includes('\t') ? raw.split('\t') : raw.split(',');
+    if (parts.length === 1) {   // 区切りなし = セクション見出し
+      body.push('section ' + line.replace(/:/g, '：'));
+      continue;
+    }
+    if (parts.length < 3) {
+      warnings.push((i + 1) + '行目: 「名前、開始、終了か日数」の3列が必要です');
+      continue;
+    }
+    const name = parts[0].trim().replace(/:/g, '：');   // ':' は mermaid の区切りと衝突（spec）
+    const start = normDate(parts[1]);
+    const end = normDate(parts[2]) || normDuration(parts[2]);
+    if (name === '' || !start || !end) {
+      warnings.push((i + 1) + '行目: 解釈できません（開始は YYYY-MM-DD・終了は日付か 5d/5日）');
+      continue;
+    }
+    taskN++;
+    body.push(name + ' :t' + taskN + ', ' + start + ', ' + end);
+  }
+  if (taskN === 0) return { dsl: null, warnings };
+  const head = ['gantt', 'dateFormat YYYY-MM-DD', 'axisFormat %m/%d'];
+  if (excludeWeekends) head.push('excludes weekends');
+  return { dsl: head.concat(body).join('\n'), warnings };
+}
+
+/* ========== 描画（フックと UI が同一コードパス。前回の図を保持 — diagram と同じ） ========== */
+
+let lastSvg = null;
+let renderSeq = 0;
+
+async function render(text) {
+  const seq = ++renderSeq;
+  const value = String(text == null ? '' : text);
+  if (value.trim() === '') {
+    lastSvg = null;
+    el('output').textContent = '';
+    showBanner('info', '');
+    return { ok: true, error: null };
+  }
+  const { dsl, warnings } = buildDsl(value, { excludeWeekends: el('exclude-weekends').checked });
+  if (dsl === null) {
+    lastSvg = null;
+    el('output').textContent = '';
+    showBanner('warn', 'タスクが1件もありません' + (warnings.length ? '（' + warnings.join(' / ') + '）' : ''));
+    return { ok: false, error: 'タスクなし' };
+  }
+  try {
+    const host = document.createElement('div');
+    const svg = await ToolMmd.render(host, dsl);
+    if (seq !== renderSeq) return { ok: true, error: null };
+    lastSvg = svg;
+    el('output').textContent = '';
+    el('output').appendChild(svg);
+    showBanner(warnings.length ? 'warn' : 'info', warnings.join(' / '));
+    return { ok: true, error: null };
+  } catch (e) {
+    if (seq !== renderSeq) return { ok: false, error: String(e && e.message || e) };
+    const msg = String(e && e.message || e).split('\n')[0];
+    showBanner('warn', '描画できません: ' + msg + '（前回のチャートを表示しています）');
+    return { ok: false, error: msg };
+  }
+}
+
+/* ========== UI 配線 ========== */
+
+let debounceTimer = null;
+function scheduleRender() {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(() => { debounceTimer = null; render(el('input').value); }, 300);
+}
+function flushRender() {   // コピー時に確定（coding-rules）
+  clearTimeout(debounceTimer);
+  debounceTimer = null;
+  return render(el('input').value);
+}
+
+const FIELD_LIMIT = 100000;
+let saveTimer = null;
+function savePayload() {
+  const v = el('input').value;
+  return {
+    input: v.length > FIELD_LIMIT ? { omitted: true } : v,
+    excludeWeekends: el('exclude-weekends').checked,
+  };
+}
+function scheduleSave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => { saveTimer = null; ToolStorage.save(TOOL, savePayload()); }, 300);
+}
+function flushSave() {
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  ToolStorage.save(TOOL, savePayload());
+}
+window.addEventListener('pagehide', flushSave);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') flushSave();
+});
+
+function restore() {
+  const data = ToolStorage.load(TOOL);
+  if (!data) return;
+  if (typeof data.input === 'string') el('input').value = data.input;
+  else if (data.input && data.input.omitted) {
+    showBanner('info', '前回の内容は大きすぎたため復元されませんでした（保存上限 100KB）');
+  }
+  if (typeof data.excludeWeekends === 'boolean') el('exclude-weekends').checked = data.excludeWeekends;
+}
+
+function updateSampleBtn() { el('sample-btn').hidden = el('input').value !== ''; }
+
+el('input').addEventListener('input', () => {
+  scheduleRender();
+  updateSampleBtn();
+  scheduleSave();
+});
+el('exclude-weekends').addEventListener('change', () => {
+  scheduleRender();
+  scheduleSave();
+});
+
+el('copy-btn').addEventListener('click', () => {
+  // Safari 対策: ジェスチャ内で同期的に write するため Promise を渡す（mask / diagram と同型）
+  const blobPromise = flushRender().then(() => {
+    if (!lastSvg) throw new Error('チャートがありません');
+    return ToolMmd.toPngBlob(lastSvg, 2);
+  });
+  const item = new ClipboardItem({ 'image/png': blobPromise });
+  navigator.clipboard.write([item]).then(
+    () => ToolUI.feedback(el('copy-btn'), '✓ コピーしました'),
+    () => showBanner('warn', 'クリップボードへ書けませんでした'));
+});
+document.addEventListener('keydown', e => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+    e.preventDefault();
+    el('copy-btn').click();
+  }
+});
+
+el('sample-btn').addEventListener('click', () => {
+  el('input').value = '設計フェーズ\n基本設計\t2026-08-18\t2026-08-22\n詳細設計\t2026-08-25\t5d\n実装フェーズ\n実装\t2026-09-01\t10日\n結合テスト\t2026-09-16\t2026-09-19';
+  render(el('input').value);
+  updateSampleBtn();
+  scheduleSave();
+});
+
+restore();
+updateSampleBtn();
+if (el('input').value !== '') render(el('input').value);
+ToolStorage.mountWarning();
+
+// テスト用フック（docs/specs/gantt.md）
+window.gantt = {
+  buildDsl,
+  render,
+  svgInfo: () => {
+    const svg = el('output').querySelector('svg');
+    return { present: !!svg, nodes: svg ? svg.querySelectorAll('g, rect, text').length : 0 };
+  },
+};
+</script>
+</body>
+</html>
