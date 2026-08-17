@@ -48,7 +48,8 @@ open index.html          # macOS。Windows は start index.html / Linux は xdg-
 UI とドキュメントは日本語です。
 
 作図系3本（Draw Diagram / Draw Mindmap / Draw Gantt）は
-[mermaid](https://mermaid.js.org/) を `lib/vendor/` に同梱して使っています（MIT・オフライン動作）。
+[mermaid](https://mermaid.js.org/) を `lib/vendor/` に同梱して使っています（オフライン動作のため）。
+mermaid は MIT ライセンスで、全文を [`lib/vendor/mermaid.LICENSE`](lib/vendor/mermaid.LICENSE) に同梱しています。
 
 ## 動作環境
 
