@@ -114,11 +114,11 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
   await page.goto(fileUrl('index.html'));
   const hubCats = await page.evaluate(() =>
     Array.from(document.querySelectorAll('.category-title')).map(e => e.textContent));
-  await page.click('ul.tool-list a:text-is("Mindmap")');
+  await page.click('ul.tool-list a:text-is("Draw Mindmap")');
   await page.waitForLoadState('load');
   const hubTitle = await page.title();
-  r.check('ハブの「発想」カテゴリ（新設）から遷移できる（title は表示名のみ）',
-    hubCats.includes('発想') && hubTitle === 'Mindmap', JSON.stringify([hubCats, hubTitle]));
+  r.check('ハブの「発想」カテゴリ（新設）から遷移でき title が命名規約どおり',
+    hubCats.includes('発想') && hubTitle === 'Draw Mindmap (mindmap)', JSON.stringify([hubCats, hubTitle]));
 
   await browser.close();
   r.report('mindmap（docs/specs/mindmap.md）');

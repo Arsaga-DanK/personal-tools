@@ -2,7 +2,7 @@
 
 ## 概要
 
-テキストから図を描くツール。`web/diagram.html`、表示名 `Diagram`、カテゴリ: 設計。
+テキストから図を描くツール。`web/diagram.html`、表示名 `Draw Diagram`、カテゴリ: 設計。
 mermaid 記法（フローチャート・シーケンス図・状態遷移図など）を左に書くと右に図が
 リアルタイムに描かれ、**PNG コピー**（資料・Teams 貼り付け用）と **SVG 保存**ができる。
 「draw.io を開くほどでもない図」の担当（GUI エディタは draw.io — tool-backlog 却下済み 2026-08-15）。
@@ -46,7 +46,7 @@ localStorage キーはすべて diagram。命名規約の「英名」はこち�
 | DG-U3 | サンプル投入 | 入力が空のときだけ表示・投入で図が描かれる |
 | DG-U4 | 幅390px | ページの横スクロールなし |
 
-ハブ導線: カテゴリ「設計」に載り、title は `Diagram`（表示名=英名なので表示名のみ）。
+ハブ導線: カテゴリ「設計」に載り、title は `Draw Diagram (diagram)`。
 
 ## 検証手順
 
@@ -65,7 +65,7 @@ localStorage キーはすべて diagram。命名規約の「英名」はこち�
 ## 決定事項（2026-08-15）
 
 - **DG-Q1**: 英名は `diagram`（`window.mermaid` をライブラリが占有するため。
-  表示名 `Diagram`・エンジン名は desc に書いて検索で辿れるようにする）
+  表示名 `Draw Diagram`・エンジン名は desc に書いて検索で辿れるようにする）
 - **DG-Q2**: 図は**常にライトテーマ**で描く（アプリのダークモードに追従させない —
   出力 PNG の見た目が環境で変わると資料の体裁が揃わない）
 - **DG-Q3**: `htmlLabels: false` 固定（foreignObject は canvas 経由の PNG 化を壊す — 実測）

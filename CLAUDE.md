@@ -39,20 +39,31 @@ test/        検証ハーネス（`./test/run [ツール名]`。書き方は tes
 
 ## 命名規約
 
-- ツールの**表示名**は**短い英語1語**（領域を指すラベル。`Tasks` `Tables` `Convert`）。
-  index.html の TOOLS の `name`、各ツールの `<h1>`、`<title>` の先頭に使う。
-  **名前で説明しようとしない** — 説明は `desc` と `when`（ハブ）と `.subtitle`（ツール内）が担う
+- ツールの**表示名**は**「動詞＋名詞」の英語2語**（`Normalize Text` `Check Vault` `Draw Diagram`）。
+  index.html の TOOLS の `name`、各ツールの `<h1>`、`<title>` の先頭に使う
+- **2026-08-17 に1語ラベル（`Text` `Lint` `Convert`）から改定した。**
+  旧規約は「名前で説明しようとしない — 説明は `desc` と `when` が担う」だったが、
+  これはハブ経由で開くときにしか成立しない。**ブックマーク・タブの見出し・履歴・
+  共有リンクでは `desc` が消えて名前だけが残る**ため、1語では何のツールか判別できなかった
+  （利用者の指摘: 「`Text` ってパッと見てなんのツールか分からない」）
+- 動詞は行為を、名詞は対象を表す。**同じ動詞の重複は歓迎する**
+  （`Draw Diagram` / `Draw Gantt` / `Draw Mindmap` は同種の道具だと一目で分かる）。
+  **同じ動詞＋同じ名詞は作らない** — 対象で区別する（`Convert Table` と `Convert Data`）
+- 3語以上にしない。収まらないなら名詞を上位概念に上げる（説明は `desc` と `when` が担う）
 - **ファイル名・spec 名・localStorage キー（`tools:<name>`）・`window.<name>` フック・
   spec のテスト ID** は英小文字で、一度決めたら変更しない
   （テストと spec の参照が連動するため）
-- `<title>` は「表示名 (英名)」（例: `Tables (excel2md)`）。
+- `<title>` は「表示名 (英名)」（例: `Convert Table (excel2md)`）。
   表示名だけではファイル名が分からないため、識別子を括弧で添える。
-  **表示名と英名が同じなら表示名のみ**（`Diff`。`Diff (diff)` は冗長）
+  表示名と英名が同じなら表示名のみ（規約としては残すが、
+  **表示名が2語になった現在は全ツールが併記形**になる）
 - 英名は TOOLS の `alias` にも書く（画面には出さず検索にだけ効く。
   過去のメモやファイル名が英名で書かれているため）
-- 現在の対応: Tasks=taskboard / Tables=excel2md / Convert=devpad / Text=norm / Diff=diff / Terms=terms / Fill=fill /
-  Schema=ddl2spec / Outline=doc2xl / Diagram=diagram / Mindmap=mindmap /
-  Lint=vaultlint / Mask=mask / Dates=dates / Gantt=gantt
+- 現在の対応: Plan Tasks=taskboard / Convert Table=excel2md / Convert Data=devpad /
+  Normalize Text=norm / Compare Text=diff / Unify Terms=terms / Fill Template=fill /
+  Document Schema=ddl2spec / Export Outline=doc2xl / Draw Diagram=diagram /
+  Draw Mindmap=mindmap / Mask Image=mask / Check Vault=vaultlint /
+  Calc Dates=dates / Draw Gantt=gantt
 - カテゴリ名は日本語のまま（英語にすると Convert ツールと同名になる。
   日本語=分類 / 英語=ツール名 の対比で階層が読みやすくなる）
 

@@ -3,7 +3,7 @@
 ## 概要
 
 Markdown 文書の**見出し階層**を Excel 用の**階層表**（大項目・中項目・小項目＋内容）に
-変換するツール。`web/doc2xl.html`、表示名 **Outline**、カテゴリ: 設計。
+変換するツール。`web/doc2xl.html`、表示名 **Export Outline**、カテゴリ: 設計。
 出力は Markdown 表と TSV（Excel 用コピー）の両方。**MD → Excel の一方向のみ**。
 
 ### 位置づけ（3層アーキテクチャ）と、逆方向を作らない理由
@@ -117,7 +117,7 @@ Markdown 文書の**見出し階層**を Excel 用の**階層表**（大項目�
 
 - `<main class="app-wide">` 直下: `.tool-header`（「← ツール一覧」＋「入力は自動保存されます」）
   （2026-08-13 に他の2ペインツールと同じ 1200px へ統一 — 当初の `app`（900px）は後発の戻りだった）
-- `<h1>Outline</h1>`・subtitle（正本は Markdown 側、Excel は納品時の生成物）
+- `<h1>Export Outline</h1>`・subtitle（正本は Markdown 側、Excel は納品時の生成物）
 - ツールバー: 階層列の見出し名 select（カスタム時はテキスト入力を表示）／
   「空セルを上の値で埋める」トグル／内容の単位 select／出力形式ラジオ（Markdown表 / TSV）／
   ［出力をコピー］（**primary・Cmd/Ctrl+Enter でも実行**。title にキー表記 — DX-U8）
@@ -213,6 +213,7 @@ UI（DX-U1〜U5）:
 ## 決定事項（DX-Q1〜Q8・2026-08-12 承認）
 
 - **DX-Q1**: 表示名 → **`Outline`**（`Doc` は `docs/` と紛れる）
+  → **`Export Outline` に改名**（2026-08-17 に命名規約の改定で改名）
 - **DX-Q2**: 空セル埋めの既定 → **OFF**（納品物は人が読む前提で空セルが慣習。
   フィルタ・ピボット向けに ON も選べる）
 - **DX-Q3**: 内容の分割単位の既定 → **1行1セル**（箇条書き1項目=1行が Excel で扱いやすい）

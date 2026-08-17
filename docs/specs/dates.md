@@ -2,7 +2,7 @@
 
 ## 概要
 
-日付・営業日・工数の計算ツール。`web/dates.html`、表示名 `Dates`、カテゴリ: PM（初使用）。
+日付・営業日・工数の計算ツール。`web/dates.html`、表示名 `Calc Dates`、カテゴリ: PM（初使用）。
 「N営業日後はいつか」「期限に間に合わせるにはいつ着手か」「この期間は何営業日か」
 「和暦・年度で何と書くか」「3人日は何時間か」を1画面で即答する。
 
@@ -88,7 +88,7 @@ toFiscal(dateStr) → {fy, text, wareki}, convertEffort, HOLIDAYS, RANGE }`
 | DT-U5 | 幅390px | ページの横スクロールなし |
 | DT-U6 | 営業日結果の［コピー］（writeText スタブ） | 結果テキストが渡り ✓ 表示 |
 
-ハブ導線: カテゴリ「PM」（初使用）に載り、title は `Dates`（表示名=英名なので表示名のみ）。
+ハブ導線: カテゴリ「PM」（初使用）に載り、title は `Calc Dates (dates)`。
 
 ## 検証手順
 

@@ -161,11 +161,11 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
 
   /* ========== ハブ導線 ========== */
   await page.goto(fileUrl('index.html'));
-  await page.click('ul.tool-list a:text-is("Fill")');
+  await page.click('ul.tool-list a:text-is("Fill Template")');
   await page.waitForLoadState('load');
   const hubTitle = await page.title();
-  r.check('ハブの「変換・比較」から遷移できる（title は表示名のみ — 英名と同じ）',
-    hubTitle === 'Fill', hubTitle);
+  r.check('ハブの「変換・比較」から遷移でき title が命名規約どおり',
+    hubTitle === 'Fill Template (fill)', hubTitle);
 
   await browser.close();
   r.report('fill（docs/specs/fill.md）');

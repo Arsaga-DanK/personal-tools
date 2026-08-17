@@ -414,12 +414,12 @@ const { launch, fileUrl, createRunner, eq, bannerIs } = require('./helpers');
   await page.goto(fileUrl('index.html'));
   const hubCats = await page.evaluate(() =>
     Array.from(document.querySelectorAll('.category-title')).map(e => e.textContent));
-  await page.click('ul.tool-list a:text-is("Outline")');
+  await page.click('ul.tool-list a:text-is("Export Outline")');
   await page.waitForLoadState('load');
   const hubTitle = await page.title();
   const hubH1 = await page.evaluate(() => document.querySelector('h1').textContent);
   r.check('DX-18（ハブの設計カテゴリから遷移でき title と h1 が命名規約どおり）',
-    hubCats.includes('設計') && hubTitle === 'Outline (doc2xl)' && hubH1 === 'Outline',
+    hubCats.includes('設計') && hubTitle === 'Export Outline (doc2xl)' && hubH1 === 'Export Outline',
     JSON.stringify([hubCats, hubTitle, hubH1]));
 
   await browser.close();

@@ -28,10 +28,10 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
   }));
   r.check('HUB-1（カテゴリ順: タスクが先頭）', order.categories[0] === 'タスク'
     && eq(order.categories, ['タスク', '変換・比較', '設計', '発想', '画像', '整理', 'PM']), JSON.stringify(order.categories));
-  r.check('HUB-2（Tasks が最初のリンク）', order.firstLink === 'Tasks', order.firstLink);
+  r.check('HUB-2（Plan Tasks が最初のリンク）', order.firstLink === 'Plan Tasks', order.firstLink);
   r.check('HUB-3（TOOLS 配列順が同カテゴリ内の表示順）',
-    eq(order.toolsArray, ['Tasks', 'Tables', 'Convert', 'Text', 'Diff', 'Terms', 'Fill', 'Schema', 'Outline', 'Diagram', 'Mindmap', 'Mask', 'Lint', 'Dates', 'Gantt'])
-    && eq(order.groups, [['Tasks'], ['Tables', 'Convert', 'Text', 'Diff', 'Terms', 'Fill'], ['Schema', 'Outline', 'Diagram'], ['Mindmap'], ['Mask'], ['Lint'], ['Dates', 'Gantt']]),
+    eq(order.toolsArray, ['Plan Tasks', 'Convert Table', 'Convert Data', 'Normalize Text', 'Compare Text', 'Unify Terms', 'Fill Template', 'Document Schema', 'Export Outline', 'Draw Diagram', 'Draw Mindmap', 'Mask Image', 'Check Vault', 'Calc Dates', 'Draw Gantt'])
+    && eq(order.groups, [['Plan Tasks'], ['Convert Table', 'Convert Data', 'Normalize Text', 'Compare Text', 'Unify Terms', 'Fill Template'], ['Document Schema', 'Export Outline', 'Draw Diagram'], ['Draw Mindmap'], ['Mask Image'], ['Check Vault'], ['Calc Dates', 'Draw Gantt']]),
     JSON.stringify([order.toolsArray, order.groups]));
 
   /* ---------- 全ツールが1回だけ載る ---------- */
@@ -52,8 +52,8 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
       byDesc: f('vault').map(t => t.name),
       byWhen: f('週次').map(t => t.name),
       caseInsensitive: f('BASE64').map(t => t.name),   // devpad の desc の Base64
-      partial: f('ables').map(t => t.name),            // 表示名 Tables の部分一致
-                                                       // （'able' は Schema の desc の CREATE TABLE にも当たる）
+      partial: f('ompare').map(t => t.name),           // 表示名 Compare Text の部分一致
+                                                       // （'able' だと Document Schema の desc の CREATE TABLE にも当たる）
       none: f('存在しない文字列').map(t => t.name),
       alias: f('norm').map(t => t.name),               // 英名（alias）でも辿れる
       aliasUpper: f('DEVPAD').map(t => t.name),        // alias も大文字小文字無視
@@ -63,14 +63,14 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     };
   });
   r.check('HUB-5（検索: 空・表示名・説明・用途・大文字小文字・部分一致）',
-    eq(search.empty, ['Tasks', 'Tables', 'Convert', 'Text', 'Diff', 'Terms', 'Fill', 'Schema', 'Outline', 'Diagram', 'Mindmap', 'Mask', 'Lint', 'Dates', 'Gantt'])
-    && eq(search.byName, ['Tasks']) && eq(search.byDesc, ['Tasks', 'Lint'])   // 'vault' は両ツールの desc にある
-    && eq(search.byWhen, ['Tasks']) && eq(search.caseInsensitive, ['Convert'])
-    && eq(search.partial, ['Tables']) && eq(search.none, []),
+    eq(search.empty, ['Plan Tasks', 'Convert Table', 'Convert Data', 'Normalize Text', 'Compare Text', 'Unify Terms', 'Fill Template', 'Document Schema', 'Export Outline', 'Draw Diagram', 'Draw Mindmap', 'Mask Image', 'Check Vault', 'Calc Dates', 'Draw Gantt'])
+    && eq(search.byName, ['Plan Tasks']) && eq(search.byDesc, ['Plan Tasks', 'Check Vault'])   // 'vault' は両ツールの desc にある
+    && eq(search.byWhen, ['Plan Tasks']) && eq(search.caseInsensitive, ['Convert Data'])
+    && eq(search.partial, ['Compare Text']) && eq(search.none, []),
     JSON.stringify(search));
   r.check('HUB-9（英名でもヒットする・英名は画面に出さない）',
-    eq(search.alias, ['Text']) && eq(search.aliasUpper, ['Convert'])
-    && eq(search.aliasPartial, ['Tables']) && search.aliasHidden === false,
+    eq(search.alias, ['Normalize Text']) && eq(search.aliasUpper, ['Convert Data'])
+    && eq(search.aliasPartial, ['Convert Table']) && search.aliasHidden === false,
     JSON.stringify([search.alias, search.aliasUpper, search.aliasPartial, search.aliasHidden]));
 
   /* ---------- 検索: Convert の説明が全11タブを網羅する ---------- */
@@ -86,8 +86,8 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     };
   });
   r.check('HUB-11（devpad の新4タブ（XML/SQL/正規表現/基数）が検索で辿れる）',
-    eq(tabSearch.regex, ['Convert']) && eq(tabSearch.xml, ['Convert'])
-    && eq(tabSearch.sql, ['Convert', 'Schema']) && eq(tabSearch.radix, ['Convert']),
+    eq(tabSearch.regex, ['Convert Data']) && eq(tabSearch.xml, ['Convert Data'])
+    && eq(tabSearch.sql, ['Convert Data', 'Document Schema']) && eq(tabSearch.radix, ['Convert Data']),
     JSON.stringify(tabSearch));
 
   /* ---------- 検索: カテゴリ名でも絞れる（HUB-12） ---------- */
@@ -98,7 +98,7 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     sekkei: window.hub.filter('設計').map(t => t.name),
   }));
   r.check('HUB-12（カテゴリ名で絞れる）',
-    eq(catSearch.seiri, ['Lint']) && eq(catSearch.sekkei, ['Tables', 'Diff', 'Schema', 'Outline', 'Diagram', 'Mask']),
+    eq(catSearch.seiri, ['Check Vault']) && eq(catSearch.sekkei, ['Convert Table', 'Compare Text', 'Document Schema', 'Export Outline', 'Draw Diagram', 'Mask Image']),
     JSON.stringify(catSearch));
 
   /* ---------- `/` で検索へフォーカス（HUB-13） ---------- */
@@ -140,7 +140,7 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     return navigated;
   });
   r.check('HUB-14（カードのどこを押しても開く・テキスト選択中は遷移しない）',
-    cardNav === 'Tasks (taskboard)' && cardSelectGuard === false,
+    cardNav === 'Plan Tasks (taskboard)' && cardSelectGuard === false,
     JSON.stringify([cardNav, cardSelectGuard]));
 
   const typeSearch = async q => {
@@ -152,13 +152,13 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
       empty: document.getElementById('empty-msg').hidden ? '' : document.getElementById('empty-msg').textContent,
     }));
   };
-  const s1 = await typeSearch('Text');
+  const s1 = await typeSearch('Normalize');
   const s2 = await typeSearch('存在しない文字列');
   const s3 = await typeSearch('');
   r.check('HUB-6（UI 検索: 絞り込み・該当なし・クリアで復帰）',
-    eq(s1.names, ['Text']) && eq(s1.categories, ['変換・比較'])       // 空のカテゴリ見出しは出ない
+    eq(s1.names, ['Normalize Text']) && eq(s1.categories, ['変換・比較'])       // 空のカテゴリ見出しは出ない
     && eq(s2.names, []) && s2.empty === '該当なし'
-    && eq(s3.names, ['Tasks', 'Tables', 'Convert', 'Text', 'Diff', 'Terms', 'Fill', 'Schema', 'Outline', 'Diagram', 'Mindmap', 'Mask', 'Lint', 'Dates', 'Gantt']) && s3.categories[0] === 'タスク',
+    && eq(s3.names, ['Plan Tasks', 'Convert Table', 'Convert Data', 'Normalize Text', 'Compare Text', 'Unify Terms', 'Fill Template', 'Document Schema', 'Export Outline', 'Draw Diagram', 'Draw Mindmap', 'Mask Image', 'Check Vault', 'Calc Dates', 'Draw Gantt']) && s3.categories[0] === 'タスク',
     JSON.stringify([s1, s2, s3]));
 
   /* ---------- リンク遷移（全ツール） ---------- */
@@ -198,7 +198,7 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     firstLink: document.querySelector('ul.tool-list a').textContent,
   }));
   r.check('HUB-8（幅390pxで横スクロールなし・順序は不変）',
-    narrow.noHScroll && narrow.firstLink === 'Tasks', JSON.stringify(narrow));
+    narrow.noHScroll && narrow.firstLink === 'Plan Tasks', JSON.stringify(narrow));
 
   await browser.close();
   r.report('ハブ（index.html）');

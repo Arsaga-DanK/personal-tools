@@ -326,11 +326,10 @@ const { launch, fileUrl, createRunner, eq, bannerIs } = require('./helpers');
 
   /* ========== ハブからの導線 ========== */
   await page.goto(fileUrl('index.html'));
-  await page.click('ul.tool-list a:text-is("Diff")');
+  await page.click('ul.tool-list a:text-is("Compare Text")');
   await page.waitForLoadState('load');
   const title = await page.title();
-  // 表示名と英名が同じため title は 'Diff'（併記なし。CLAUDE.md 命名規約）
-  r.check('ハブから「Diff」→ diff へ遷移できる', title.toLowerCase().includes('diff'), title);
+  r.check('ハブから「Compare Text」→ diff へ遷移できる', title.toLowerCase().includes('diff'), title);
 
   await browser.close();
   r.report('diff（docs/specs/diff.md）');

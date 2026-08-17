@@ -134,11 +134,11 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
 
   /* ========== ハブ導線 ========== */
   await page.goto(fileUrl('index.html'));
-  await page.click('ul.tool-list a:text-is("Diagram")');
+  await page.click('ul.tool-list a:text-is("Draw Diagram")');
   await page.waitForLoadState('load');
   const hubTitle = await page.title();
-  r.check('ハブの「設計」から遷移できる（title は表示名のみ — 英名と同じ）',
-    hubTitle === 'Diagram', hubTitle);
+  r.check('ハブの「設計」から遷移でき title が命名規約どおり',
+    hubTitle === 'Draw Diagram (diagram)', hubTitle);
 
   await browser.close();
   r.report('diagram（docs/specs/diagram.md）');

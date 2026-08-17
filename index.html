@@ -56,21 +56,21 @@
 // alias はファイル名・spec 名・localStorage キー・window フックと同じ英小文字名で、
 // 画面には出さず検索にだけ効かせる（過去のメモは英名で書かれている）
 const TOOLS = [
-  { name: 'Tasks', alias: 'taskboard', path: 'web/taskboard.html', desc: 'vault の tasks.md（正本）を表形式で閲覧・編集 — 完了・開始日・期限・優先度、計画ビュー（タイムライン）、Excel用コピー', category: 'タスク', when: '朝の計画と期限付け・週次の棚卸し・大きなタスクの期間管理・Excel報告への転記' },
-  { name: 'Tables', alias: 'excel2md', path: 'web/excel2md.html', desc: 'Excelのセル範囲（TSV）⇔ Markdownテーブル 双方向変換 — 結合セルの展開・表プレビュー上で列の揃え指定', category: '変換・比較', when: 'Excel の表を設計書や議事録の Markdown に貼るとき／その逆' },
-  { name: 'Convert', alias: 'devpad', path: 'web/devpad.html', desc: '開発ユーティリティ集 — JSON・XML・SQL の整形・エスケープ・URL・Base64・正規表現・基数変換・Unix時刻・UUID・文字数カウント', category: '変換・比較', when: 'API レスポンスの整形・エンコード・時刻変換・正規表現の動作確認をその場で済ませたいとき' },
-  { name: 'Text', alias: 'norm', path: 'web/norm.html', desc: '日本語表記の正規化（全角半角・ハイフン・波ダッシュ・空白・NFKC）変更箇所ハイライト付き', category: '変換・比較', when: '顧客提供テキストや仕様書の表記ゆれを揃えるとき' },
-  { name: 'Diff', alias: 'diff', path: 'web/diff.html', desc: 'テキスト比較 — 行単位差分＋文字単位ハイライト、空白無視・全半角同一視オプション', category: '変換・比較', when: '文言修正の前後比較や設計記述の突き合わせ' },
-  { name: 'Terms', alias: 'terms', path: 'web/terms.html', desc: '用語統一表（変換前→変換後）を原稿へ一括適用 — 同時置換・長い語優先、ルール別件数と未適用の表示', category: '変換・比較', when: '顧客の用語集・表記ルールに原稿を合わせるとき' },
-  { name: 'Fill', alias: 'fill', path: 'web/fill.html', desc: '定型文テンプレの差し込み — 本文の {{変数}} から入力フォームを自動生成、埋めて完成文をコピー（{{今日}} は日付を自動セット）', category: '変換・比較', when: '日報・週報・議事録の送付文・依頼文など、毎回少しだけ変わる定型連絡を作るとき' },
-  { name: 'Schema', alias: 'ddl2spec', path: 'web/ddl2spec.html', desc: 'PostgreSQL の DDL（CREATE TABLE ＋ COMMENT ON）⇔ テーブル定義書（Markdown表）双方向変換 — 論理名・複合キー・FK・CHECK・Excel用コピー', category: '設計', when: '既存 DDL から定義書を起こすとき／定義書から DDL を作るとき（正本は DDL 側）' },
-  { name: 'Outline', alias: 'doc2xl', path: 'web/doc2xl.html', desc: 'Markdown 文書の見出し階層 → Excel 用の階層表（大項目/中項目/小項目＋内容）— Markdown表・TSV 出力', category: '設計', when: '設計書を Markdown で下書きして、納品時に Excel の階層表へ移すとき' },
-  { name: 'Diagram', alias: 'diagram', path: 'web/diagram.html', desc: 'テキストから図を描く（mermaid 同梱・オフライン）— フローチャート・シーケンス図・状態遷移図を書いて PNG コピー/SVG 保存', category: '設計', when: 'draw.io を開くほどでもない図を資料や Teams に貼るとき' },
-  { name: 'Mindmap', alias: 'mindmap', path: 'web/mindmap.html', desc: '箇条書き → マインドマップ描画（mermaid 同梱）— 1行目が中心テーマ・タブで階層。PNG コピー/テキストはそのままノートへ', category: '発想', when: 'ブレインストーミングや打ち合わせ前の論点洗い出しに' },
-  { name: 'Mask', alias: 'mask', path: 'web/mask.html', desc: 'スクショのマスキングと注釈 — 貼り付け → モザイク/黒塗り/白塗り・枠・矢印・テキスト・番号スタンプ・切り抜き → PNG コピー（画像は保存しない）', category: '画像', when: 'スクショを Teams・設計書に貼る前の機密隠しと説明入れ' },
-  { name: 'Lint', alias: 'vaultlint', path: 'web/vaultlint.html', desc: 'Obsidian vault の健全性チェック — リンク切れ・添付消失・ファイル名の罠・Inbox のデイリーを検出し、承認した修復（テキスト化・リネーム追随・アーカイブ移動）まで実行（Chrome 限定）', category: '整理', when: 'vault の棚卸しと掃除に。設定した非公開フォルダは読み込まない・実行前に git コミット' },
-  { name: 'Dates', alias: 'dates', path: 'web/dates.html', desc: '日付・営業日・工数の計算 — N営業日後・期限の逆算・期間の営業日数・和暦/年度・人日⇄時間⇄人月換算（祝日2020〜2027年を同梱）', category: 'PM', when: '納期やレビュー期限の逆算と、見積の工数換算に' },
-  { name: 'Gantt', alias: 'gantt', path: 'web/gantt.html', desc: 'タスクと期間の表 → ガントチャート画像（PNG コピー・mermaid 同梱）— 管理はしない・資料貼り付け用', category: 'PM', when: 'スケジュール感を資料や Teams でさっと共有したいとき' },
+  { name: 'Plan Tasks', alias: 'taskboard', path: 'web/taskboard.html', desc: 'vault の tasks.md（正本）を表形式で閲覧・編集 — 完了・開始日・期限・優先度、計画ビュー（タイムライン）、Excel用コピー', category: 'タスク', when: '朝の計画と期限付け・週次の棚卸し・大きなタスクの期間管理・Excel報告への転記' },
+  { name: 'Convert Table', alias: 'excel2md', path: 'web/excel2md.html', desc: 'Excelのセル範囲（TSV）⇔ Markdownテーブル 双方向変換 — 結合セルの展開・表プレビュー上で列の揃え指定', category: '変換・比較', when: 'Excel の表を設計書や議事録の Markdown に貼るとき／その逆' },
+  { name: 'Convert Data', alias: 'devpad', path: 'web/devpad.html', desc: '開発ユーティリティ集 — JSON・XML・SQL の整形・エスケープ・URL・Base64・正規表現・基数変換・Unix時刻・UUID・文字数カウント', category: '変換・比較', when: 'API レスポンスの整形・エンコード・時刻変換・正規表現の動作確認をその場で済ませたいとき' },
+  { name: 'Normalize Text', alias: 'norm', path: 'web/norm.html', desc: '日本語表記の正規化（全角半角・ハイフン・波ダッシュ・空白・NFKC）変更箇所ハイライト付き', category: '変換・比較', when: '顧客提供テキストや仕様書の表記ゆれを揃えるとき' },
+  { name: 'Compare Text', alias: 'diff', path: 'web/diff.html', desc: 'テキスト比較 — 行単位差分＋文字単位ハイライト、空白無視・全半角同一視オプション', category: '変換・比較', when: '文言修正の前後比較や設計記述の突き合わせ' },
+  { name: 'Unify Terms', alias: 'terms', path: 'web/terms.html', desc: '用語統一表（変換前→変換後）を原稿へ一括適用 — 同時置換・長い語優先、ルール別件数と未適用の表示', category: '変換・比較', when: '顧客の用語集・表記ルールに原稿を合わせるとき' },
+  { name: 'Fill Template', alias: 'fill', path: 'web/fill.html', desc: '定型文テンプレの差し込み — 本文の {{変数}} から入力フォームを自動生成、埋めて完成文をコピー（{{今日}} は日付を自動セット）', category: '変換・比較', when: '日報・週報・議事録の送付文・依頼文など、毎回少しだけ変わる定型連絡を作るとき' },
+  { name: 'Document Schema', alias: 'ddl2spec', path: 'web/ddl2spec.html', desc: 'PostgreSQL の DDL（CREATE TABLE ＋ COMMENT ON）⇔ テーブル定義書（Markdown表）双方向変換 — 論理名・複合キー・FK・CHECK・Excel用コピー', category: '設計', when: '既存 DDL から定義書を起こすとき／定義書から DDL を作るとき（正本は DDL 側）' },
+  { name: 'Export Outline', alias: 'doc2xl', path: 'web/doc2xl.html', desc: 'Markdown 文書の見出し階層 → Excel 用の階層表（大項目/中項目/小項目＋内容）— Markdown表・TSV 出力', category: '設計', when: '設計書を Markdown で下書きして、納品時に Excel の階層表へ移すとき' },
+  { name: 'Draw Diagram', alias: 'diagram', path: 'web/diagram.html', desc: 'テキストから図を描く（mermaid 同梱・オフライン）— フローチャート・シーケンス図・状態遷移図を書いて PNG コピー/SVG 保存', category: '設計', when: 'draw.io を開くほどでもない図を資料や Teams に貼るとき' },
+  { name: 'Draw Mindmap', alias: 'mindmap', path: 'web/mindmap.html', desc: '箇条書き → マインドマップ描画（mermaid 同梱）— 1行目が中心テーマ・タブで階層。PNG コピー/テキストはそのままノートへ', category: '発想', when: 'ブレインストーミングや打ち合わせ前の論点洗い出しに' },
+  { name: 'Mask Image', alias: 'mask', path: 'web/mask.html', desc: 'スクショのマスキングと注釈 — 貼り付け → モザイク/黒塗り/白塗り・枠・矢印・テキスト・番号スタンプ・切り抜き → PNG コピー（画像は保存しない）', category: '画像', when: 'スクショを Teams・設計書に貼る前の機密隠しと説明入れ' },
+  { name: 'Check Vault', alias: 'vaultlint', path: 'web/vaultlint.html', desc: 'Obsidian vault の健全性チェック — リンク切れ・添付消失・ファイル名の罠・Inbox のデイリーを検出し、承認した修復（テキスト化・リネーム追随・アーカイブ移動）まで実行（Chrome 限定）', category: '整理', when: 'vault の棚卸しと掃除に。設定した非公開フォルダは読み込まない・実行前に git コミット' },
+  { name: 'Calc Dates', alias: 'dates', path: 'web/dates.html', desc: '日付・営業日・工数の計算 — N営業日後・期限の逆算・期間の営業日数・和暦/年度・人日⇄時間⇄人月換算（祝日2020〜2027年を同梱）', category: 'PM', when: '納期やレビュー期限の逆算と、見積の工数換算に' },
+  { name: 'Draw Gantt', alias: 'gantt', path: 'web/gantt.html', desc: 'タスクと期間の表 → ガントチャート画像（PNG コピー・mermaid 同梱）— 管理はしない・資料貼り付け用', category: 'PM', when: 'スケジュール感を資料や Teams でさっと共有したいとき' },
 ];
 
 // カテゴリの表示順。最も使う「タスク」を先頭に置く。

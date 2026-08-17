@@ -191,11 +191,11 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
   await page.goto(fileUrl('index.html'));
   const hubCats = await page.evaluate(() =>
     Array.from(document.querySelectorAll('.category-title')).map(e => e.textContent));
-  await page.click('ul.tool-list a:text-is("Dates")');
+  await page.click('ul.tool-list a:text-is("Calc Dates")');
   await page.waitForLoadState('load');
   const hubTitle = await page.title();
-  r.check('ハブの「PM」カテゴリ（初使用）から遷移できる（title は表示名のみ）',
-    hubCats.includes('PM') && hubTitle === 'Dates', JSON.stringify([hubCats, hubTitle]));
+  r.check('ハブの「PM」カテゴリ（初使用）から遷移でき title が命名規約どおり',
+    hubCats.includes('PM') && hubTitle === 'Calc Dates (dates)', JSON.stringify([hubCats, hubTitle]));
 
   await browser.close();
   r.report('dates（docs/specs/dates.md）');

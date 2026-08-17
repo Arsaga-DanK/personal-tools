@@ -163,13 +163,13 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
 
   /* ========== ハブ導線 ========== */
   await page.goto(fileUrl('index.html'));
-  await page.click('ul.tool-list a:text-is("Terms")');
+  await page.click('ul.tool-list a:text-is("Unify Terms")');
   await page.waitForLoadState('load');
   const hubTitle = await page.title();
   const hubH1 = await page.evaluate(() => document.querySelector('h1').textContent);
   // 表示名と英名が同じ（terms）なので title は表示名のみ（Diff と同じ規約）
-  r.check('ハブから「Terms」で遷移でき title と h1 が命名規約どおり',
-    hubTitle === 'Terms' && hubH1 === 'Terms', JSON.stringify([hubTitle, hubH1]));
+  r.check('ハブから「Unify Terms」で遷移でき title と h1 が命名規約どおり',
+    hubTitle === 'Unify Terms (terms)' && hubH1 === 'Unify Terms', JSON.stringify([hubTitle, hubH1]));
 
   await browser.close();
   r.report('terms（docs/specs/terms.md）');

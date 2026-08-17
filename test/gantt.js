@@ -125,11 +125,11 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
 
   /* ========== ハブ導線 ========== */
   await page.goto(fileUrl('index.html'));
-  await page.click('ul.tool-list a:text-is("Gantt")');
+  await page.click('ul.tool-list a:text-is("Draw Gantt")');
   await page.waitForLoadState('load');
   const hubTitle = await page.title();
-  r.check('ハブの「PM」から遷移できる（title は表示名のみ — 英名と同じ）',
-    hubTitle === 'Gantt', hubTitle);
+  r.check('ハブの「PM」から遷移でき title が命名規約どおり',
+    hubTitle === 'Draw Gantt (gantt)', hubTitle);
 
   await browser.close();
   r.report('gantt（docs/specs/gantt.md）');

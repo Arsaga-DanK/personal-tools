@@ -1366,11 +1366,11 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
   await page.goto(fileUrl('index.html'));
   const hubCats = await page.evaluate(() =>
     Array.from(document.querySelectorAll('.category-title')).map(e => e.textContent));
-  await page.click('ul.tool-list a:text-is("Mask")');
+  await page.click('ul.tool-list a:text-is("Mask Image")');
   await page.waitForLoadState('load');
   const hubTitle = await page.title();
-  r.check('ハブの「画像」カテゴリから遷移できる（title は表示名のみ — 英名と同じ）',
-    hubCats.includes('画像') && hubTitle === 'Mask', JSON.stringify([hubCats, hubTitle]));
+  r.check('ハブの「画像」カテゴリから遷移でき title が命名規約どおり',
+    hubCats.includes('画像') && hubTitle === 'Mask Image (mask)', JSON.stringify([hubCats, hubTitle]));
 
   await browser.close();
   r.report('mask（docs/specs/mask.md）');

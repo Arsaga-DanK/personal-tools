@@ -2,7 +2,7 @@
 
 ## 概要
 
-Obsidian vault の健全性を検査するツール。`web/vaultlint.html`、表示名 `Lint`、カテゴリ: 整理。
+Obsidian vault の健全性を検査するツール。`web/vaultlint.html`、表示名 `Check Vault`、カテゴリ: 整理。
 **検査は読み取りのみ。修復は「提案 → 承認 → 実行」**（v2・2026-08-14 — vault の掟
 「削除・一括リネームは提案まで、実行は本人の承認後」の承認フローをツール内に実装。
 詳細は「修復」節）。`showDirectoryPicker` で vault を選び、`.md` を走査してクラス別に報告する。
@@ -103,7 +103,7 @@ before/after・スキップと理由）を表示＋コピー可 → 自動で再
 ## 画面構成
 
 - `<main class="app">` 直下: `.tool-header`（「← ツール一覧」＋「このツールは何も保存・変更しません」）
-- `<h1>Lint</h1>`・subtitle
+- `<h1>Check Vault</h1>`・subtitle
 - ［vault フォルダを選択］ボタン（`showDirectoryPicker`。**Chrome 系限定** —
   API が無いブラウザではボタンを無効化して理由を表示）／［再スキャン］（選択済みのとき）
 - 結果: サマリ行（`ファイル N・ノート M・リンク L ／ 問題 K 件`）＋クラス別の表
@@ -194,6 +194,7 @@ Chrome 実機スモークで確認する:
 ## 決定事項（2026-08-13）
 
 - **VL-Q1**: 表示名 → `Lint`（短い英語1語）。英名 `vaultlint`・カテゴリ「整理」（新設）
+  → **`Check Vault` に改名**（2026-08-17 に命名規約の改定で改名）
 - **VL-Q2**: lib/vault.js の抽出 → **v1 ではしない**（taskboard と共有できるのは
   ハンドル永続化の小部分のみで、v1 はそれ自体を持たない。「同じ変更に N 箇所」の実測が
   出た時点で抽出）

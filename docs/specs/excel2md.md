@@ -413,7 +413,7 @@ UI（`file://` で開き、入力 textarea に値を設定して `input` イベ�
 4. コピーボタン click → フィードバック表示（`.copied`）または選択フォールバック案内（クリップボード実内容は検証対象外）
 5. 全操作後にコンソール再取得 → 累計エラー0
 6. （E2M-Q3 採用時）オプション変更→リロード→復元
-7. index.html を開き直し「Tables」のリンクを click で辿り `<title>`（`Tables (excel2md)`）確認。**旧 md2excel エントリが無いこと**も確認
+7. index.html を開き直し「Convert Table」のリンクを click で辿り `<title>`（`Convert Table (excel2md)`）確認。**旧 md2excel エントリが無いこと**も確認
 8. サンプルボタン: 空状態で表示 → click → 入力・出力とも非空になりボタンが消える。入力を空に戻すと再表示
 9. 入力フォーカス中に Cmd/Ctrl+Enter → コピー実行（`.copied` フィードバックまたは選択フォールバック案内）
 10. **プレビューと揃え（Phase P）**: E2M-P01〜P06 を `browser_evaluate` で `previewShape` に投入し

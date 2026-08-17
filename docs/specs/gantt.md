@@ -2,7 +2,7 @@
 
 ## 概要
 
-タスクと期間の表からガントチャート画像を作るツール。`web/gantt.html`、表示名 `Gantt`、カテゴリ: PM。
+タスクと期間の表からガントチャート画像を作るツール。`web/gantt.html`、表示名 `Draw Gantt`、カテゴリ: PM。
 1行1タスクの簡易表を書くと横棒チャートが描かれ、**PNG コピー**で資料・Teams に貼る。
 **管理はしない**（進捗・依存・保存データの正本を持たない — tool-backlog の採択条件）。
 描画は同梱 mermaid（`lib/mmd.js` — diagram と共有。テーマ・PNG 化の規約はそちらが正本）。
@@ -61,7 +61,7 @@ svgInfo() → {present, nodes} }`
 | GN-U2 | ［PNG をコピー］（`clipboard.write` スタブ） | ClipboardItem の types に `image/png`・✓ 表示 |
 | GN-U3 | 幅390px | ページの横スクロールなし |
 
-ハブ導線: カテゴリ「PM」に載り、title は `Gantt`（表示名=英名なので表示名のみ）。
+ハブ導線: カテゴリ「PM」に載り、title は `Draw Gantt (gantt)`。
 
 ## 検証手順
 

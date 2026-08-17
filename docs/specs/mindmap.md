@@ -2,7 +2,7 @@
 
 ## 概要
 
-アウトラインからマインドマップを描くツール。`web/mindmap.html`、表示名 `Mindmap`、
+アウトラインからマインドマップを描くツール。`web/mindmap.html`、表示名 `Draw Mindmap`、
 カテゴリ: **発想（新設）**。左にインデント付きの箇条書きを打つと右にマインドマップが
 リアルタイム描画される。**思考の速度で打てる**（ドラッグ配置をしない）のが狙いで、
 テキストがそのまま vault のノートに貼れる（正本問題が生じない）。
@@ -53,7 +53,7 @@ render(text) → Promise<{ok, error|null}>, svgInfo() → {present, nodes} }`
 | MM-U2 | ［PNG をコピー］（`clipboard.write` スタブ） | ClipboardItem の types に `image/png`・✓ 表示 |
 | MM-U3 | 幅390px | ページの横スクロールなし |
 
-ハブ導線: カテゴリ「発想」（新設）に載り、title は `Mindmap`（表示名=英名なので表示名のみ）。
+ハブ導線: カテゴリ「発想」（新設）に載り、title は `Draw Mindmap (mindmap)`。
 
 ## 検証手順
 

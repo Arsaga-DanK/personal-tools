@@ -402,12 +402,12 @@ const IDEO_SPACE = '\u3000';
   await page.goto(fileUrl('index.html'));
   const hubCats = await page.evaluate(() =>
     Array.from(document.querySelectorAll('.category-title')).map(e => e.textContent));
-  await page.click('ul.tool-list a:text-is("Lint")');
+  await page.click('ul.tool-list a:text-is("Check Vault")');
   await page.waitForLoadState('load');
   const hubTitle = await page.title();
   const hubH1 = await page.evaluate(() => document.querySelector('h1').textContent);
   r.check('ハブの「整理」カテゴリから遷移でき title と h1 が命名規約どおり',
-    hubCats.includes('整理') && hubTitle === 'Lint (vaultlint)' && hubH1 === 'Lint',
+    hubCats.includes('整理') && hubTitle === 'Check Vault (vaultlint)' && hubH1 === 'Check Vault',
     JSON.stringify([hubCats, hubTitle, hubH1]));
 
   await browser.close();

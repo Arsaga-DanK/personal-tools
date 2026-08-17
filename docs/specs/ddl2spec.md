@@ -3,7 +3,7 @@
 ## 概要
 
 PostgreSQL の DDL（`CREATE TABLE` ＋ `COMMENT ON`）と Markdown のテーブル定義書を
-双方向に変換するツール。`web/ddl2spec.html`、表示名 `Schema`、カテゴリ: 設計。
+双方向に変換するツール。`web/ddl2spec.html`、表示名 `Document Schema`、カテゴリ: 設計。
 
 **正本の方針（DS-Q6）**: **DDL を正本、定義書を生成物**とする。
 定義書を正本にする運用に切り替える場合は DDL を生成物と決め、
@@ -262,7 +262,7 @@ comment on column public.customer.code is '顧客コード';
 | DS-16 | Excel 用コピー（`execCommand` を false に固定し、`clipboard.write` の ClipboardItem を捕捉） | `text/plain` の TSV ヘッダーが `論理名\t物理名\t型\t桁\tNOT NULL\t既定値\tPK\tUNIQUE\tFK\tCHECK`・1行目が id 行・7行。**`text/html` も同時に書かれ**、`<th>` が10個・全セルに罫線・既定値 `0.00` のセルに `mso-number-format:'\@'`。**実クリップボードに書かない** |
 | DS-17 | UI: サンプル投入 → 変換 → Cmd/Ctrl+Enter | サンプルは空のときだけ表示・投入で消える・Cmd+Enter でコピーが走る |
 | DS-18 | `window.SqlLex.tokenize` がこのページで動く | ドル引用符と入れ子コメントが各1トークンになる（共有 lexer が読めている証拠） |
-| DS-19 | ハブ導線 | 「Schema」リンクで遷移し `<title>` が `Schema (ddl2spec)`。カテゴリ「設計」が出る |
+| DS-19 | ハブ導線 | 「Document Schema」リンクで遷移し `<title>` が `Document Schema (ddl2spec)`。カテゴリ「設計」が出る |
 | DS-20 | `showBanner('success', 'テスト')` をフック経由で発火 | バナーが `banner-success`・`role="status"`・**算出背景色が `.banner` の既定と異なる**（`.banner-success` の CSS 規則が実際に効いていること — 2026-08-07 に見つけた「規則が無い」状態の再発防止。コピー成功は 2026-08-13 から ✓ フィードバック方式のため、この検査は規約の検査として独立させた） |
 | DS-23 | 入力＋変換 → リロード | **入力と方向が復元され、自動で再変換されて出力が埋まる**（saved.dir が無い旧 payload では入力のみ復元・出力は空のまま） |
 | DS-24 | 体裁 | 入力 textarea に placeholder・［出力をコピー］が `primary` かつ `title="Cmd/Ctrl+Enter"`・ツールバーがペインより**上**（DOM 順）・コピー成功でボタンが「✓ コピーしました」表示 |
@@ -323,4 +323,5 @@ comment on column public.customer.code is '顧客コード';
 - **DS-Q4**: 論理名と説明 → **決定: 論理名1列のみ**（COMMENT 全文）。
   説明列は設けない（分割規則を発明すると往復が壊れる）
 - **DS-Q5**: 表示名 → **決定: `Schema`** / カテゴリ **設計**
+  → **`Document Schema` に改名**（2026-08-17 に命名規約の改定で改名）
 - **DS-Q6**: 正本 → **決定: DDL を正本、定義書を生成物**として運用する
