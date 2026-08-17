@@ -20,6 +20,8 @@ CLI（`bin/`）は形態として認めているが、まだ1本も無い（→�
 ## 構成（2026-08-14 時点の実態）
 
 ```
+README.md    公開リポジトリの入口。ツール表と本数は test/hub.js（HUB-15/16）が TOOLS と照合する
+LICENSE      MIT
 index.html   ハブ。web/ツール一覧（内部のTOOLS配列に1行足すと追加される）
 web/         ブラウザツール15本。1ツール=1HTML完結
 lib/         web ツールの共通コード。ui.css / ui.js / storage.js / config.js / sql.js / excel.js / mmd.js

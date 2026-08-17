@@ -6,9 +6,20 @@
 
    ハブには spec ファイルが無いため、契約はこのハーネスと index.html の
    TOOLS / CATEGORY_ORDER のコメントが持つ。
-   表示名（短い英語1語）と英名（ファイル名・spec・localStorage キー）の使い分けは
-   CLAUDE.md「命名規約」が正本。HUB-9/HUB-10 がその規約を照合する。 */
+   表示名（動詞＋名詞の2語）と英名（ファイル名・spec・localStorage キー）の使い分けは
+   CLAUDE.md「命名規約」が正本。HUB-9/HUB-10 がその規約を照合する。
 
+   期待値の書き方（2026-08-17 に整理）:
+   - **固定値でピンするもの**: 「今この15本がこの順で載っている」（HUB-3 前半・HUB-4）。
+     ツール追加を**意識的な仕様変更**にするための関門で、壊れることが仕事
+     （coding-rules「新ツール追加の定型リップル」がこの更新を手順に含めている）
+   - **導出するもの**: 描画がデータどおりか（HUB-3 後半）・検索が効くか（HUB-5/9）。
+     固定文字列で書くと**改名のたびにクエリが当たらなくなり、空集合のまま緑になって
+     検証意図だけが消える**（verification-notes「テストが緑でも意味を失う3つの型」。
+     `f('md')` → `f('ables')` と2度踏んでいる） */
+
+const fs = require('fs');
+const path = require('path');
 const { launch, fileUrl, createRunner, eq } = require('./helpers');
 
 (async () => {
@@ -18,21 +29,35 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
   await page.goto(fileUrl('index.html'));
 
   /* ---------- 表示順 ---------- */
-  const order = await page.evaluate(() => ({
-    // 描画されたカテゴリ見出しと、その下のツール名を出現順に取る
-    categories: Array.from(document.querySelectorAll('.category-title')).map(e => e.textContent),
-    groups: Array.from(document.querySelectorAll('ul.tool-list'))
-      .map(ul => Array.from(ul.querySelectorAll('a')).map(a => a.textContent)),
-    firstLink: document.querySelector('ul.tool-list a').textContent,
-    toolsArray: window.hub.TOOLS.map(t => t.name),
-  }));
+  const order = await page.evaluate(() => {
+    // 描画がデータどおりかの期待値は TOOLS × CATEGORY_ORDER から**導出**する
+    // （表を二重に持つと片方だけ古くなる。ツールが増えてもこの照合は意味を保つ）
+    const byCat = new Map();
+    for (const t of window.hub.TOOLS) {
+      if (!byCat.has(t.category)) byCat.set(t.category, []);
+      byCat.get(t.category).push(t.name);
+    }
+    return {
+      // 描画されたカテゴリ見出しと、その下のツール名を出現順に取る
+      categories: Array.from(document.querySelectorAll('.category-title')).map(e => e.textContent),
+      groups: Array.from(document.querySelectorAll('ul.tool-list'))
+        .map(ul => Array.from(ul.querySelectorAll('a')).map(a => a.textContent)),
+      // 空のカテゴリは見出しごと出ない仕様なので filter で落とす
+      expectedGroups: window.hub.CATEGORY_ORDER.filter(c => byCat.has(c)).map(c => byCat.get(c)),
+      expectedCategories: window.hub.CATEGORY_ORDER.filter(c => byCat.has(c)),
+      firstLink: document.querySelector('ul.tool-list a').textContent,
+      toolsArray: window.hub.TOOLS.map(t => t.name),
+    };
+  });
   r.check('HUB-1（カテゴリ順: タスクが先頭）', order.categories[0] === 'タスク'
     && eq(order.categories, ['タスク', '変換・比較', '設計', '発想', '画像', '整理', 'PM']), JSON.stringify(order.categories));
   r.check('HUB-2（Plan Tasks が最初のリンク）', order.firstLink === 'Plan Tasks', order.firstLink);
+  // 前半は**意図的な固定ピン**（ツール追加・改名を意識的な仕様変更にする関門）。
+  // 後半は導出値との照合（描画ロジックが TOOLS × CATEGORY_ORDER に従っているか）
   r.check('HUB-3（TOOLS 配列順が同カテゴリ内の表示順）',
     eq(order.toolsArray, ['Plan Tasks', 'Convert Table', 'Convert Data', 'Normalize Text', 'Compare Text', 'Unify Terms', 'Fill Template', 'Document Schema', 'Export Outline', 'Draw Diagram', 'Draw Mindmap', 'Mask Image', 'Check Vault', 'Calc Dates', 'Draw Gantt'])
-    && eq(order.groups, [['Plan Tasks'], ['Convert Table', 'Convert Data', 'Normalize Text', 'Compare Text', 'Unify Terms', 'Fill Template'], ['Document Schema', 'Export Outline', 'Draw Diagram'], ['Draw Mindmap'], ['Mask Image'], ['Check Vault'], ['Calc Dates', 'Draw Gantt']]),
-    JSON.stringify([order.toolsArray, order.groups]));
+    && eq(order.groups, order.expectedGroups) && eq(order.categories, order.expectedCategories),
+    JSON.stringify([order.toolsArray, order.groups, order.expectedGroups]));
 
   /* ---------- 全ツールが1回だけ載る ---------- */
   const listed = await page.evaluate(() => {
@@ -52,26 +77,48 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
       byDesc: f('vault').map(t => t.name),
       byWhen: f('週次').map(t => t.name),
       caseInsensitive: f('BASE64').map(t => t.name),   // devpad の desc の Base64
-      partial: f('ompare').map(t => t.name),           // 表示名 Compare Text の部分一致
-                                                       // （'able' だと Document Schema の desc の CREATE TABLE にも当たる）
       none: f('存在しない文字列').map(t => t.name),
-      alias: f('norm').map(t => t.name),               // 英名（alias）でも辿れる
-      aliasUpper: f('DEVPAD').map(t => t.name),        // alias も大文字小文字無視
-      aliasPartial: f('excel2').map(t => t.name),      // alias の部分一致
-      aliasHidden: Array.from(document.querySelectorAll('ul.tool-list')).some(
-        ul => /taskboard|excel2md|devpad|norm/.test(ul.textContent)),  // 画面には出さない
+      /* 部分一致は**全ツール分をクエリごと導出**する。固定文字列（かつて 'md'・'ables'）だと
+         改名した瞬間に何にも当たらなくなり、空集合のまま緑になって検証意図だけが消える。
+         表示名は前後1文字を落とした中間文字列、英名は末尾2文字を落とした前方部分で引く */
+      partialName: window.hub.TOOLS.map(t => {
+        const q = t.name.slice(1, -1);
+        return { name: t.name, q, ok: f(q).some(x => x.name === t.name) };
+      }),
+      /* 英名（alias）の3経路: 完全一致・大文字小文字無視・部分一致。
+         alias は「一度決めたら変更しない」（CLAUDE.md 命名規約）ので、
+         ここを起点にすると改名でクエリが陳腐化しない */
+      aliasProbe: window.hub.TOOLS.map(t => {
+        const q = t.alias.slice(0, Math.max(3, t.alias.length - 2));
+        return {
+          alias: t.alias,
+          exact: f(t.alias).some(x => x.alias === t.alias),
+          upper: f(t.alias.toUpperCase()).some(x => x.alias === t.alias),
+          partial: f(q).some(x => x.alias === t.alias),
+        };
+      }),
+      // 英名は画面に出さない（検索にだけ効かせる）。**全 alias** を対象に照合する
+      aliasLeaked: window.hub.TOOLS
+        .filter(t => Array.from(document.querySelectorAll('ul.tool-list'))
+          .some(ul => ul.textContent.includes(t.alias)))
+        .map(t => t.alias),
     };
   });
   r.check('HUB-5（検索: 空・表示名・説明・用途・大文字小文字・部分一致）',
     eq(search.empty, ['Plan Tasks', 'Convert Table', 'Convert Data', 'Normalize Text', 'Compare Text', 'Unify Terms', 'Fill Template', 'Document Schema', 'Export Outline', 'Draw Diagram', 'Draw Mindmap', 'Mask Image', 'Check Vault', 'Calc Dates', 'Draw Gantt'])
     && eq(search.byName, ['Plan Tasks']) && eq(search.byDesc, ['Plan Tasks', 'Check Vault'])   // 'vault' は両ツールの desc にある
     && eq(search.byWhen, ['Plan Tasks']) && eq(search.caseInsensitive, ['Convert Data'])
-    && eq(search.partial, ['Compare Text']) && eq(search.none, []),
+    && eq(search.none, []),
     JSON.stringify(search));
-  r.check('HUB-9（英名でもヒットする・英名は画面に出さない）',
-    eq(search.alias, ['Normalize Text']) && eq(search.aliasUpper, ['Convert Data'])
-    && eq(search.aliasPartial, ['Convert Table']) && search.aliasHidden === false,
-    JSON.stringify([search.alias, search.aliasUpper, search.aliasPartial, search.aliasHidden]));
+  // 部分一致・英名検索は**全15本**を照合する（1本ずつ導出したクエリで自分自身に当たること）
+  r.check('HUB-5b（表示名の部分一致が全ツールで効く）',
+    search.partialName.length === 15 && search.partialName.every(p => p.q.length >= 3 && p.ok),
+    JSON.stringify(search.partialName.filter(p => !p.ok)));
+  r.check('HUB-9（英名で辿れる（完全一致・大文字小文字無視・部分一致）・英名は画面に出さない）',
+    search.aliasProbe.length === 15
+    && search.aliasProbe.every(p => p.exact && p.upper && p.partial)
+    && search.aliasLeaked.length === 0,
+    JSON.stringify([search.aliasProbe.filter(p => !(p.exact && p.upper && p.partial)), search.aliasLeaked]));
 
   /* ---------- 検索: Convert の説明が全11タブを網羅する ---------- */
   // Phase C で足した4タブ（XML/SQL/正規表現/基数）が desc に無いと、
@@ -199,6 +246,49 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
   }));
   r.check('HUB-8（幅390pxで横スクロールなし・順序は不変）',
     narrow.noHScroll && narrow.firstLink === 'Plan Tasks', JSON.stringify(narrow));
+
+  /* ---------- README がハブと食い違っていない（HUB-15） ----------
+     README は公開リポジトリの入口で、ツールを増減・改名するたびに手で直す必要がある。
+     人間の記憶に頼ると必ずズレるので、TOOLS を正本として機械的に照合する。
+     照合するのは「本数」「表の行（表示名・英名・カテゴリ）」の3点だけで、
+     説明文は README 側の言い回しを縛らない（README は読み物であって仕様書ではない）。 */
+  const readme = fs.readFileSync(path.resolve(__dirname, '..', 'README.md'), 'utf8');
+  const declared = /ブラウザツール集（(\d+)本）/.exec(readme);
+  // 表の行: `| **表示名**（英名） | できること | カテゴリ |`
+  const rows = Array.from(readme.matchAll(/^\|\s*\*\*(.+?)\*\*（(.+?)）\s*\|[^|]*\|\s*(\S+?)\s*\|\s*$/gm))
+    .map(m => ({ name: m[1], alias: m[2], category: m[3] }));
+  const rowByAlias = new Map(rows.map(x => [x.alias, x]));
+  const mismatched = entries
+    .map(t => {
+      const row = rowByAlias.get(t.alias);
+      if (!row) return { alias: t.alias, reason: 'README の表に行が無い' };
+      if (row.name !== t.name) return { alias: t.alias, reason: '表示名が違う: README=' + row.name + ' / TOOLS=' + t.name };
+      return null;
+    })
+    .filter(Boolean);
+  const extra = rows.filter(x => !entries.some(t => t.alias === x.alias)).map(x => x.alias);
+  r.check('HUB-15（README の本数と表が TOOLS と一致する）',
+    !!declared && Number(declared[1]) === entries.length
+    && rows.length === entries.length && mismatched.length === 0 && extra.length === 0,
+    JSON.stringify({
+      readmeCount: declared && declared[1], toolsCount: entries.length,
+      rows: rows.length, mismatched, extra,
+    }));
+
+  /* ---------- README 本文に旧ツール名が残っていない（HUB-16） ----------
+     HUB-15 はツール一覧の表しか見ないため、「動作環境」「Obsidian 連携」の節に
+     旧名が残っても素通りした（2026-08-17 の改名で実際に取りこぼした）。
+     そこで **英字だけの太字はツール表示名を指す** という約束をこのテストで強制する。
+     日本語混じりの太字（`**無保証**` など）は対象外なので、通常の強調と衝突しない。
+     ツール名でない英字の固有名詞を太字にしたくなったら ALLOW_BOLD に足す
+     — 手間をかけさせることで「それは本当にツール名ではないか」を1度考えさせる。 */
+  const ALLOW_BOLD = new Set([]);
+  const boldTokens = Array.from(new Set(
+    Array.from(readme.matchAll(/\*\*([A-Za-z][A-Za-z ]*?)\*\*/g)).map(m => m[1].trim())));
+  const unknownBold = boldTokens.filter(x => !ALLOW_BOLD.has(x) && !entries.some(t => t.name === x));
+  r.check('HUB-16（README の英字太字はすべて現行のツール表示名 — 旧名の残りを検出）',
+    unknownBold.length === 0,
+    JSON.stringify({ unknownBold, checked: boldTokens.length }));
 
   await browser.close();
   r.report('ハブ（index.html）');
