@@ -191,6 +191,42 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
       JSON.stringify(bd09));
   }
 
+  if (ready) {
+    /* ========== BD-10: ズームのモデル空間不変（PNG/md/hitTest — v2） ========== */
+    const bd10 = await page.evaluate(async () => {
+      const b = window.board;
+      if (!b.setScale) return { missing: true };
+      b.clearAll();
+      b.addNote(100, 100, 'ズーム不変');
+      b.addNote(400, 300, '相方');
+      b.connect(1, 2);
+      const pngSize = async () => {
+        let item = null;
+        Object.defineProperty(navigator, 'clipboard', {
+          configurable: true,
+          value: { write: async items => { item = items[0]; } },
+        });
+        document.getElementById('copy-btn').click();
+        await new Promise(d => setTimeout(d, 400));
+        const bmp = await createImageBitmap(await item.getType('image/png'));
+        return { w: bmp.width, h: bmp.height };
+      };
+      b.setScale(1);
+      const at1 = { png: await pngSize(), md: b.buildMd({}), hit: b.hitTest(150, 120) };
+      b.setScale(0.5);
+      const atHalf = { png: await pngSize(), md: b.buildMd({}), hit: b.hitTest(150, 120),
+                       scale: b.getScale() };
+      b.setScale(1);
+      return { at1, atHalf };
+    });
+    r.check('BD-10（scale 0.5 でも PNG・md・hitTest はモデル空間で不変）',
+      !bd10.missing
+      && eq(bd10.at1.png, bd10.atHalf.png) && bd10.at1.md === bd10.atHalf.md
+      && bd10.at1.hit && bd10.atHalf.hit && bd10.at1.hit.id === bd10.atHalf.hit.id
+      && bd10.atHalf.scale === 0.5,
+      JSON.stringify(bd10));
+  }
+
   /* ========== BD-U1: 空白ダブルクリック → 入力 → 外側クリックで確定 ========== */
   const cvHelpers = `
     const cv = document.getElementById('canvas');
@@ -383,6 +419,157 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
   await page.setViewportSize({ width: 1280, height: 900 });
   r.check('BD-U8（幅390pxでページの横スクロールなし — ボードはラッパ内スクロール）',
     u8b === true, String(u8b));
+
+  /* ========== BD-U9〜U13: ズームとパン（v2） ========== */
+  const u9v = await page.evaluate(async () => {
+    const b = window.board;
+    if (!b.setScale) return { missing: true };
+    b.clearAll();
+    b.addNote(300, 200, 'アンカー');
+    b.setScale(1);
+    const wrap = document.getElementById('board-wrap');
+    const cv = document.getElementById('canvas');
+    const r0 = cv.getBoundingClientRect();
+    const client = { x: r0.left + 320, y: r0.top + 220 };   // 付箋の上のある点（scale=1）
+    const modelBefore = { x: 320, y: 220 };
+    wrap.dispatchEvent(new WheelEvent('wheel', {
+      deltaY: -240, ctrlKey: true, clientX: client.x, clientY: client.y,
+      bubbles: true, cancelable: true }));
+    await new Promise(d => setTimeout(d, 50));
+    const scaleAfter = b.getScale();
+    // 同じ client 点が指すモデル座標が維持されているか
+    const r1 = cv.getBoundingClientRect();
+    const modelAfter = {
+      x: (client.x - r1.left) * 1600 / r1.width,
+      y: (client.y - r1.top) * 1000 / r1.height,
+    };
+    b.setScale(1);
+    return { scaleAfter, dx: Math.abs(modelAfter.x - modelBefore.x), dy: Math.abs(modelAfter.y - modelBefore.y) };
+  });
+  r.check('BD-U9（Ctrl+ホイールで拡大・カーソル直下のモデル座標が維持 ±1px）',
+    !u9v.missing && u9v.scaleAfter > 1 && u9v.dx <= 1 && u9v.dy <= 1,
+    JSON.stringify(u9v));
+
+  const u10v = await page.evaluate(async () => {
+    const b = window.board;
+    if (!b.setScale) return { missing: true };
+    document.getElementById('zoom-in').click();
+    const up = b.getScale();
+    document.getElementById('zoom-label').click();   // 100% 復帰
+    const back = b.getScale();
+    document.getElementById('zoom-fit').click();
+    const fit = b.getScale();
+    const label = document.getElementById('zoom-label').textContent;
+    b.setScale(0.5);
+    window.dispatchEvent(new Event('pagehide'));   // scale を保存
+    return { up, back, fit, label };
+  });
+  await page.reload();
+  const u10r = await page.evaluate(() => ({
+    restored: window.board.getScale ? window.board.getScale() : null,
+  }));
+  await page.evaluate(() => {
+    // scale 欠損の保存データ → 警告なしで 100%
+    window.ToolStorage.save = () => true;
+    const env = JSON.parse(localStorage.getItem('tools:board') || 'null');
+    if (env && env.data) {
+      delete env.data.scale;
+      localStorage.setItem('tools:board', JSON.stringify(env));
+    }
+  });
+  await page.reload();
+  const u10m = await page.evaluate(() => ({
+    scale: window.board.getScale ? window.board.getScale() : null,
+    bannerHidden: document.getElementById('banner').hidden,
+  }));
+  r.check('BD-U10（ズームボタン・100%復帰・fit がクランプ内・scale 復元・欠損は警告なしで 1）',
+    !u10v.missing && u10v.up > 1 && u10v.back === 1
+    && u10v.fit >= 0.25 && u10v.fit <= 2 && /%$/.test(u10v.label)
+    && u10r.restored === 0.5 && u10m.scale === 1 && u10m.bannerHidden === true,
+    JSON.stringify({ u10v, u10r, u10m }));
+
+  const u11v = await page.evaluate(async () => {
+    const b = window.board;
+    if (!b.setScale) return { missing: true };
+    b.clearAll();
+    b.setScale(2);
+    const wrap = document.getElementById('board-wrap');
+    wrap.scrollLeft = 1400;
+    wrap.scrollTop = 900;
+    document.getElementById('add-note').click();
+    const ed = document.getElementById('note-editor');
+    ed.value = '視界内';
+    ed.dispatchEvent(new Event('input', { bubbles: true }));
+    ed.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    await new Promise(d => setTimeout(d, 50));
+    const n = b.notes()[0];
+    const visX1 = wrap.scrollLeft / 2, visX2 = (wrap.scrollLeft + wrap.clientWidth) / 2;
+    const visY1 = wrap.scrollTop / 2, visY2 = (wrap.scrollTop + wrap.clientHeight) / 2;
+    b.setScale(1);
+    return { n: { x: n.x, y: n.y }, vis: { visX1, visX2, visY1, visY2 },
+             inside: n.x >= visX1 && n.x <= visX2 && n.y >= visY1 && n.y <= visY2 };
+  });
+  r.check('BD-U11（ズーム＋スクロール後の［＋付箋を追加］は可視領域内に生まれる）',
+    !u11v.missing && u11v.inside === true, JSON.stringify(u11v));
+
+  const u12v = await page.evaluate(async () => {
+    const b = window.board;
+    if (!b.setScale) return { missing: true };
+    b.clearAll();
+    b.addNote(100, 100, 'パン確認');
+    b.setScale(2);
+    const wrap = document.getElementById('board-wrap');
+    wrap.scrollLeft = 0; wrap.scrollTop = 0;
+    const cv = document.getElementById('canvas');
+    const r0 = cv.getBoundingClientRect();
+    const pt = (x, y) => ({ clientX: r0.left + x, clientY: r0.top + y, bubbles: true, pointerId: 1 });
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }));
+    cv.dispatchEvent(new PointerEvent('pointerdown', pt(400, 300)));
+    cv.dispatchEvent(new PointerEvent('pointermove', pt(300, 250)));   // 左上へ100,50 ドラッグ
+    cv.dispatchEvent(new PointerEvent('pointerup', pt(300, 250)));
+    document.dispatchEvent(new KeyboardEvent('keyup', { key: ' ', bubbles: true }));
+    const scrolled = { l: wrap.scrollLeft, t: wrap.scrollTop };
+    const notesMoved = b.notes()[0].x !== 100;
+    // 編集中の Space はパンしない（文字が入る）
+    const ed = document.getElementById('note-editor');
+    cv.dispatchEvent(new MouseEvent('dblclick', pt(800, 700)));
+    const spaceEv = new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true });
+    ed.dispatchEvent(spaceEv);
+    const editorGuard = !spaceEv.defaultPrevented;
+    ed.dispatchEvent(new Event('blur'));
+    await new Promise(d => setTimeout(d, 50));
+    b.setScale(1);
+    return { scrolled, notesMoved, editorGuard };
+  });
+  r.check('BD-U12（Space+ドラッグでラッパがスクロール・付箋は動かない・編集中はパンしない）',
+    !u12v.missing && u12v.scrolled.l === 100 && u12v.scrolled.t === 50
+    && u12v.notesMoved === false && u12v.editorGuard === true,
+    JSON.stringify(u12v));
+
+  const u13v = await page.evaluate(async () => {
+    const b = window.board;
+    if (!b.setScale) return { missing: true };
+    b.clearAll();
+    b.addNote(200, 200, 'オートズーム');
+    b.setScale(0.5);
+    const cv = document.getElementById('canvas');
+    const r0 = cv.getBoundingClientRect();
+    // scale 0.5 のクライアント座標（モデル 220,220 → 画面 110,110）
+    cv.dispatchEvent(new MouseEvent('dblclick', {
+      clientX: r0.left + 110, clientY: r0.top + 110, bubbles: true }));
+    const res = {
+      scale: b.getScale(),
+      editorOpen: !document.getElementById('note-editor').hidden,
+      value: document.getElementById('note-editor').value,
+    };
+    document.getElementById('note-editor').dispatchEvent(new KeyboardEvent('keydown',
+      { key: 'Escape', bubbles: true, cancelable: true }));
+    await new Promise(d => setTimeout(d, 50));
+    return res;
+  });
+  r.check('BD-U13（50% で付箋をダブルクリック → 100% にオートズームして編集）',
+    !u13v.missing && u13v.scale === 1 && u13v.editorOpen === true && u13v.value === 'オートズーム',
+    JSON.stringify(u13v));
 
   /* ========== ハブ導線 ========== */
   await page.goto(fileUrl('index.html'));

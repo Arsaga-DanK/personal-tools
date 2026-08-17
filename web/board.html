@@ -14,9 +14,10 @@
     overflow: auto;
     border: 1px solid var(--border);
     border-radius: 10px;
-    max-height: 72vh;
-    background: #ffffff;
+    height: 72vh;              /* 固定高 — fit 計算の自己参照を防ぐ（v2 レビュー欠陥11） */
+    background: #dfe5ee;       /* グレー地に白い板を浮かせる（FigJam/Miro の作法） */
   }
+  #zoom-label { min-width: 56px; }
   #canvas { display: block; cursor: default; touch-action: none; }
   /* 付箋のその場編集（Mask v3 と同じ状態機械） */
   #note-editor {
@@ -66,6 +67,10 @@
     <label class="toggle" title="md 書き出しを色ごとの見出しで区切る"><input type="checkbox" id="md-by-color"> 色ごとに見出し</label>
     <button type="button" id="md-btn" title="付箋を読み順の md 箇条書きにしてコピー（Obsidian ノートへ）">md をコピー</button>
     <button class="primary" id="copy-btn" title="Cmd/Ctrl+Enter">PNG をコピー</button>
+    <button type="button" id="zoom-out" title="縮小（Ctrl/Cmd+ホイールでも）">−</button>
+    <button type="button" id="zoom-label" title="クリックで 100% に戻す">100%</button>
+    <button type="button" id="zoom-in" title="拡大（Ctrl/Cmd+ホイールでも）">＋</button>
+    <button type="button" id="zoom-fit" title="付箋全体が見える倍率にする">全体</button>
     <button type="button" id="undo-btn">元に戻す</button>
     <button type="button" id="clear-btn">全て消す</button>
   </div>
@@ -143,11 +148,23 @@ function undo() {
 
 const canvas = el('canvas');
 const ctx = canvas.getContext('2d');
-const dpr = window.devicePixelRatio || 1;
-canvas.width = BOARD_W * dpr;
-canvas.height = BOARD_H * dpr;
-canvas.style.width = BOARD_W + 'px';
-canvas.style.height = BOARD_H + 'px';
+
+/* ズーム（v2）: CSS サイズ = 板×scale・バッキング = 板×min(scale×dpr, 予算上限)。
+   総画素予算 33MP — 超過すると canvas が黙って透明になるため（BD-Q7） */
+const SCALE_MIN = 0.25, SCALE_MAX = 2;
+const BACKING_BUDGET = 33e6;
+let scale = 1;
+let backingMult = 1;
+
+function applyBacking() {
+  const dpr = window.devicePixelRatio || 1;
+  const cap = Math.sqrt(BACKING_BUDGET / (BOARD_W * BOARD_H));
+  backingMult = Math.min(scale * dpr, cap);
+  canvas.width = Math.round(BOARD_W * backingMult);
+  canvas.height = Math.round(BOARD_H * backingMult);
+  canvas.style.width = (BOARD_W * scale) + 'px';
+  canvas.style.height = (BOARD_H * scale) + 'px';
+}
 
 const wrapCache = new Map();   // id → { text, lines }
 
@@ -212,8 +229,9 @@ function drawModel(c, withSelection) {
     const a = noteById(cn.a), b = noteById(cn.b);
     if (!a || !b) continue;
     const pa = noteCenter(a), pb = noteCenter(b);
-    c.strokeStyle = withSelection && selected.has('c' + cn.id) ? ACCENT : CONN_COLOR;
-    c.lineWidth = withSelection && selected.has('c' + cn.id) ? 4 : 2;
+    const connSel = withSelection && selected.has('c' + cn.id);
+    c.strokeStyle = connSel ? ACCENT : CONN_COLOR;
+    c.lineWidth = connSel ? 4 / scale : 2;   // 選択強調は画面幅一定（PNG パスには入らない — BD-Q9）
     c.beginPath();
     c.moveTo(pa.x, pa.y);
     c.lineTo(pb.x, pb.y);
@@ -238,8 +256,8 @@ function drawModel(c, withSelection) {
     c.textBaseline = 'alphabetic';
     if (withSelection && (selected.has('n' + n.id) || pendingA === n.id)) {
       c.strokeStyle = ACCENT;
-      c.lineWidth = 2;
-      c.setLineDash(pendingA === n.id ? [] : [6, 4]);
+      c.lineWidth = 2 / scale;
+      c.setLineDash(pendingA === n.id ? [] : [6 / scale, 4 / scale]);
       roundedRect(c, b.x - 3, b.y - 3, b.w + 6, b.h + 6, RADIUS + 3);
       c.stroke();
       c.setLineDash([]);
@@ -247,16 +265,41 @@ function drawModel(c, withSelection) {
   }
   if (withSelection && rubberRect) {
     c.strokeStyle = ACCENT;
-    c.lineWidth = 1.5;
-    c.setLineDash([5, 4]);
+    c.lineWidth = 1.5 / scale;
+    c.setLineDash([5 / scale, 4 / scale]);
     c.strokeRect(rubberRect.x, rubberRect.y, rubberRect.w, rubberRect.h);
     c.setLineDash([]);
   }
 }
 
 function redraw() {
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.setTransform(backingMult, 0, 0, backingMult, 0, 0);
   drawModel(ctx, true);
+}
+
+function updateZoomLabel() {
+  el('zoom-label').textContent = Math.round(scale * 100) + '%';
+}
+
+// ズームの唯一の入口: CSS/バッキング更新 → scroll 補正の順（アンカー点を保つ — v2 レビュー欠陥4）
+function setScale(next, anchorClient) {
+  const wrap = el('board-wrap');
+  next = Math.min(SCALE_MAX, Math.max(SCALE_MIN, next));
+  if (editing) commitEdit(true);   // 編集中のズームは先に確定（BD-Q10）
+  const wr = wrap.getBoundingClientRect();
+  const a = anchorClient || { x: wr.left + wrap.clientWidth / 2, y: wr.top + wrap.clientHeight / 2 };
+  const r0 = canvas.getBoundingClientRect();
+  const model = {
+    x: (a.x - r0.left) * BOARD_W / r0.width,
+    y: (a.y - r0.top) * BOARD_H / r0.height,
+  };
+  scale = next;
+  applyBacking();
+  redraw();
+  wrap.scrollLeft = model.x * scale - (a.x - wr.left);
+  wrap.scrollTop = model.y * scale - (a.y - wr.top);
+  updateZoomLabel();
+  scheduleSave();
 }
 
 /* ========== 当たり判定（付箋は最前面優先 → 線） ========== */
@@ -279,7 +322,7 @@ function hitTest(x, y) {
     const a = noteById(conns[i].a), b = noteById(conns[i].b);
     if (!a || !b) continue;
     const pa = noteCenter(a), pb = noteCenter(b);
-    if (distToSegment(x, y, pa.x, pa.y, pb.x, pb.y) <= 8) {
+    if (distToSegment(x, y, pa.x, pa.y, pb.x, pb.y) <= 8 / scale) {   // 画面8px 相当（BD-Q9）
       return { type: 'conn', id: conns[i].id };
     }
   }
@@ -429,6 +472,7 @@ function savePayload() {
   return {
     notes: notes.map(n => Object.assign({}, n)),
     connectors: conns.map(c => Object.assign({}, c)),
+    scale,   // UI 状態（envelope は v1 のまま追加フィールド — BD-Q8）
   };
 }
 function scheduleSave() {
@@ -482,6 +526,10 @@ function restore() {
     showBanner('warn', '保存データの壊れていた付箋' + droppedNotes + '件・つながり'
       + droppedConns + '件を除いて復元しました');
   }
+  // scale は欠損・不正でも警告なしで 100%（BD-Q8）
+  if (Number.isFinite(data.scale)) {
+    scale = Math.min(SCALE_MAX, Math.max(SCALE_MIN, data.scale));
+  }
 }
 
 /* ========== その場編集（Mask v3 と同じ状態機械） ========== */
@@ -495,14 +543,26 @@ function sizeEditor() {
 
 function openEditor(note, x, y) {
   if (editing) commitEdit(true);
+  // 100% 未満では 3.5px の textarea になり編集不能 → 100% へオートズーム（BD-Q10）
+  if (scale < 1) {
+    const r0 = canvas.getBoundingClientRect();
+    const ax = note ? note.x + NOTE_W / 2 : x;
+    const ay = note ? note.y + 20 : y;
+    setScale(1, { x: r0.left + ax * scale, y: r0.top + ay * scale });
+  }
   editing = note
     ? { id: note.id, x: note.x, y: note.y, color: note.color }
     : { id: null, x: Math.min(Math.max(0, Math.round(x)), BOARD_W - NOTE_W),
         y: Math.min(Math.max(0, Math.round(y)), BOARD_H - 40), color: currentColor() };
   selected = new Set();
   redraw();
-  editor.style.left = editing.x + 'px';
-  editor.style.top = editing.y + 'px';
+  // 位置・寸法は scale 追従（ズーム中でも WYSIWYG — v2 レビュー欠陥7）
+  editor.style.left = (editing.x * scale) + 'px';
+  editor.style.top = (editing.y * scale) + 'px';
+  editor.style.width = (NOTE_W * scale) + 'px';
+  editor.style.padding = (PAD * scale) + 'px';
+  editor.style.font = '' + (14 * scale) + 'px/' + (LINE_H * scale) + 'px -apple-system, "Hiragino Sans", sans-serif';
+  editor.style.minHeight = (40 * scale) + 'px';
   editor.style.background = editing.color;
   editor.value = note ? note.text : '';
   editor.hidden = false;
@@ -564,14 +624,24 @@ function scalePoint(e) {
   };
 }
 
-let moveDrag = null;      // { start, origs: Map(noteId → {x,y}), moved }
+let moveDrag = null;      // { start, origs: Map(noteId → {x,y}), moved, lastClient, lastShift }
 let rubberDrag = null;    // { start, additive }
 let suppressDblclick = false;
+let spaceDown = false;    // Space パン（v2）
+let panDrag = null;
+let edgeRAF = null;
 
 canvas.addEventListener('pointerdown', e => {
   const committed = !!editing;
   if (editing) commitEdit();
   suppressDblclick = committed;   // 確定に使ったクリックの dblclick で新規付箋を作らない（F7）
+  if (spaceDown) {   // Space+ドラッグ = パン（v2）
+    const wrap = el('board-wrap');
+    panDrag = { sx: e.clientX, sy: e.clientY, sl: wrap.scrollLeft, st: wrap.scrollTop };
+    canvas.style.cursor = 'grabbing';
+    try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
+    return;
+  }
   const p = scalePoint(e);
   if (mode === 'connect') {
     const h = hitTest(p.x, p.y);
@@ -615,23 +685,57 @@ canvas.addEventListener('pointerdown', e => {
   try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
 });
 
+// 移動ドラッグの中核（エッジ自動スクロールの再適用でも使う — v2）
+function applyMoveAtClient(clientX, clientY, shift) {
+  const r = canvas.getBoundingClientRect();
+  const p = { x: (clientX - r.left) * BOARD_W / r.width, y: (clientY - r.top) * BOARD_H / r.height };
+  let dx = p.x - moveDrag.start.x, dy = p.y - moveDrag.start.y;
+  if (shift) {
+    if (Math.abs(dx) >= Math.abs(dy)) dy = 0; else dx = 0;
+  }
+  for (const [id, orig] of moveDrag.origs) {
+    const n = noteById(id);
+    if (n) { n.x = orig.x + dx; n.y = orig.y + dy; clampNote(n); }
+  }
+  redraw();
+}
+
+// 視界端 24px でドラッグしたら自動でパン（ズームインで運び先が見えない欠落の穴埋め — v2）
+function edgeStep() {
+  if (!moveDrag || !moveDrag.lastClient) { edgeRAF = null; return; }
+  const wrap = el('board-wrap');
+  const wr = wrap.getBoundingClientRect();
+  const c = moveDrag.lastClient;
+  const M = 24, STEP = 14;
+  let mx = 0, my = 0;
+  if (c.x < wr.left + M) mx = -STEP; else if (c.x > wr.right - M) mx = STEP;
+  if (c.y < wr.top + M) my = -STEP; else if (c.y > wr.bottom - M) my = STEP;
+  if (mx === 0 && my === 0) { edgeRAF = null; return; }
+  wrap.scrollLeft += mx;
+  wrap.scrollTop += my;
+  applyMoveAtClient(c.x, c.y, moveDrag.lastShift);
+  edgeRAF = requestAnimationFrame(edgeStep);
+}
+
 canvas.addEventListener('pointermove', e => {
+  if (panDrag) {
+    const wrap = el('board-wrap');
+    wrap.scrollLeft = panDrag.sl - (e.clientX - panDrag.sx);
+    wrap.scrollTop = panDrag.st - (e.clientY - panDrag.sy);
+    return;
+  }
   if (moveDrag && selNoteIds().length > 0) {
     const p = scalePoint(e);
-    let dx = p.x - moveDrag.start.x, dy = p.y - moveDrag.start.y;
+    const dx = p.x - moveDrag.start.x, dy = p.y - moveDrag.start.y;
     if (!moveDrag.moved) {
-      if (Math.hypot(dx, dy) <= 3) return;   // 微小移動の閾値（幻の1px移動を履歴に残さない）
+      if (Math.hypot(dx, dy) * scale <= 3) return;   // 画面3px の閾値（BD-Q9）
       snapshot();
       moveDrag.moved = true;
     }
-    if (e.shiftKey) {   // 軸ロック
-      if (Math.abs(dx) >= Math.abs(dy)) dy = 0; else dx = 0;
-    }
-    for (const [id, orig] of moveDrag.origs) {
-      const n = noteById(id);
-      if (n) { n.x = orig.x + dx; n.y = orig.y + dy; clampNote(n); }
-    }
-    redraw();
+    moveDrag.lastClient = { x: e.clientX, y: e.clientY };
+    moveDrag.lastShift = e.shiftKey;
+    applyMoveAtClient(e.clientX, e.clientY, e.shiftKey);
+    if (edgeRAF === null) edgeRAF = requestAnimationFrame(edgeStep);
     return;
   }
   if (rubberDrag) {
@@ -653,9 +757,15 @@ canvas.addEventListener('pointermove', e => {
 });
 
 canvas.addEventListener('pointerup', () => {
+  if (panDrag) {
+    panDrag = null;
+    canvas.style.cursor = spaceDown ? 'grab' : 'default';
+    return;
+  }
   if (moveDrag) {
     if (moveDrag.moved) scheduleSave();
     moveDrag = null;
+    if (edgeRAF !== null) { cancelAnimationFrame(edgeRAF); edgeRAF = null; }
     return;
   }
   if (rubberDrag) {
@@ -663,7 +773,7 @@ canvas.addEventListener('pointerup', () => {
     const r = rubberRect;
     rubberDrag = null;
     rubberRect = null;
-    if (r && (r.w > 2 || r.h > 2)) {
+    if (r && (r.w * scale > 2 || r.h * scale > 2)) {
       const enclosed = [];
       for (const n of notes) {
         const b = noteBounds(n);
@@ -697,8 +807,86 @@ canvas.addEventListener('dblclick', e => {
 
 el('add-note').addEventListener('click', () => {
   commitEdit(true);
+  // 可視領域の中心にカスケード配置（固定座標だとズーム/パン時に画面外へ生まれる — v2 レビュー欠陥14）
+  const wrap = el('board-wrap');
+  const cx = (wrap.scrollLeft + wrap.clientWidth / 2) / scale - NOTE_W / 2;
+  const cy = (wrap.scrollTop + wrap.clientHeight / 2) / scale - 20;
   const k = notes.length % 10;
-  openEditor(null, BOARD_W / 2 - NOTE_W / 2 + k * 16, 120 + k * 16);
+  openEditor(null, cx + k * 16, cy + k * 16);
+});
+
+/* ========== ズーム UI（v2 — BD-Q7/Q8） ========== */
+
+el('zoom-in').addEventListener('click', () => setScale(scale * 1.25));
+el('zoom-out').addEventListener('click', () => setScale(scale / 1.25));
+el('zoom-label').addEventListener('click', () => setScale(1));
+el('zoom-fit').addEventListener('click', () => {
+  const wrap = el('board-wrap');
+  if (notes.length === 0) {   // 空ボードは 100% で原点へ
+    setScale(1);
+    wrap.scrollLeft = 0;
+    wrap.scrollTop = 0;
+    return;
+  }
+  let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+  for (const n of notes) {
+    const b = noteBounds(n);
+    x1 = Math.min(x1, b.x); y1 = Math.min(y1, b.y);
+    x2 = Math.max(x2, b.x + b.w); y2 = Math.max(y2, b.y + b.h);
+  }
+  const M = 24;
+  const bw = (x2 - x1) + M * 2, bh = (y2 - y1) + M * 2;
+  const fit = Math.min((wrap.clientWidth - 4) / bw, (wrap.clientHeight - 4) / bh);
+  setScale(fit);   // setScale が 0.25〜2 にクランプする
+  wrap.scrollLeft = Math.max(0, (x1 - M) * scale - (wrap.clientWidth - bw * scale) / 2);
+  wrap.scrollTop = Math.max(0, (y1 - M) * scale - (wrap.clientHeight - bh * scale) / 2);
+});
+
+// Ctrl/Cmd+ホイールでズーム（素のホイールはネイティブスクロール = パンに素通し）。
+// wheel は要素宛てでも {passive:false} を明示（ブラウザのページズームを奪う — v2 レビュー欠陥5）
+el('board-wrap').addEventListener('wheel', e => {
+  if (!(e.ctrlKey || e.metaKey)) return;
+  e.preventDefault();
+  const dy = e.deltaY * (e.deltaMode === 1 ? 16 : 1);   // Firefox の行単位を正規化
+  setScale(scale * Math.exp(-dy * 0.0015), { x: e.clientX, y: e.clientY });
+}, { passive: false });
+
+// Safari のトラックパッドピンチは ctrlKey 付き wheel に合成されず GestureEvent で来る
+let gestureBase = 1;
+el('board-wrap').addEventListener('gesturestart', e => { e.preventDefault(); gestureBase = scale; });
+el('board-wrap').addEventListener('gesturechange', e => {
+  e.preventDefault();
+  setScale(gestureBase * e.scale, { x: e.clientX, y: e.clientY });
+});
+el('board-wrap').addEventListener('gestureend', e => e.preventDefault());
+
+// dpr 変化（ブラウザズーム・モニタ移動）でバッキングを再設定（文字のにじみ防止）
+function watchDpr() {
+  const mq = matchMedia('(resolution: ' + (window.devicePixelRatio || 1) + 'dppx)');
+  mq.addEventListener('change', () => { setScale(scale); watchDpr(); }, { once: true });
+}
+watchDpr();
+
+// Space 押下中ドラッグでパン（v2 — ガード5点: 入力要素・ボタン・リピート・blur 固着・既定スクロール）
+document.addEventListener('keydown', e => {
+  if (e.key !== ' ') return;
+  if (e.repeat || spaceDown) return;
+  const t = e.target;
+  if (isTextEntryTarget(t)) return;
+  if (t && t.tagName && ['BUTTON', 'A', 'INPUT', 'SELECT', 'TEXTAREA'].includes(t.tagName)) return;
+  spaceDown = true;
+  if (!editing) canvas.style.cursor = 'grab';
+  e.preventDefault();   // ページの Space スクロールを止める
+});
+document.addEventListener('keyup', e => {
+  if (e.key !== ' ') return;
+  spaceDown = false;
+  panDrag = null;
+  canvas.style.cursor = mode === 'connect' ? 'crosshair' : 'default';
+});
+window.addEventListener('blur', () => { spaceDown = false; panDrag = null; });
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') { spaceDown = false; panDrag = null; }
 });
 
 el('connect-mode').addEventListener('click', () => {
@@ -863,7 +1051,9 @@ document.addEventListener('keydown', e => {
 /* ========== 起動 ========== */
 
 restore();
+applyBacking();
 redraw();
+updateZoomLabel();
 ToolStorage.mountWarning();
 
 // テスト用フック（docs/specs/board.md）
@@ -889,6 +1079,8 @@ window.board = {
   clearAll,
   buildMd,
   hitTest,
+  setScale: v => setScale(v),
+  getScale: () => scale,
 };
 </script>
 </body>
