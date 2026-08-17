@@ -4,7 +4,7 @@
    出力: 合否一覧と終了コード（全 pass かつコンソールエラー0件で 0）
    例:   node test/mask.js  /  ./test/run mask
 
-   照合するID: MK-01〜19（操作モデル・編集・色・太さ・白塗り・番号）＋ MK-U1〜U31（UI 経路）＋ハブ導線
+   照合するID: MK-01〜19（操作モデル・編集・色・太さ・白塗り・番号）＋ MK-U1〜U37（UI 経路・複数選択）＋ハブ導線
    仕様の正本は docs/specs/mask.md。期待値を変えるときは spec を先に直す。
    クリップボードは壊さない: navigator.clipboard.write をスタブして捕捉する。 */
 
@@ -1204,6 +1204,163 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     !u31t.missing && eq(u31t.size, { w: 100, h: 100 }) && u31t.marks === 0
     && u31t.bannerHidden === true,
     JSON.stringify(u31t));
+
+  /* ========== MK-U32〜U37: 複数選択（v6） ========== */
+  await loadFixture();
+  const u32t = await page.evaluate(() => {
+    const m = window.mask;
+    if (!m.selectedIndices) return { missing: true };
+    m.clearOps();
+    m.addOp({ type: 'fill', x: 10, y: 10, w: 15, h: 15 });
+    m.addOp({ type: 'rect', x: 40, y: 10, w: 20, h: 15 });
+    m.addOp({ type: 'badge', x: 85, y: 85, n: 1 });
+    const cv = document.getElementById('canvas');
+    const rect = cv.getBoundingClientRect();
+    const pt = (x, y, shift) => ({ clientX: rect.left + x * rect.width / cv.width,
+                                   clientY: rect.top + y * rect.height / cv.height,
+                                   bubbles: true, pointerId: 1, shiftKey: !!shift });
+    const setTool = v => {
+      const rd = document.querySelector('input[name="tool"][value="' + v + '"]');
+      rd.checked = true;
+      rd.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    setTool('select');
+    // ラバーバンド: fill と rect を内包（badge は外）
+    cv.dispatchEvent(new PointerEvent('pointerdown', pt(4, 4)));
+    cv.dispatchEvent(new PointerEvent('pointermove', pt(66, 40)));
+    cv.dispatchEvent(new PointerEvent('pointerup', pt(66, 40)));
+    const band = m.selectedIndices();
+    const noHandle = m.handleAt(25, 25);   // 複数選択中はハンドルなし
+    const single = m.selectedIndex();      // 単独でない → null
+    // 空白クリックで全解除
+    cv.dispatchEvent(new PointerEvent('pointerdown', pt(90, 40)));
+    cv.dispatchEvent(new PointerEvent('pointerup', pt(90, 40)));
+    const cleared = m.selectedIndices();
+    return { band, noHandle, single, cleared };
+  });
+  r.check('MK-U32（ラバーバンド: 内包した2つだけ選択・複数中は handleAt null・空白で解除）',
+    !u32t.missing && eq(u32t.band, [0, 1]) && u32t.noHandle === null
+    && u32t.single === null && eq(u32t.cleared, []),
+    JSON.stringify(u32t));
+
+  const u33t = await page.evaluate(() => {
+    const m = window.mask;
+    if (!m.selectedIndices) return { missing: true };
+    const cv = document.getElementById('canvas');
+    const rect = cv.getBoundingClientRect();
+    const pt = (x, y, shift) => ({ clientX: rect.left + x * rect.width / cv.width,
+                                   clientY: rect.top + y * rect.height / cv.height,
+                                   bubbles: true, pointerId: 1, shiftKey: !!shift });
+    const click = (x, y, shift) => {
+      cv.dispatchEvent(new PointerEvent('pointerdown', pt(x, y, shift)));
+      cv.dispatchEvent(new PointerEvent('pointerup', pt(x, y, shift)));
+    };
+    click(15, 15);                 // fill 単独
+    const one = m.selectedIndices();
+    click(50, 12, true);           // rect の上辺 — Shift で追加
+    const two = m.selectedIndices();
+    click(15, 15, true);           // Shift で fill を除外
+    const toggled = m.selectedIndices();
+    return { one, two, toggled };
+  });
+  r.check('MK-U33（Shift+クリック: 追加 → 除外のトグル）',
+    !u33t.missing && eq(u33t.one, [0]) && eq(u33t.two, [0, 1]) && eq(u33t.toggled, [1]),
+    JSON.stringify(u33t));
+
+  const u34t = await page.evaluate(() => {
+    const m = window.mask;
+    if (!m.selectedIndices) return { missing: true };
+    const cv = document.getElementById('canvas');
+    const rect = cv.getBoundingClientRect();
+    const pt = (x, y) => ({ clientX: rect.left + x * rect.width / cv.width,
+                            clientY: rect.top + y * rect.height / cv.height, bubbles: true, pointerId: 1 });
+    // fill(10,10) と rect(40,10) をラバーバンドで選択して一括ドラッグ
+    cv.dispatchEvent(new PointerEvent('pointerdown', pt(4, 4)));
+    cv.dispatchEvent(new PointerEvent('pointermove', pt(66, 40)));
+    cv.dispatchEvent(new PointerEvent('pointerup', pt(66, 40)));
+    cv.dispatchEvent(new PointerEvent('pointerdown', pt(17, 17)));    // fill の中から掴む
+    cv.dispatchEvent(new PointerEvent('pointermove', pt(37, 17)));    // +20, 0
+    cv.dispatchEvent(new PointerEvent('pointerup', pt(37, 17)));
+    const afterDrag = { fill: m.opAt(0).x, rect: m.opAt(1).x, sel: m.selectedIndices() };
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+    const afterNudge = { fillY: m.opAt(0).y, rectY: m.opAt(1).y };
+    m.undo();   // ナッジが1手で戻る
+    const undoNudge = { fillY: m.opAt(0).y, rectY: m.opAt(1).y };
+    m.undo();   // ドラッグが1手で戻る
+    const undoDrag = { fill: m.opAt(0).x, rect: m.opAt(1).x };
+    return { afterDrag, afterNudge, undoNudge, undoDrag };
+  });
+  r.check('MK-U34（一括移動: ドラッグで両方 +20・ナッジも一括・それぞれ1手 Undo）',
+    !u34t.missing && u34t.afterDrag.fill === 30 && u34t.afterDrag.rect === 60 && eq(u34t.afterDrag.sel, [0, 1])
+    && u34t.afterNudge.fillY === 11 && u34t.afterNudge.rectY === 11
+    && u34t.undoNudge.fillY === 10 && u34t.undoNudge.rectY === 10
+    && u34t.undoDrag.fill === 10 && u34t.undoDrag.rect === 40,
+    JSON.stringify(u34t));
+
+  const u35t = await page.evaluate(() => {
+    const m = window.mask;
+    if (!m.selectedIndices) return { missing: true };
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', metaKey: true, bubbles: true, cancelable: true }));
+    const all = m.selectedIndices();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true }));
+    const afterDelete = m.opsCount();
+    m.undo();
+    const afterUndo = m.opsCount();
+    return { all, afterDelete, afterUndo };
+  });
+  r.check('MK-U35（Cmd+A 全選択 → Delete 一括削除が1手・undo で全復活）',
+    !u35t.missing && eq(u35t.all, [0, 1, 2]) && u35t.afterDelete === 0 && u35t.afterUndo === 3,
+    JSON.stringify(u35t));
+
+  const u36t = await page.evaluate(() => {
+    const m = window.mask;
+    if (!m.selectedIndices) return { missing: true };
+    m.clearOps();
+    m.addOp({ type: 'fill', x: 10, y: 10, w: 15, h: 15 });
+    m.addOp({ type: 'badge', x: 40, y: 40, n: 1 });
+    m.addOp({ type: 'badge', x: 70, y: 40, n: 2 });
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', metaKey: true, bubbles: true, cancelable: true }));
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', metaKey: true, bubbles: true, cancelable: true }));
+    return {
+      count: m.opsCount(),
+      sel: m.selectedIndices(),
+      cloneFill: { x: m.opAt(3).x, y: m.opAt(3).y },
+      cloneNs: [m.opAt(4).n, m.opAt(5).n],   // バッジは順に次番号（3,4）
+    };
+  });
+  r.check('MK-U36（一括複製: 全部 +10,+10・複製側を選択・バッジは順に次番号）',
+    !u36t.missing && u36t.count === 6 && eq(u36t.sel, [3, 4, 5])
+    && u36t.cloneFill.x === 20 && u36t.cloneFill.y === 20
+    && eq(u36t.cloneNs, [3, 4]),
+    JSON.stringify(u36t));
+
+  const u37t = await page.evaluate(() => {
+    const m = window.mask;
+    if (!m.selectedIndices) return { missing: true };
+    m.clearOps();
+    m.addOp({ type: 'rect', x: 10, y: 10, w: 20, h: 15 });
+    m.addOp({ type: 'arrow', x1: 40, y1: 60, x2: 90, y2: 60 });
+    m.addOp({ type: 'mosaic', x: 60, y: 10, w: 20, h: 20, size: 8 });
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', metaKey: true, bubbles: true, cancelable: true }));
+    const blue = document.querySelector('input[name="color"][value="#2563eb"]');
+    blue.checked = true;
+    blue.dispatchEvent(new Event('change', { bubbles: true }));
+    const colors = [m.opAt(0).color, m.opAt(1).color, m.opAt(2).color];
+    const lw = document.getElementById('line-width');
+    lw.value = '5';
+    lw.dispatchEvent(new Event('change', { bubbles: true }));
+    const widths = [m.opAt(0).width, m.opAt(1).width, m.opAt(2).width];
+    m.undo();   // 太さが1手で戻る（width 未指定で作った op なので undefined に戻る）
+    const undoneW = [m.opAt(0).width, m.opAt(1).width];
+    document.querySelector('input[name="color"][value="#dd2222"]').checked = true;
+    lw.value = '3';
+    return { colors, widths, undoneW };
+  });
+  r.check('MK-U37（一括書式: 色/太さは該当図形にだけ・mosaic 不変・各1手 Undo）',
+    !u37t.missing && eq(u37t.colors, ['#2563eb', '#2563eb', null])
+    && eq(u37t.widths, [5, 5, null])
+    && eq(u37t.undoneW, [null, null]),
+    JSON.stringify(u37t));
 
   /* ========== ハブ導線 ========== */
   await page.goto(fileUrl('index.html'));

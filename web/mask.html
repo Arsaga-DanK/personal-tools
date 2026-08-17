@@ -165,13 +165,16 @@ function snapshot(tag) {
 function undo() {
   if (history.length === 0) return;
   ops = history.pop();
-  selIndex = null;   // 戻した状態に対して古い添字を残さない
+  selected = new Set();   // 戻した状態に対して古い添字を残さない
   nudgeChain = false;
   redraw();
   drawOverlay();
 }
 
-let selIndex = null;   // 選択中の図形（ops の添字）。null = 未選択
+// 選択は集合（v6 で複数選択に一般化）。単一選択の挙動は selOnly() 経由で不変
+let selected = new Set();
+const selOnly = () => (selected.size === 1 ? selected.values().next().value : null);
+const selList = () => Array.from(selected).sort((a, b) => a - b);
 
 const canvas = el('canvas');
 const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -287,6 +290,11 @@ function moveOpBy(op, dx, dy) {
 function copyCoords(op) {
   return op.type === 'arrow' ? { x1: op.x1, y1: op.y1, x2: op.x2, y2: op.y2 } : { x: op.x, y: op.y };
 }
+function captureOrigs() {
+  const map = new Map();
+  for (const i of selected) if (ops[i]) map.set(i, copyCoords(ops[i]));
+  return map;
+}
 function setOpPos(op, orig, dx, dy) {
   if (op.type === 'arrow') {
     op.x1 = orig.x1 + dx; op.y1 = orig.y1 + dy;
@@ -331,9 +339,10 @@ function getHandles(op) {
 }
 
 function handleAt(x, y) {
-  if (selIndex === null || !ops[selIndex]) return null;
+  const i = selOnly();   // ハンドルは単独選択時のみ（MK-Q21）
+  if (i === null || !ops[i]) return null;
   const tol = 6 * dispScale();   // 画面6px 相当
-  for (const h of getHandles(ops[selIndex])) {
+  for (const h of getHandles(ops[i])) {
     if (Math.abs(x - h.x) <= tol && Math.abs(y - h.y) <= tol) return h.id;
   }
   return null;
@@ -385,19 +394,30 @@ function drawOverlay() {
     octx.setLineDash([]);
     return;
   }
-  if (selIndex === null || !ops[selIndex]) return;
-  const op = ops[selIndex];
-  const b = opBounds(op);
   const sc = dispScale();   // 破線・ハンドルは画面上の太さを一定に（縮小表示でも見える）
+  if (rubberRect) {   // ラバーバンド進行中の破線（v6。オーバーレイのみ — PNG 非混入）
+    octx.strokeStyle = '#5e81ac';
+    octx.lineWidth = 1.5 * sc;
+    octx.setLineDash([5 * sc, 4 * sc]);
+    octx.strokeRect(rubberRect.x, rubberRect.y, rubberRect.w, rubberRect.h);
+    octx.setLineDash([]);
+  }
+  if (selected.size === 0) return;
   octx.strokeStyle = '#5e81ac';
   octx.lineWidth = 2 * sc;
   octx.setLineDash([6 * sc, 4 * sc]);
-  octx.strokeRect(b.x - 3, b.y - 3, b.w + 6, b.h + 6);
+  for (const i of selected) {   // 選択中の各図形に破線枠
+    if (!ops[i]) continue;
+    const b = opBounds(ops[i]);
+    octx.strokeRect(b.x - 3, b.y - 3, b.w + 6, b.h + 6);
+  }
   octx.setLineDash([]);
+  const only = selOnly();
+  if (only === null || !ops[only]) return;   // ハンドルは単独選択時のみ（MK-Q21）
   const hs = 8 * sc;   // 画面上で常に約8px（spec）
   octx.fillStyle = '#ffffff';
   octx.lineWidth = 1.5 * sc;
-  for (const h of getHandles(op)) {
+  for (const h of getHandles(ops[only])) {
     octx.fillRect(h.x - hs / 2, h.y - hs / 2, hs, hs);
     octx.strokeRect(h.x - hs / 2, h.y - hs / 2, hs, hs);
   }
@@ -452,7 +472,7 @@ function confirmCrop() {
   overlay.width = w; overlay.height = h;
   for (const op of ops) moveOpBy(op, -x, -y);   // 全 op を新原点へシフト
   history = [];        // Undo 対象外 — 画像履歴は機密画像の複製保持になる（MK-Q17）
-  selIndex = null;
+  selected = new Set();
   cropPending = null;
   showBanner('info', '');
   redraw();
@@ -460,10 +480,10 @@ function confirmCrop() {
 }
 
 function deleteSelected() {
-  if (selIndex === null || !ops[selIndex]) return false;
+  if (selected.size === 0) return false;
   snapshot();
-  ops.splice(selIndex, 1);
-  selIndex = null;
+  for (const i of selList().reverse()) ops.splice(i, 1);   // 降順で消す（添字ずれ防止）
+  selected = new Set();
   redraw();
   drawOverlay();
   return true;
@@ -505,7 +525,7 @@ function setImage(dataUrl) {
       hasImage = true;
       ops = [];
       history = [];
-      selIndex = null;
+      selected = new Set();
       canvas.hidden = false;
       overlay.hidden = false;
       el('drop').hidden = true;
@@ -612,9 +632,9 @@ function setToolQuiet(v) {
 function finishDraw(index) {
   nudgeChain = false;
   if (el('keep-tool').checked) {
-    selIndex = null;
+    selected = new Set();
   } else {
-    selIndex = index;
+    selected = new Set([index]);
     setToolQuiet('select');
   }
   redraw();
@@ -622,6 +642,8 @@ function finishDraw(index) {
 }
 
 let pendingClick = null;   // 'text'|'badge' — クリック型ツールの配置は pointerup で（focus の奪い返し回避）
+let rubberDrag = null;     // ラバーバンドの開始点＋additive（Shift）— v6
+let rubberRect = null;     // 進行中のラバーバンド矩形（オーバーレイのみ）
 let cropDrag = null;       // 切り抜きドラッグの開始点
 let cropPending = null;    // 確定待ちの切り抜き範囲 {x,y,w,h}（プレビューはオーバーレイのみ — MK-Q17）
 
@@ -633,19 +655,29 @@ canvas.addEventListener('pointerdown', e => {
   if (cropPending && tool !== 'crop') cancelCrop();
   const p = scale(e);
   if (tool === 'select') {
-    const h = handleAt(p.x, p.y);   // ハンドル > 図形本体 > 背後（spec）
+    const h = handleAt(p.x, p.y);   // ハンドル > 図形本体 > 背後（spec。単独選択時のみ非 null）
     if (h !== null) {
       resizeDrag = { handle: h, last: p, moved: false, applied: false };
       try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
       return;
     }
-    selIndex = hitTest(p.x, p.y);
+    const hit = hitTest(p.x, p.y);
     nudgeChain = false;
-    drawOverlay();
-    if (selIndex !== null) {
-      moveDrag = { start: p, orig: copyCoords(ops[selIndex]), moved: false };
-      try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
+    if (e.shiftKey && hit !== null) {   // Shift+クリック = 追加/除外トグル（移動は開始しない — v6）
+      if (selected.has(hit)) selected.delete(hit); else selected.add(hit);
+      drawOverlay();
+      return;
     }
+    if (hit !== null) {
+      if (!selected.has(hit)) selected = new Set([hit]);   // 群の一員なら群を維持（MK-Q22）
+      drawOverlay();
+      moveDrag = { start: p, origs: captureOrigs(), moved: false };
+      try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
+      return;
+    }
+    // 空白: ラバーバンド開始（確定は pointerup。Shift なら既存選択に追加 — MK-Q20）
+    rubberDrag = { start: p, additive: e.shiftKey };
+    try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
     return;
   }
   if (tool === 'text' || tool === 'badge') { pendingClick = tool; return; }   // 配置は pointerup で
@@ -659,12 +691,14 @@ canvas.addEventListener('pointerdown', e => {
   try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
 });
 canvas.addEventListener('pointermove', e => {
-  if (resizeDrag && selIndex !== null && ops[selIndex]) {
+  if (resizeDrag) {
+    const i = selOnly();
+    if (i === null || !ops[i]) return;
     const p = scale(e);
     const dx = p.x - resizeDrag.last.x, dy = p.y - resizeDrag.last.y;
     if (dx !== 0 || dy !== 0) {
       if (!resizeDrag.moved) { snapshot(); resizeDrag.moved = true; }   // 1ドラッグ = 1手
-      if (applyResize(ops[selIndex], resizeDrag.handle, dx, dy)) {
+      if (applyResize(ops[i], resizeDrag.handle, dx, dy)) {
         resizeDrag.applied = true;
         resizeDrag.last = p;
         redraw();
@@ -673,7 +707,7 @@ canvas.addEventListener('pointermove', e => {
     }
     return;
   }
-  if (moveDrag && selIndex !== null && ops[selIndex]) {
+  if (moveDrag && selected.size > 0) {
     const p = scale(e);
     let dx = p.x - moveDrag.start.x, dy = p.y - moveDrag.start.y;
     if (!moveDrag.moved) {
@@ -686,8 +720,15 @@ canvas.addEventListener('pointermove', e => {
       if (Math.abs(dx) >= Math.abs(dy)) dy = 0;
       else dx = 0;
     }
-    setOpPos(ops[selIndex], moveDrag.orig, dx, dy);
+    for (const [i, orig] of moveDrag.origs) {   // 選択群を一括移動（v6・1手）
+      if (ops[i]) setOpPos(ops[i], orig, dx, dy);
+    }
     redraw();
+    drawOverlay();
+    return;
+  }
+  if (rubberDrag) {
+    rubberRect = normCropRect(rubberDrag.start, scale(e));
     drawOverlay();
     return;
   }
@@ -717,6 +758,25 @@ canvas.addEventListener('pointerup', e => {
     return;
   }
   if (moveDrag) { moveDrag = null; return; }
+  if (rubberDrag) {
+    const additive = rubberDrag.additive;
+    const r = rubberRect;
+    rubberDrag = null;
+    rubberRect = null;
+    if (r && (r.w > 2 || r.h > 2)) {
+      const enclosed = [];   // 完全内包（PPT 準拠 — MK-Q20）
+      for (let i = 0; i < ops.length; i++) {
+        const b = opBounds(ops[i]);
+        if (b.x >= r.x && b.y >= r.y && b.x + b.w <= r.x + r.w && b.y + b.h <= r.y + r.h) enclosed.push(i);
+      }
+      if (additive) for (const i of enclosed) selected.add(i);
+      else selected = new Set(enclosed);
+    } else if (!additive) {
+      selected = new Set();   // ドラッグしない空白クリック = 全解除
+    }
+    drawOverlay();
+    return;
+  }
   if (cropDrag) {
     cropDrag = null;
     if (cropPending && cropPending.w >= 8 && cropPending.h >= 8) offerCrop();
@@ -764,23 +824,27 @@ canvas.addEventListener('dblclick', e => {
 // 利用者によるツール切替: 強制確定 → 選択解除（プログラム的復帰 setToolQuiet と区別 — MK-Q8）
 el('tools').addEventListener('change', e => {
   if (e.target && e.target.name === 'color') {
-    // 書式は選択図形に効く（粒度と同じ規則）。注釈系のみ — モザイク・黒塗りには何もしない
-    const op = selIndex !== null ? ops[selIndex] : null;
-    if (op && (op.type === 'rect' || op.type === 'arrow' || op.type === 'text' || op.type === 'badge')) {
-      snapshot();
-      op.color = e.target.value;
-      redraw();
-      drawOverlay();
+    // 書式は選択図形に効く（粒度と同じ規則・v6 で一括 = 1手）。注釈系のみ — マスク系には何もしない
+    let touched = false;
+    for (const i of selected) {
+      const op = ops[i];
+      if (op && (op.type === 'rect' || op.type === 'arrow' || op.type === 'text' || op.type === 'badge')) {
+        if (!touched) { snapshot(); touched = true; }
+        op.color = e.target.value;
+      }
     }
+    if (touched) { redraw(); drawOverlay(); }
     return;
   }
   if (!e.target || e.target.name !== 'tool') return;
   commitEdit(true);
   cancelCrop();
-  selIndex = null;
+  selected = new Set();
   moveDrag = null;
   resizeDrag = null;
   pendingClick = null;
+  rubberDrag = null;
+  rubberRect = null;
   nudgeChain = false;
   drawOverlay();
   canvas.style.cursor = toolOf() === 'select' ? 'default' : 'crosshair';
@@ -819,7 +883,7 @@ function openEditor(op, x, y) {
   editing = op ? { op, x: op.x, y: op.y, color: op.color || RED }
                : { op: null, x, y, color: currentColor() };
   editor.style.color = editing.color;   // 編集ボックスの文字色もパレットに追従（v4）
-  selIndex = null;      // 編集中は選択枠を出さない（spec）
+  selected = new Set();      // 編集中は選択枠を出さない（spec）
   nudgeChain = false;
   redraw();             // 編集中の op を描画から外す
   drawOverlay();
@@ -847,10 +911,10 @@ function commitEdit(quiet) {
     if (text === '') {
       snapshot();                 // 空で確定 = 削除（1手として Undo 可能 — spec）
       ops.splice(idx, 1);
-      selIndex = null;
+      selected = new Set();
     } else {
       if (text !== cur.op.text) { snapshot(); cur.op.text = text; }
-      if (!quiet) selIndex = idx;
+      if (!quiet) selected = new Set([idx]);
     }
     redraw();
     drawOverlay();
@@ -894,7 +958,7 @@ el('clear-btn').addEventListener('click', () => {
   if (ops.length === 0) return;
   snapshot();
   ops = [];
-  selIndex = null;
+  selected = new Set();
   redraw();
   drawOverlay();
 });
@@ -934,18 +998,33 @@ document.addEventListener('keydown', e => {
     el('copy-btn').click();   // コピーは先頭で強制確定する（MK-Q9）
     return;
   }
-  // Cmd/Ctrl+D = 複製（+10,+10・複製側を選択 — MK-Q19）。未選択なら何もしない（既定動作も抑止しない）
+  // Cmd/Ctrl+D = 複製（+10,+10・複製側を選択 — MK-Q19。v6 で一括対応・1手）。
+  // 未選択なら何もしない（既定動作も抑止しない）
   if ((e.metaKey || e.ctrlKey) && (e.key === 'd' || e.key === 'D')) {
-    if (inField || selIndex === null || !ops[selIndex]) return;
+    if (inField || selected.size === 0) return;
     e.preventDefault();
     snapshot();
-    const clone = Object.assign({}, ops[selIndex]);
-    moveOpBy(clone, 10, 10);
-    if (clone.type === 'badge') clone.n = nextBadgeN();   // 同番号を2つ置かない（MK-Q19）
-    ops.push(clone);
-    selIndex = ops.length - 1;
+    const clones = [];
+    for (const i of selList()) {
+      if (!ops[i]) continue;
+      const clone = Object.assign({}, ops[i]);
+      moveOpBy(clone, 10, 10);
+      if (clone.type === 'badge') clone.n = nextBadgeN();   // push 済みを見るので順に次番号（MK-Q19）
+      ops.push(clone);
+      clones.push(ops.length - 1);
+    }
+    selected = new Set(clones);
     nudgeChain = false;
     redraw();
+    drawOverlay();
+    return;
+  }
+  // Cmd/Ctrl+A = 全選択（v6）
+  if ((e.metaKey || e.ctrlKey) && (e.key === 'a' || e.key === 'A')) {
+    if (inField || !hasImage || ops.length === 0) return;
+    e.preventDefault();
+    selected = new Set(ops.map((_, i) => i));
+    nudgeChain = false;
     drawOverlay();
     return;
   }
@@ -964,20 +1043,20 @@ document.addEventListener('keydown', e => {
   }
   // Esc = 選択解除（非破壊なのでガード不要 — coding-rules「文字の扱い」。編集中の Esc は
   // エディタ側が stopPropagation して確定に使う = 2段階）
-  if (e.key === 'Escape' && selIndex !== null) {
-    selIndex = null;
+  if (e.key === 'Escape' && selected.size > 0) {
+    selected = new Set();
     drawOverlay();
     return;
   }
   // Delete/Backspace = 選択図形の削除（破壊的）。入力要素へのタイプと IME 変換中は無効
-  if ((e.key === 'Delete' || e.key === 'Backspace') && selIndex !== null) {
+  if ((e.key === 'Delete' || e.key === 'Backspace') && selected.size > 0) {
     if (inField || e.isComposing) return;
     e.preventDefault();
     deleteSelected();
     return;
   }
   // 矢印キー = 1px 移動（Shift で 10px）。連続ナッジは1手（MK-Q11）
-  if (e.key.startsWith('Arrow') && selIndex !== null && ops[selIndex]) {
+  if (e.key.startsWith('Arrow') && selected.size > 0) {
     if (inField || e.isComposing) return;
     e.preventDefault();
     const step = e.shiftKey ? 10 : 1;
@@ -985,7 +1064,7 @@ document.addEventListener('keydown', e => {
     const dy = e.key === 'ArrowDown' ? step : e.key === 'ArrowUp' ? -step : 0;
     if (dx === 0 && dy === 0) return;
     snapshot('nudge');
-    moveOpBy(ops[selIndex], dx, dy);
+    for (const i of selected) if (ops[i]) moveOpBy(ops[i], dx, dy);   // 一括ナッジ（v6）
     redraw();
     drawOverlay();
   }
@@ -993,23 +1072,28 @@ document.addEventListener('keydown', e => {
 
 // 太さセレクトは選択中の枠・矢印にも適用（色・粒度と同じ「書式は選択に効く」規則 — v5）
 el('line-width').addEventListener('change', () => {
-  const op = selIndex !== null ? ops[selIndex] : null;
-  if (op && (op.type === 'rect' || op.type === 'arrow')) {
-    snapshot();
-    op.width = Number(el('line-width').value);
-    redraw();
-    drawOverlay();
+  let touched = false;
+  for (const i of selected) {
+    const op = ops[i];
+    if (op && (op.type === 'rect' || op.type === 'arrow')) {
+      if (!touched) { snapshot(); touched = true; }
+      op.width = Number(el('line-width').value);
+    }
   }
+  if (touched) { redraw(); drawOverlay(); }
 });
 
 // 粒度セレクトは選択中のモザイクにも適用 — 書式コントロールは選択図形に効く（PPT と同じ・UX指摘）
 el('mosaic-size').addEventListener('change', () => {
-  if (selIndex !== null && ops[selIndex] && ops[selIndex].type === 'mosaic') {
-    snapshot();
-    ops[selIndex].size = Number(el('mosaic-size').value);
-    redraw();
-    drawOverlay();
+  let touched = false;
+  for (const i of selected) {
+    const op = ops[i];
+    if (op && op.type === 'mosaic') {
+      if (!touched) { snapshot(); touched = true; }
+      op.size = Number(el('mosaic-size').value);
+    }
   }
+  if (touched) { redraw(); drawOverlay(); }
 });
 
 /* ========== テスト用フック（UI と同一コードパス — spec） ========== */
@@ -1018,25 +1102,33 @@ window.mask = {
   setImage,
   addOp: op => { snapshot(); ops.push(op); redraw(); drawOverlay(); },
   undo,
-  clearOps: () => { snapshot(); ops = []; selIndex = null; redraw(); drawOverlay(); },
+  clearOps: () => { snapshot(); ops = []; selected = new Set(); redraw(); drawOverlay(); },
   opsCount: () => ops.length,
   hitTest,
   handleAt,
-  selectAt: (x, y) => { selIndex = hitTest(x, y); nudgeChain = false; drawOverlay(); return selIndex; },
-  selectedIndex: () => selIndex,
+  selectAt: (x, y) => {
+    const hit = hitTest(x, y);
+    selected = hit === null ? new Set() : new Set([hit]);
+    nudgeChain = false;
+    drawOverlay();
+    return hit;
+  },
+  selectedIndex: () => selOnly(),          // 単独選択時のみ index（既存互換）
+  selectedIndices: () => selList(),        // 複数選択（v6・昇順）
   resizeSelected: (handle, dx, dy) => {
-    if (selIndex === null || !ops[selIndex]) return false;
+    const i = selOnly();
+    if (i === null || !ops[i]) return false;
     snapshot();
-    const ok = applyResize(ops[selIndex], handle, dx, dy);
+    const ok = applyResize(ops[i], handle, dx, dy);
     if (!ok) history.pop();   // 拒否時は無変更 — 積んだスナップショットを捨てる
     redraw();
     drawOverlay();
     return ok;
   },
   moveSelected: (dx, dy) => {
-    if (selIndex === null || !ops[selIndex]) return false;
+    if (selected.size === 0) return false;
     snapshot();
-    moveOpBy(ops[selIndex], dx, dy);
+    for (const i of selected) if (ops[i]) moveOpBy(ops[i], dx, dy);
     redraw();
     drawOverlay();
     return true;
