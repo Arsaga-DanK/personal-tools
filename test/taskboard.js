@@ -624,6 +624,51 @@ const F5 = [
     i7a.popoverHidden === false && i7a.popoverInput === 'Escape確認' && i7b.popoverHidden === true,
     JSON.stringify([i7a.popoverHidden, i7a.popoverInput, i7b.popoverHidden]));
 
+  /* ========== TB-I8: Cmd/Ctrl+; = 今日（lib/edit.js — 利用者の明示要望） ==========
+     注: 挿入されるのは**実際の今日**（setToday の注入値ではない）。共通部品を使うため */
+  await session(F1);
+  await addModal();
+  const i8 = await page.evaluate(() => {
+    if (!window.ToolEdit) return { missing: true };
+    const semi = (el, composing) => {
+      el.focus();
+      const ev = new KeyboardEvent('keydown', {
+        key: ';', metaKey: true, bubbles: true, cancelable: true, isComposing: !!composing,
+      });
+      el.dispatchEvent(ev);
+      return ev.defaultPrevented;
+    };
+    const d = new Date();
+    const today = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0')
+      + '-' + String(d.getDate()).padStart(2, '0');
+    const start = document.getElementById('modal-start');
+    const due = document.getElementById('modal-due');
+    const content = document.getElementById('modal-content');
+    start.value = '';
+    let changed = 0;
+    start.addEventListener('change', () => changed++, { once: true });
+    const startPrevented = semi(start);
+    // 変換中は奪わない（期限欄で確認）
+    due.value = '';
+    const duePrevented = semi(due, true);
+    // テキスト系はキャレット位置に挿入
+    content.value = '打合せ ';
+    content.selectionStart = content.selectionEnd = content.value.length;
+    const contentPrevented = semi(content);
+    return {
+      today, start: start.value, changed, startPrevented,
+      due: due.value, duePrevented,
+      content: content.value, contentPrevented,
+    };
+  });
+  await shutModal();
+  r.check('TB-I8（Cmd/Ctrl+;: 日付欄に今日＋change・テキスト欄はキャレット挿入・変換中は何もしない）',
+    !i8.missing
+    && i8.start === i8.today && i8.changed === 1 && i8.startPrevented === true
+    && i8.due === '' && i8.duePrevented === false
+    && i8.content === '打合せ ' + i8.today && i8.contentPrevented === true,
+    JSON.stringify(i8));
+
   /* ========== TB-I6: CDP による実 composition ========== */
   const cdp = await context.newCDPSession(page);
   await session(F1);

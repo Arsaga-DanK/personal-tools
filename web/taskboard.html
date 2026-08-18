@@ -353,6 +353,7 @@
 <script src="../lib/ui.js"></script>
 <script src="../lib/storage.js"></script>
 <script src="../lib/config.js"></script>
+<script src="../lib/edit.js"></script>
 <script>
 'use strict';
 
@@ -3973,6 +3974,7 @@ window.taskboard = {
 
 restoreUi();
 ToolStorage.mountWarning();
+ToolEdit.mountTodayShortcut();   // Cmd/Ctrl+; = 今日（lib/edit.js — TB-Q59。Tab はモーダルの移動に残す）
 render();
 initFile();
 </script>

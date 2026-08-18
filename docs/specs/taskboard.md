@@ -425,6 +425,15 @@ if (e.isComposing || e.keyCode === 229) return;
 | 内容セルのインライン編集 | `startBodyEdit` 内の input keydown | **既存タスクの内容が未変換文字列で上書きされる**（被害が最も大きい） |
 | **Escape の popover 閉鎖**（TB-Q9） | `document` の keydown → `closePopover` | 子タスク popover で**変換候補を戻すための Escape** を押すと popover が閉じ、入力が失われる |
 
+### Cmd/Ctrl+; = 今日（2026-08-18・利用者の明示要望「tasks もそうだけど、今日の日付を Ctrl+; で」）
+
+`lib/edit.js` の `ToolEdit.mountTodayShortcut()` をページに1回配線する（Excel の慣習・体験の標準②）。
+date input は値をセットして change を飛ばし、テキスト系はキャレット位置に挿入する。IME 中は奪わない。
+
+- **Tab=インデント（`ToolEdit.tabIndent`）はモーダルのメモ欄に入れない**（TB-Q59）。
+  モーダルでは Tab は「次のフィールドへ」が Office の作法で、そちらを壊す方が損失が大きい。
+  メモは箇条書きになるが、階層を作る用途は現状ない（要望が出たら再判断）
+
 - `keyCode === 229` の併用は **`isComposing` を立てない IME への保険**（deprecated だが現存する）
 - **ハンドラ全体を返す**（Enter 分岐だけでなく Escape 分岐も通さない）。変換中の Escape は
   IME の変換取り消しであり、編集の中断やポップオーバーの閉鎖に使われてはいけない
@@ -1513,6 +1522,7 @@ IME ガード（Phase I。UI 経路。合成 `KeyboardEvent` を dispatch して
 | TB-I5 | 内容セルを dblclick → 編集欄で isComposing Enter → 続けて通常 Enter | 前者では**既存行が書き換わらず編集欄が開いたまま**。後者では従来どおり確定（回帰） |
 | TB-I6 | CDP `Input.imeSetComposition` で未確定の `'会議'` を作り、IME が送る Enter を `Input.dispatchKeyEvent` で送る | 追加されない。**ガード前は `会議` が追加され入力欄が空になることを 2026-08-05 に実測済み**（この経路が本件の再現手順） |
 | TB-I7 | 子タスク popover を開き、入力欄に値を入れて `keydown{key:'Escape', isComposing:true}` → 続けて通常の Escape（TB-Q9） | 前者では**popover が閉じず入力値も残る**（変換候補を戻す操作を奪わない）。後者では従来どおり閉じる（回帰） |
+| TB-I8 | モーダルの開始日・期限（date input）で `Cmd/Ctrl+;` ／ 内容欄（text input）で同じキー ／ 変換中（isComposing）で同じキー | 日付欄は**今日がセットされ** change が飛ぶ ／ 内容欄はキャレット位置に今日の日付が入る ／ 変換中は何もしない（`lib/edit.js` の `mountTodayShortcut`） |
 
 追加の取り消し（Phase I。`applyOps` でバイト同一性、UI は `newSession` で照合）:
 
