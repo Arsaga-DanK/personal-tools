@@ -18,7 +18,7 @@
   #search { width: 100%; max-width: 420px; padding: 9px 14px; font-size: 14px; border-radius: 999px; }
 
   #chips, #list, #recent {
-    --tile: 42px;
+    --tile: 46px;
     --tint: 28%;          /* タイルの塗りの濃さ */
     --ring: 55%;          /* タイルの内側リング */
     --muted-card: var(--muted);
@@ -43,7 +43,7 @@
   [data-cat="PM"] { --cat: #d9a441; }
 
   /* 絞り込みチップ（件数つき = 目次も兼ねる） */
-  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0 10px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 8px; }
   .chip {
     font: inherit;
     font-size: 12px; font-weight: 600; line-height: 1;
@@ -64,11 +64,15 @@
     color: var(--text);
   }
 
-  /* カードのグリッド（16 = 4×4。auto-fit は使わない — 数が減った行でカードが伸びるため） */
+  /* カードのグリッド。**3列固定**（利用者の指定 2026-08-18）。
+     16本は 6行（最終行は1枚）になるが、余りは左端に付けて中央寄せしない — 左端の縦一列が視線の基準線。
+     `auto-fit` は使わない（本数が減った行でカードが全幅に伸びる）。
+     高さは 1280x900 でちょうど1画面に収まるよう実測で詰めてある（HUB-18 がピン。
+     **カードの寸法・余白・ツール本数を変えたら必ず測り直す**） */
   ul.tool-list {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 12px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 11px;
     list-style: none; margin: 0; padding: 0;
   }
   @media (max-width: 980px) { ul.tool-list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
@@ -81,9 +85,9 @@
     grid-template-columns: var(--tile) 1fr;
     column-gap: 12px;
     align-items: center;
-    min-height: 76px;
+    min-height: 84px;
     height: 100%;
-    padding: 13px 16px 13px 13px;
+    padding: 14px 18px 14px 14px;
     background: var(--panel);
     border: 1px solid var(--edge);
     border-radius: 10px;
@@ -100,7 +104,7 @@
   .icon {
     width: var(--tile); height: var(--tile);
     display: grid; place-items: center;
-    font-size: 23px; line-height: 1;
+    font-size: 25px; line-height: 1;
     border-radius: 11px;
     background: color-mix(in srgb, var(--cat, var(--accent)) var(--tint), var(--panel));
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cat, var(--accent)) var(--ring), transparent);
@@ -114,12 +118,12 @@
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     line-height: 1.35;
   }
-  ul.tool-list .tool-name { font-size: 15px; font-weight: 600; color: var(--text); }
-  ul.tool-list .short { font-size: 13px; color: var(--muted-card); }
+  ul.tool-list .tool-name { font-size: 16px; font-weight: 600; color: var(--text); }
+  ul.tool-list .short { font-size: 13.5px; color: var(--muted-card); }
 
   /* 最近使った: カードを小さくした形（直前に開いたものなので一言は要らない） */
-  #recent { margin: 12px 0 2px; }
-  .recent-title { font-size: 11px; color: var(--muted-card); margin: 0 0 6px; font-weight: 700; }
+  #recent { margin: 10px 0 2px; }
+  .recent-title { font-size: 11px; color: var(--muted-card); margin: 0 0 5px; font-weight: 700; }
   ul.recent-list { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; margin: 0; padding: 0; }
   ul.recent-list li { margin: 0; }
   ul.recent-list a {
