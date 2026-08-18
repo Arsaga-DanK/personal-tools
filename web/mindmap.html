@@ -87,13 +87,15 @@ function stripInline(s) {
     .trim();
 }
 
-// 先頭の YAML front matter を落とす（Obsidian のノートをそのまま貼れるように — MM-Q7）
+// 先頭の YAML front matter を落とす（**行は消さず空にする** — 消すと警告の行番号がずれる）
 function stripFrontMatter(lines) {
   let i = 0;
   while (i < lines.length && lines[i].trim() === '') i++;
   if (i >= lines.length || lines[i].trim() !== '---') return lines;
   for (let j = i + 1; j < lines.length; j++) {
-    if (lines[j].trim() === '---') return lines.slice(0, i).concat(lines.slice(j + 1));
+    if (lines[j].trim() === '---') {
+      return lines.map((l, k) => (k >= i && k <= j ? '' : l));
+    }
   }
   return lines;   // 閉じが無ければ front matter とみなさない（本文を消さない）
 }
