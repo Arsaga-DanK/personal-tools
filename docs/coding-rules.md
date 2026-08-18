@@ -22,6 +22,7 @@ CLAUDE.md（作業原則）と `docs/specs/`（ツール別契約）の間を埋
 | excel.js | `copy(html, text)` / `cellStyle(value, {header, align})` / `MANGLE_RES` | Excel 向けコピーは**必ず二重フレーバー**（execCommand 先行 — async clipboard は mso- 系をサニタイズする）。文字列化ガードの正本はここ。**表の組み立て（th/td・rowspan）は各ツールに書く** |
 | sql.js | `SqlLex.tokenize` | 字句解析のみ共有。整形・キーワードは devpad 側 |
 | mmd.js | `ToolMmd.render(host, dsl)` / `toPngBlob(svg, scale)` | 同梱 mermaid のラッパ（diagram/gantt/mindmap）。**テーマ固定と `htmlLabels:false`（トップレベルと flowchart の両方）が正本** — foreignObject が残ると canvas での PNG 化が壊れる（実測） |
+| handoff.js | `ToolHandoff.send(to, kind, text, path)` / `take(me)` / `peek(me)` | ツール間の受け渡し。**sessionStorage の一時バッファで正本ではない**。詳細は下の「ツール間の受け渡し」 |
 | edit.js | `ToolEdit.tabIndent(el, opts)` / `mountTodayShortcut()` / `today()` / `listItem` / `renumber` | 適用範囲の線引きは下の「UI の標準形」。**構造テキストの欄だけ**に入れる。`{mdList:true}` は**md を書く欄だけ**（下記） |
 
 - **共通化の条件**: 「同じ変更に N 箇所の編集が必要だった実測」または「2番目の利用者が生まれた瞬間」。
@@ -114,6 +115,22 @@ CLAUDE.md（作業原則）と `docs/specs/`（ツール別契約）の間を埋
   ピン済みの語（vault・週次・設計・整理・sql・xml・正規表現・基数・Base64 等）を
   desc/when に入れるときは、**期待集合の更新が仕様変更として妥当か**を先に判断する
   （実例: Mask の when の「設計書」が HUB-12 の「設計」ヒットに加わった — 妥当として期待値を更新）
+
+## ツール間の受け渡し（2026-08-18・第一号: Plan Tasks → Draw Gantt）
+
+**16本のうち11本が「貼る」から始まるのに、ツール間リンクが1本も無かった**（2026-08-18 の
+使用実態診断で実測）。データ形式としては繋がっているのに、**経路としては存在しない**状態だった。
+
+- **渡す側**: `ToolHandoff.send(to, kind, text)`（`lib/handoff.js`）。
+  `sessionStorage` の `tools:handoff` に `{to, kind, text, at}` を書いて相手のページへ遷移する
+- **受ける側**: 起動時に `ToolHandoff.take(me)` を1回だけ呼ぶ。**取り出したら消す**（consume）
+- **これは第二の正本ではない**（一時バッファ。正本は渡し元＝`tasks.md` 等のまま）。
+  だから `localStorage` ではなく **`sessionStorage`**（タブを閉じたら消える）を使う
+- **鮮度を必ず見せる**: 受け側は取り込み時刻をコメント等で残す（gantt の `%% 取り込み: <日付>` と同型）。
+  古いスナップショットを新しいものとして配らせない
+- **file:// は全ローカルページで1オリジン**なので `sessionStorage` は共有される（実測 — verification-notes §2）。
+  逆に**機密を置く場所ではない**（他のローカル HTML からも読める）。渡すのは利用者が今見ている表だけ
+- リンクを足すときは**渡し元の spec と受け側の spec の両方**に書く（片方だけだと導線が消える）
 
 ## 静的データの同梱（第一号: dates の祝日テーブル）
 

@@ -3523,6 +3523,35 @@ const F5 = [
     await dark.close();
   }
 
+  /* ========== TB-H1: Draw Gantt への受け渡し（lib/handoff.js・coding-rules） ========== */
+  const h1 = await page.evaluate(([f, today]) => {
+    if (!window.ToolHandoff) return { missing: true };
+    window.taskboard.test.setToday(today);
+    const s = window.taskboard.test.newSession(f);
+    sessionStorage.removeItem('tools:handoff');
+    const btn = document.getElementById('btn-to-gantt');
+    s.setView('list');
+    const hiddenInList = btn.hidden;
+    s.setView('timeline');
+    const shownInTimeline = !btn.hidden;
+    // 遷移はさせない（location を差し替えず send の書き込みだけ確かめる）
+    const sent = ToolHandoff.send('gantt', 'plan', s.getPlanTsv());
+    const raw = sessionStorage.getItem('tools:handoff');
+    const d = raw ? JSON.parse(raw) : null;
+    sessionStorage.removeItem('tools:handoff');
+    return {
+      hiddenInList, shownInTimeline, sent: sent === undefined,
+      to: d && d.to, kind: d && d.kind,
+      header: d && d.text.split('\n')[0],
+      rows: d && d.text.split('\n').length,
+    };
+  }, [F4, TODAY]);
+  r.check('TB-H1（Draw Gantt で開く: タイムラインのときだけ出る・計画TSVを tools:handoff に渡す）',
+    !h1.missing && h1.hiddenInList === true && h1.shownInTimeline === true
+    && h1.to === 'gantt' && h1.kind === 'plan'
+    && h1.header === '内容\t開始日\t期限\t日数\t状態\tセクション' && h1.rows > 1,
+    JSON.stringify(h1));
+
   await browser.close();
   r.report('taskboard（docs/specs/taskboard.md）');
 })().catch(e => {

@@ -100,6 +100,7 @@
       <textarea id="input" spellcheck="false" placeholder="## 設計フェーズ&#10;- 基本設計&#9;2026-08-18&#9;2026-08-22&#10;- 詳細設計&#9;2026-08-25&#9;5d"></textarea>
       <div id="editor" hidden>
         <div id="editor-rows"></div>
+        <p class="muted ed-hint" id="ed-paste-hint">Plan Tasks の［Draw Gantt で開く］か、tasks.md ／［計画をコピー］の中身を <b>Cmd/Ctrl+V で貼る</b>だけで表になります</p>
         <div class="ed-foot">
           <button type="button" id="add-task">＋ タスク</button>
           <button type="button" id="add-section">＋ セクション</button>
@@ -117,6 +118,7 @@
 <script src="../lib/ui.js"></script>
 <script src="../lib/storage.js"></script>
 <script src="../lib/edit.js"></script>
+<script src="../lib/handoff.js"></script>
 <script src="../lib/vendor/mermaid.min.js"></script>
 <script src="../lib/mmd.js"></script>
 <script>
@@ -707,6 +709,8 @@ function buildEditor(focus) {
     host.appendChild(rec.rowEl);
   }
   refreshChainCaptions();
+  // 空（＝まだ何も打っていない）ときだけ「貼れる」案内を出す
+  el('ed-paste-hint').hidden = /\S/.test(el('input').value.replace(/\t/g, ''));
   if (!focus) return;
   let rec = null;
   if (focus === 'first') rec = edRowEls[0];
@@ -1037,7 +1041,20 @@ el('editor').addEventListener('paste', e => {
   });
 });
 
+/* 他ツールからの受け渡しを取り込む（sessionStorage の一時バッファ。取り出したら消える）。
+   restore() より後に入れて、保存済みの入力を上書きする（利用者が今渡してきた方が新しい） */
+function takeHandoff() {
+  if (!window.ToolHandoff) return null;
+  const h = ToolHandoff.take('gantt');
+  if (!h || !h.text) return null;
+  const r = importText(h.text);
+  if (!r.kind || !r.text) return null;
+  el('input').value = r.text;
+  return r.warnings;
+}
+
 const capNotice = restore();
+const handoffWarnings = takeHandoff();
 updateSampleBtn();
 if (el('input').value !== '') {
   const first = render(el('input').value);
@@ -1045,6 +1062,12 @@ if (el('input').value !== '') {
   if (capNotice) first.then(() => showBanner('warn', capNotice));
 } else if (capNotice) {
   showBanner('warn', capNotice);
+}
+if (handoffWarnings) {
+  // 受け取った直後は行エディタで見せる（既定と同じ。渡された表をそのまま触れる）
+  if (view !== 'editor') setView('editor', { noFocus: true });
+  else buildEditor(null);
+  if (handoffWarnings.length) showBanner('warn', handoffWarnings.join('・'));
 }
 ToolStorage.mountWarning();
 

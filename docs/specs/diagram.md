@@ -68,7 +68,7 @@ localStorage キーはすべて diagram。命名規約の「英名」はこち�
 | DG-U4 | 幅390px | ページの横スクロールなし |
 | DG-U5 | textarea で Tab / Esc→Tab | インデント挿入（フォーカスを奪われない）/ 素通し（lib/edit.js） |
 | DG-05 | `extractMermaid`: フェンス付き ／ 前後に地の文がある ／ 2ブロック ／ 素の ``` ／ フェンスなし ／ 閉じ忘れ | 中身だけ取り出す ／ 同左 ／ 最初の1つ＋warn ／ 中身 ／ そのまま ／ 開始以降を取り出す（落ちない） |
-| DG-06 | ノートの ```mermaid ブロックを `render` | 図が描かれる（**実測でこれが今は失敗する** — 取り込み経路の回帰） |
+| DG-06 | ノートの ```mermaid ブロックを `render` | 図が描かれる（**2026-08-17 の実装前は `No diagram type detected` で失敗していた** — 取り込み経路の回帰検出器） |
 | DG-U6 | ［Obsidian 用にコピー］（`clipboard.writeText` スタブ） | ```` ```mermaid ```` で囲んだ**テキスト**がコピーされる・✓ 表示・入力欄は書き換わらない（フェンス付きを貼っていても二重に包まない） |
 
 ハブ導線: カテゴリ「設計」に載り、title は `Draw Diagram (diagram)`。

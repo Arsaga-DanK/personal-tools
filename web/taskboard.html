@@ -252,6 +252,7 @@
     </select>
     <button id="btn-weekly" title="期間内に完了（✅）したタスクをセクション別にコピー — Teams の日報・週次に貼る用">週報コピー</button>
     <button id="btn-copy">Excel用コピー</button>
+    <button id="btn-to-gantt" hidden title="いま見えている計画を Draw Gantt に渡してガント画像にする">Draw Gantt で開く</button>
     <button id="btn-copy-all" hidden>全文コピー</button>
     <button id="btn-archive" disabled>完了をアーカイブ</button>
     <button id="btn-reload">再読込</button>
@@ -354,6 +355,7 @@
 <script src="../lib/storage.js"></script>
 <script src="../lib/config.js"></script>
 <script src="../lib/edit.js"></script>
+<script src="../lib/handoff.js"></script>
 <script>
 'use strict';
 
@@ -2685,6 +2687,8 @@ function updateCopyButton() {
   const cfg = COPY_LABELS[state.ui.view] || COPY_LABELS.list;
   ToolUI.setLabel(b, cfg.text);   // .copied 中は表示を奪わない（共通核が守る）
   b.title = cfg.title;
+  // 受け渡しはタイムライン（計画）のときだけ意味がある（coding-rules「ツール間の受け渡し」）
+  el('btn-to-gantt').hidden = state.ui.view !== 'timeline';
 }
 
 function updateSaveButton() {
@@ -3886,6 +3890,14 @@ document.addEventListener('keydown', (e) => {
     if (!el('btn-save').disabled) el('btn-save').click();
   }
 });
+// Draw Gantt へ渡す（sessionStorage の一時バッファ。正本は tasks.md のまま — coding-rules）
+el('btn-to-gantt').addEventListener('click', () => {
+  const m = state.timeline;
+  if (m && m.guard) { copyFeedback(el('btn-to-gantt'), false, '表示していないため渡せません'); return; }
+  if (!m || !m.items.length) { copyFeedback(el('btn-to-gantt'), false, '渡す行がありません'); return; }
+  ToolHandoff.send('gantt', 'plan', buildPlanTsv(m.items), 'gantt.html');
+});
+
 el('btn-copy').addEventListener('click', () => {
   const btn = el('btn-copy');
   if (state.ui.view === 'timeline') {

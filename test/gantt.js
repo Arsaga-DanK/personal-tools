@@ -799,6 +799,31 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     && u19g.cont === '- 基本設計\n- ' && u19g.exit === '',
     JSON.stringify(u19g));
 
+  /* ========== GN-U20: Plan Tasks からの受け渡し（lib/handoff.js） ========== */
+  await page.evaluate(() => {
+    ToolStorage.save = () => true;             // 保存で入力を汚さない（verification-notes §4）
+    localStorage.removeItem('tools:gantt');
+    sessionStorage.setItem('tools:handoff', JSON.stringify({
+      to: 'gantt', kind: 'plan', at: 1,
+      text: ['内容\t開始日\t期限\t日数\t状態\tセクション',
+        '受け渡し設計\t2026-08-18\t2026-08-22\t5\t未着手\t設計'].join('\n'),
+    }));
+  });
+  await page.reload();
+  await page.waitForTimeout(700);
+  const u20 = await page.evaluate(() => ({
+    text: document.getElementById('input').value,
+    editorVisible: !document.getElementById('editor').hidden,
+    rows: document.querySelectorAll('#editor .ed-row').length,
+    leftover: sessionStorage.getItem('tools:handoff'),
+  }));
+  r.check('GN-U20（受け渡し: 取り込んで行エディタで表示・鮮度コメント付き・handoff は消える）',
+    /%% 取り込み: \d{4}-\d{2}-\d{2}/.test(u20.text)
+    && u20.text.includes('受け渡し設計\t2026-08-18\t2026-08-22')
+    && u20.editorVisible === true && u20.rows === 3   // コメント＋セクション＋タスク
+    && u20.leftover === null,
+    JSON.stringify(u20));
+
   /* ========== ハブ導線 ========== */
   await page.goto(fileUrl('index.html'));
   await page.click('ul.tool-list .tool-name:text-is("Draw Gantt")');

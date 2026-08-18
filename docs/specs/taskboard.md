@@ -1523,6 +1523,7 @@ IME ガード（Phase I。UI 経路。合成 `KeyboardEvent` を dispatch して
 | TB-I5 | 内容セルを dblclick → 編集欄で isComposing Enter → 続けて通常 Enter | 前者では**既存行が書き換わらず編集欄が開いたまま**。後者では従来どおり確定（回帰） |
 | TB-I6 | CDP `Input.imeSetComposition` で未確定の `'会議'` を作り、IME が送る Enter を `Input.dispatchKeyEvent` で送る | 追加されない。**ガード前は `会議` が追加され入力欄が空になることを 2026-08-05 に実測済み**（この経路が本件の再現手順） |
 | TB-I7 | 子タスク popover を開き、入力欄に値を入れて `keydown{key:'Escape', isComposing:true}` → 続けて通常の Escape（TB-Q9） | 前者では**popover が閉じず入力値も残る**（変換候補を戻す操作を奪わない）。後者では従来どおり閉じる（回帰） |
+| TB-H1 | タイムライン表示で［Draw Gantt で開く］ | ボタンは**タイムラインのときだけ**出る。計画 TSV が `sessionStorage` の `tools:handoff`（`{to:'gantt', kind:'plan'}`）に入る（受け側は GN-U20。規約は coding-rules「ツール間の受け渡し」） |
 | TB-I8 | モーダルの開始日・期限（date input）で `Cmd/Ctrl+;` ／ 内容欄（text input）で同じキー ／ 変換中（isComposing）で同じキー | 日付欄は**今日がセットされ** change が飛ぶ ／ 内容欄はキャレット位置に今日の日付が入る ／ 変換中は何もしない（`lib/edit.js` の `mountTodayShortcut`） |
 
 追加の取り消し（Phase I。`applyOps` でバイト同一性、UI は `newSession` で照合）:
