@@ -28,7 +28,7 @@ lib/         web ツールの共通コード。ui.css / ui.js / storage.js / con
              同梱ライブラリは lib/vendor/（現在 mermaid のみ。作法は coding-rules.md）
 docs/        coding-rules.md（実装規約の正本）/ verification-notes.md（検証の罠）/
              ux-backlog.md / tool-backlog.md
-docs/specs/  ツールごとの仕様書兼テストケース（16本）
+docs/specs/  ツールごとの仕様書兼テストケース（16本＋ taskboard-decisions.md の計17ファイル）
 test/        検証ハーネス（`./test/run [ツール名]`。書き方は test/README.md）
 ```
 

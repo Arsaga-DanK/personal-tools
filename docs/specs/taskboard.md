@@ -1165,7 +1165,8 @@ Phase T/N で「セルクリック2回で期限を入れる」経路を第一級
   `obsidian://open?vault=<vault 名>&file=<encodeURIComponent(名前)>` の `<a>`。
   クリック時に Chrome の外部プロトコル確認ダイアログが出るのは仕様
   （タグ・依存のチップはリンクにしない — TB-R21）
-- **vault 名は設定値（2026-08-17・公開に伴う汎用化 — TB-Q56）**: `lib/config.js` の
+- **vault 名は設定値（2026-08-17・公開に伴う汎用化 — TB-Q60。
+  当初 TB-Q56 と書かれていたが、依存グラフの決定と番号が衝突していたため 2026-08-18 に採番し直した）**: `lib/config.js` の
   `vaultName`（`localStorage` の `tools:config`）。ツールバーの「vault 名」欄で編集し、
   保存は `change`（blur / Enter）。**既定は空 = 未設定**で、そのときは関連ノートを
   `<a>` にせず `<span class="chip">` として名前だけ出す（TB-R25）——
@@ -1946,7 +1947,9 @@ links=['2026-07-14_TODO','2026-07-21']・due='2026-08-05'・priority='high' /
 ## index.html への変更（監査提言4の同時実施）
 
 - TOOLS スキーマに `when`（いつ使うかの一言）を追加し、リスト項目の説明の下に muted で表示
-- taskboard 登録: `{ name: 'taskboard', path: 'web/taskboard.html', desc: 'vault の tasks.md（正本）を表形式で閲覧・編集 — 完了・期限・優先度、Excel用コピー', category: 'タスク', when: '朝の計画と期限付け・週次の棚卸し・Excel報告への転記' }`
+- taskboard 登録（**当時の値。表示名は 2026-08-17 の命名規約改定で `Plan Tasks` になり、
+  desc にも計画ビューが入った — 正本は index.html の TOOLS**):
+  `{ name: 'taskboard', path: 'web/taskboard.html', desc: 'vault の tasks.md（正本）を表形式で閲覧・編集 — 完了・期限・優先度、Excel用コピー', category: 'タスク', when: '朝の計画と期限付け・週次の棚卸し・Excel報告への転記' }`
 - 既存4ツールの `when`（案）: excel2md「Excel の表を設計書や議事録の Markdown に貼るとき／その逆」/ devpad「API レスポンスの整形・エンコード・時刻変換をその場で済ませたいとき」/ norm「顧客提供テキストや仕様書の表記ゆれを揃えるとき」/ diff「文言修正の前後比較や設計記述の突き合わせ」
 - 旧 md2excel のエントリは `when` なしのまま（表示側は欠落を許容）
 

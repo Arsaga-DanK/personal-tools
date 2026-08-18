@@ -21,6 +21,8 @@ CLAUDE.md（作業原則）と `docs/specs/`（ツール別契約）の間を埋
 | config.js | `ToolConfig.get/set/all` ＋ `normDir/normDirList` | **環境依存の設定**（vault 名・フォルダ構成）だけを置く。キーは `tools:config` 固定で全ツール共有。**ui.js → storage.js の後に読む**。追加した設定キーは既定を「無効」側に倒す（下記） |
 | excel.js | `copy(html, text)` / `cellStyle(value, {header, align})` / `MANGLE_RES` | Excel 向けコピーは**必ず二重フレーバー**（execCommand 先行 — async clipboard は mso- 系をサニタイズする）。文字列化ガードの正本はここ。**表の組み立て（th/td・rowspan）は各ツールに書く** |
 | sql.js | `SqlLex.tokenize` | 字句解析のみ共有。整形・キーワードは devpad 側 |
+| mmd.js | `ToolMmd.render(host, dsl)` / `toPngBlob(svg, scale)` | 同梱 mermaid のラッパ（diagram/gantt/mindmap）。**テーマ固定と `htmlLabels:false`（トップレベルと flowchart の両方）が正本** — foreignObject が残ると canvas での PNG 化が壊れる（実測） |
+| edit.js | `ToolEdit.tabIndent(el)` / `mountTodayShortcut()` / `today()` | 適用範囲の線引きは下の「UI の標準形」。**構造テキストの欄だけ**に入れる |
 
 - **共通化の条件**: 「同じ変更に N 箇所の編集が必要だった実測」または「2番目の利用者が生まれた瞬間」。
   美観・予感では抽出しない（見送り判断も tool-backlog / ux-backlog に記録する）

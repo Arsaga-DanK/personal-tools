@@ -209,7 +209,9 @@ UI（DX-U1〜U5）:
 
 ## index.html への登録
 
-`{ name: 'Outline', alias: 'doc2xl', path: 'web/doc2xl.html', desc: 'Markdown 文書の見出し階層 → Excel 用の階層表（大項目/中項目/小項目＋内容）— Markdown表・TSV 出力', category: '設計', when: '設計書を Markdown で下書きして、納品時に Excel の階層表へ移すとき' }`
+`{ name: 'Export Outline', alias: 'doc2xl', path: 'web/doc2xl.html', desc: 'Markdown 文書の見出し階層 → Excel 用の階層表（大項目/中項目/小項目＋内容）— Markdown表・TSV 出力', category: '設計', when: '設計書を Markdown で下書きして、納品時に Excel の階層表へ移すとき' }`
+
+（**表示名は 2026-08-17 の命名規約改定で `Outline` → `Export Outline`。正本は index.html の TOOLS**）
 
 ## 決定事項（DX-Q1〜Q8・2026-08-12 承認）
 

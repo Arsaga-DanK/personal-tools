@@ -175,12 +175,14 @@ osascript -e 'the clipboard as «class HTML»' # HTML フレーバーの退避
   → `browser_handle_dialog accept:true` で解除してから進める
 - **重い DOM 操作（千行描画・数 MB 入力）直後のデバウンス発火確認は 800ms 以上待つ**。
   400〜500ms ではイベントループ渋滞で偽 fail する（diff DIFF-11 / devpad DEV-16 で実測）
-- **`pagehide` で状態をフラッシュ保存するツール（devpad・ddl2spec・terms・fill・dates）への localStorage
+- **`pagehide` で状態をフラッシュ保存するツール（2026-08-18 時点で9本 — devpad・ddl2spec・terms・fill・
+  dates・board・diagram・mindmap・gantt。**増えるので実装側を `grep -l pagehide web/*.html` で確認する**）への localStorage
   注入・クリアのテスト**は、reload 前に `window.ToolStorage.save = () => true` で保存を止める。
   止めないとフラッシュが注入値を上書きして偽 fail する（devpad DEV-17 で実測。
   2026-08-13 に ddl2spec へフラッシュを足した際、`localStorage.clear()` → `reload()` の
   経路でも同じ罠を踏んだ — 消した値をフラッシュが書き戻し、復元でサンプルボタンが隠れて DS-17 が偽 fail）
-- **favicon 404 は解消済み**（2026-08-04 の UX 改善で全6ページに inline SVG data URI の favicon を追加）。
+- **favicon 404 は解消済み**（2026-08-04 の UX 改善で inline SVG data URI の favicon を追加。
+  当時6ページ・**現在はハブと web/16本の全17ページに搭載**）。
   「コンソールエラー0」判定に除外ルールは不要
 - **ドラッグ（pointer events）の実測3点**（2026-08-07・taskboard Phase T4。実装前に測って設計を決めた）:
   - `setPointerCapture` は file:// でも動く（要素の外へ出ても `pointermove` が届く）
@@ -252,7 +254,7 @@ osascript -e 'the clipboard as «class HTML»' # HTML フレーバーの退避
 **2026-08-17 に同じ型を2度目に踏んだ。** 命名規約の改定（`Tables` → `Convert Table`）で
 `f('ables')` がまた当たらなくなった。固定文字列を選び直す限りこれは繰り返す。
 **恒久対策として、クエリを TOOLS から導出する形に変えた**
-（`t.name.slice(1, -1)` で中間文字列を作り、全15本について自分自身に当たることを照合 — HUB-5b/HUB-9）。
+（`t.name.slice(1, -1)` で中間文字列を作り、**全16本**について自分自身に当たることを照合 — HUB-5b/HUB-9）。
 英名（`alias`）は「一度決めたら変更しない」規約なので、そちらを起点にすると陳腐化しない。
 
 - **兆候**: テストデータの偶然の性質（たまたま含まれる文字列）に依存している

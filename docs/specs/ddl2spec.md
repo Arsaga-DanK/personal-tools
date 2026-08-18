@@ -308,12 +308,12 @@ comment on column public.customer.code is '顧客コード';
 - `ALTER TABLE` / `CREATE VIEW` / `CREATE INDEX` / `CREATE TRIGGER` の解析（警告に出すだけ）
 - 他方言（MySQL / Oracle）
 - Excel ファイルの直接読み書き（クリップボード経由のコピーまで）
+- ER 図の生成 / DDL の実行 / DB への接続
 
 ## Excel 実機スモーク項目（書式付きコピー・2026-08-13）
 
 - ［Excel用コピー］→ Excel に貼り付けて**罫線とヘッダー背景（灰色）が付く**こと
 - `0.00`（既定値セル）が貼り付け後も `0.00` のままであること（`0` に化けない）
-- ER 図の生成 / DDL の実行 / DB への接続
 
 ## 決定事項（2026-08-06 承認）
 
