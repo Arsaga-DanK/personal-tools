@@ -28,44 +28,61 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
   const page = r.watch(await browser.newPage());
   await page.goto(fileUrl('index.html'));
 
-  /* ---------- 表示順 ---------- */
+  /* ---------- 表示順（2026-08-18: カテゴリごとに分けず1枚のグリッドに流す） ---------- */
   const order = await page.evaluate(() => {
     // 描画がデータどおりかの期待値は TOOLS × CATEGORY_ORDER から**導出**する
     // （表を二重に持つと片方だけ古くなる。ツールが増えてもこの照合は意味を保つ）
-    const byCat = new Map();
-    for (const t of window.hub.TOOLS) {
-      if (!byCat.has(t.category)) byCat.set(t.category, []);
-      byCat.get(t.category).push(t.name);
-    }
+    const rank = t => {
+      const i = window.hub.CATEGORY_ORDER.indexOf(t.category);
+      return i === -1 ? window.hub.CATEGORY_ORDER.length : i;
+    };
+    const expected = window.hub.TOOLS.slice()
+      .sort((a, b) => rank(a) - rank(b)
+        || window.hub.TOOLS.indexOf(a) - window.hub.TOOLS.indexOf(b))
+      .map(t => t.name);
     return {
-      // 描画されたカテゴリ見出しと、その下のツール名を出現順に取る
-      categories: Array.from(document.querySelectorAll('.category-title')).map(e => e.textContent),
-      groups: Array.from(document.querySelectorAll('ul.tool-list'))
-        .map(ul => Array.from(ul.querySelectorAll('.tool-name')).map(e => e.textContent)),
-      // 空のカテゴリは見出しごと出ない仕様なので filter で落とす
-      expectedGroups: window.hub.CATEGORY_ORDER.filter(c => byCat.has(c)).map(c => byCat.get(c)),
-      expectedCategories: window.hub.CATEGORY_ORDER.filter(c => byCat.has(c)),
+      // チップ（絞り込み）のラベルと件数。「すべて」が先頭
+      chips: Array.from(document.querySelectorAll('#chips .chip')).map(b => ({
+        cat: b.dataset.cat,
+        label: b.firstChild.textContent,
+        n: Number((b.querySelector('.n') || {}).textContent),
+        pressed: b.getAttribute('aria-pressed'),
+      })),
+      expectedChips: window.hub.CATEGORY_ORDER.map(c => ({
+        cat: c, n: window.hub.TOOLS.filter(t => t.category === c).length,
+      })),
+      grids: document.querySelectorAll('ul.tool-list').length,
+      rendered: Array.from(document.querySelectorAll('ul.tool-list .tool-name')).map(e => e.textContent),
+      expected,
       firstLink: document.querySelector('ul.tool-list .tool-name').textContent,
       toolsArray: window.hub.TOOLS.map(t => t.name),
     };
   });
-  r.check('HUB-1（カテゴリ順: タスクが先頭）', order.categories[0] === 'タスク'
-    && eq(order.categories, ['タスク', '変換・比較', '設計', '発想', '画像', '整理', 'PM']), JSON.stringify(order.categories));
+  r.check('HUB-1（チップ: 先頭が「すべて 16」・以降は CATEGORY_ORDER 順で件数つき）',
+    order.chips.length === order.expectedChips.length + 1
+    && order.chips[0].cat === '' && order.chips[0].n === 16 && order.chips[0].pressed === 'true'
+    && eq(order.chips.slice(1).map(c => ({ cat: c.cat, n: c.n })), order.expectedChips),
+    JSON.stringify(order.chips));
   r.check('HUB-2（Plan Tasks が最初のリンク）', order.firstLink === 'Plan Tasks', order.firstLink);
   // 前半は**意図的な固定ピン**（ツール追加・改名を意識的な仕様変更にする関門）。
-  // 後半は導出値との照合（描画ロジックが TOOLS × CATEGORY_ORDER に従っているか）
-  r.check('HUB-3（TOOLS 配列順が同カテゴリ内の表示順）',
+  // 後半は導出値との照合（描画順が TOOLS × CATEGORY_ORDER に従っているか）
+  r.check('HUB-3（グリッドは1枚・並びは CATEGORY_ORDER → TOOLS 配列順）',
     eq(order.toolsArray, ['Plan Tasks', 'Convert Table', 'Convert Data', 'Normalize Text', 'Compare Text', 'Unify Terms', 'Fill Template', 'Document Schema', 'Export Outline', 'Draw Diagram', 'Draw Mindmap', 'Sort Ideas', 'Mask Image', 'Check Vault', 'Calc Dates', 'Draw Gantt'])
-    && eq(order.groups, order.expectedGroups) && eq(order.categories, order.expectedCategories),
-    JSON.stringify([order.toolsArray, order.groups, order.expectedGroups]));
+    && order.grids === 1 && eq(order.rendered, order.expected),
+    JSON.stringify([order.grids, order.rendered, order.expected]));
 
   /* ---------- 全ツールが1回だけ載る ---------- */
   const listed = await page.evaluate(() => {
     const names = Array.from(document.querySelectorAll('ul.tool-list .tool-name')).map(e => e.textContent);
-    return { names, unique: new Set(names).size, total: window.hub.TOOLS.length, other: !!Array.from(document.querySelectorAll('.category-title')).find(e => e.textContent === 'その他') };
+    // 未知のカテゴリはチップに出す（無言で落とさない）。今は0件
+    const known = window.hub.CATEGORY_ORDER;
+    const unknownChips = Array.from(document.querySelectorAll('#chips .chip'))
+      .map(b => b.dataset.cat).filter(c => c !== '' && !known.includes(c));
+    return { names, unique: new Set(names).size, total: window.hub.TOOLS.length, unknownChips };
   });
-  r.check('HUB-4（登録した16本が重複なく全て載る・「その他」が出ない）',
-    listed.names.length === 16 && listed.unique === 16 && listed.total === 16 && !listed.other,
+  r.check('HUB-4（登録した16本が重複なく全て載る・未知カテゴリのチップが出ない）',
+    listed.names.length === 16 && listed.unique === 16 && listed.total === 16
+    && listed.unknownChips.length === 0,
     JSON.stringify(listed));
 
   /* ---------- 検索（純関数＋UI） ---------- */
@@ -190,7 +207,6 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     await page.waitForTimeout(80);
     return page.evaluate(() => ({
       names: Array.from(document.querySelectorAll('ul.tool-list .tool-name')).map(e => e.textContent),
-      categories: Array.from(document.querySelectorAll('.category-title')).map(e => e.textContent),
       empty: document.getElementById('empty-msg').hidden ? '' : document.getElementById('empty-msg').textContent,
     }));
   };
@@ -198,10 +214,38 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
   const s2 = await typeSearch('存在しない文字列');
   const s3 = await typeSearch('');
   r.check('HUB-6（UI 検索: 絞り込み・該当なし・クリアで復帰）',
-    eq(s1.names, ['Normalize Text']) && eq(s1.categories, ['変換・比較'])       // 空のカテゴリ見出しは出ない
+    eq(s1.names, ['Normalize Text'])
     && eq(s2.names, []) && s2.empty === '該当なし'
-    && eq(s3.names, ['Plan Tasks', 'Convert Table', 'Convert Data', 'Normalize Text', 'Compare Text', 'Unify Terms', 'Fill Template', 'Document Schema', 'Export Outline', 'Draw Diagram', 'Draw Mindmap', 'Sort Ideas', 'Mask Image', 'Check Vault', 'Calc Dates', 'Draw Gantt']) && s3.categories[0] === 'タスク',
+    && eq(s3.names, ['Plan Tasks', 'Convert Table', 'Convert Data', 'Normalize Text', 'Compare Text', 'Unify Terms', 'Fill Template', 'Document Schema', 'Export Outline', 'Draw Diagram', 'Draw Mindmap', 'Sort Ideas', 'Mask Image', 'Check Vault', 'Calc Dates', 'Draw Gantt']),
     JSON.stringify([s1, s2, s3]));
+
+  /* ---------- HUB-21: チップの絞り込み（検索と合成・もう一度押すと解除） ---------- */
+  const chipFilter = await page.evaluate(async () => {
+    const chip = cat => Array.from(document.querySelectorAll('#chips .chip'))
+      .find(b => b.dataset.cat === cat);
+    const names = () => Array.from(document.querySelectorAll('ul.tool-list .tool-name')).map(e => e.textContent);
+    const s = document.getElementById('search');
+    s.value = '';
+    s.dispatchEvent(new Event('input', { bubbles: true }));
+    chip('発想').click();
+    const only = { names: names(), pressed: chip('発想').getAttribute('aria-pressed'), all: chip('').getAttribute('aria-pressed') };
+    // 検索と合成する（チップで絞ったうえに文字で絞る）
+    s.value = 'Mindmap';
+    s.dispatchEvent(new Event('input', { bubbles: true }));
+    const combined = names();
+    s.value = '';
+    s.dispatchEvent(new Event('input', { bubbles: true }));
+    // 押されているチップをもう一度押すと解除
+    chip('発想').click();
+    const released = { names: names(), pressed: chip('発想').getAttribute('aria-pressed') };
+    return { only, combined, released };
+  });
+  r.check('HUB-21（チップで絞る・検索と合成・再押下で解除・aria-pressed が追随）',
+    eq(chipFilter.only.names, ['Draw Mindmap', 'Sort Ideas'])
+    && chipFilter.only.pressed === 'true' && chipFilter.only.all === 'false'
+    && eq(chipFilter.combined, ['Draw Mindmap'])
+    && chipFilter.released.names.length === 16 && chipFilter.released.pressed === 'false',
+    JSON.stringify(chipFilter));
 
   /* ---------- リンク遷移（全ツール） ---------- */
   // 期待値は TOOLS から導出する（表を二重に持つと片方だけ古くなる）

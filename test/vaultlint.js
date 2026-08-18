@@ -401,7 +401,7 @@ const IDEO_SPACE = '\u3000';
   /* ========== ハブ導線 ========== */
   await page.goto(fileUrl('index.html'));
   const hubCats = await page.evaluate(() =>
-    Array.from(document.querySelectorAll('.category-title')).map(e => e.textContent));
+    Array.from(document.querySelectorAll('#chips .chip')).map(e => e.dataset.cat));
   await page.click('ul.tool-list .tool-name:text-is("Check Vault")');
   await page.waitForLoadState('load');
   const hubTitle = await page.title();

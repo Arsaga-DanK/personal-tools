@@ -433,7 +433,7 @@ const { launch, fileUrl, createRunner, eq, bannerIs } = require('./helpers');
   /* ========== DX-18: ハブ導線 ========== */
   await page.goto(fileUrl('index.html'));
   const hubCats = await page.evaluate(() =>
-    Array.from(document.querySelectorAll('.category-title')).map(e => e.textContent));
+    Array.from(document.querySelectorAll('#chips .chip')).map(e => e.dataset.cat));
   await page.click('ul.tool-list .tool-name:text-is("Export Outline")');
   await page.waitForLoadState('load');
   const hubTitle = await page.title();

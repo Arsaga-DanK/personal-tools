@@ -514,7 +514,7 @@ const GENERATED_DDL = [
   /* ========== DS-19: ハブ導線 ========== */
   await page.goto(fileUrl('index.html'));
   const s19cat = await page.evaluate(() =>
-    Array.from(document.querySelectorAll('.category-title')).map(e => e.textContent));
+    Array.from(document.querySelectorAll('#chips .chip')).map(e => e.dataset.cat));
   await page.click('ul.tool-list .tool-name:text-is("Document Schema")');
   await page.waitForLoadState('load');
   const s19title = await page.title();

@@ -8,85 +8,138 @@
 <link rel="stylesheet" href="lib/ui.css">
 <style>
   /* ハブ固有のコンテンツ描画スタイル（ui.css クラスの再定義はしない）。
-     2026-08-18: カード（アイコン＋名前＋一言）のグリッド。カテゴリ名は行の左に置いて
-     見出し行ぶんの高さを使わない — 16本を1画面に近づけるため（HUB-17/18） */
+     2026-08-18 の3回目の作り直し。**カテゴリごとにグリッドを分けるのをやめた** —
+     7カテゴリ中4つが1〜2本しかなく、5列の升目に流すと空きが24（充填率40%）になり、
+     右側に穴が並ぶのが「見にくい」の主因だった（調査で実測）。
+     16 = 4×4 なので列数を 4→2→1 に固定すると余りが出ない。カテゴリは絞り込みチップが担う。
+     GitHub Marketplace / Raycast / Linear の実装調査から:
+     - 影は立てず枠と面で見せる・ホバーは**面色だけ**変える（動かさない・文字色を変えない）
+     - アイコンは角丸タイルに載せて内側1pxリングを敷く（絵文字ごとの濃さの差を吸収する） */
   #search { width: 100%; max-width: 420px; padding: 9px 14px; font-size: 14px; border-radius: 999px; }
 
-  .cat-row { display: flex; align-items: flex-start; gap: 12px; margin: 0 0 6px; }
-  .category-title {
-    flex: 0 0 74px;
-    text-align: right;
-    font-size: 11px; color: var(--muted); font-weight: 700;
-    margin: 0; padding-top: 22px;
-    text-transform: uppercase; letter-spacing: .06em;
+  #chips, #list, #recent {
+    --tile: 42px;
+    --tint: 28%;          /* タイルの塗りの濃さ */
+    --ring: 55%;          /* タイルの内側リング */
+    --muted-card: var(--muted);
+    --edge: var(--border);
   }
+  @media (prefers-color-scheme: dark) {
+    #chips, #list, #recent {
+      --tint: 34%;
+      --ring: 60%;
+      --muted-card: #aab4c8;   /* --muted は面 --panel に対し 4.06:1 で AA 不合格（実測） */
+      --edge: #5c6880;         /* --border は面との差 1.36:1 で、影なしのダークだと輪郭が消える */
+    }
+  }
+
+  /* カテゴリ色（Nord）。色は補助で、意味はチップと title が担う */
+  [data-cat="タスク"] { --cat: #a3be8c; }
+  [data-cat="変換・比較"] { --cat: #81a1c1; }
+  [data-cat="設計"] { --cat: #5e81ac; }
+  [data-cat="発想"] { --cat: #b48ead; }
+  [data-cat="画像"] { --cat: #d08770; }
+  [data-cat="整理"] { --cat: #8fbcbb; }
+  [data-cat="PM"] { --cat: #d9a441; }
+
+  /* 絞り込みチップ（件数つき = 目次も兼ねる） */
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0 10px; }
+  .chip {
+    font: inherit;
+    font-size: 12px; font-weight: 600; line-height: 1;
+    padding: 7px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--edge);
+    background: var(--panel);
+    color: var(--muted-card);
+    cursor: pointer;
+    box-shadow: none;
+    transition: background-color .15s, border-color .15s, color .15s;
+  }
+  .chip:hover { transform: none; box-shadow: none; color: var(--text); border-color: color-mix(in srgb, var(--accent) 45%, var(--edge)); }
+  .chip .n { font-weight: 400; opacity: .75; margin-left: 5px; }
+  .chip[aria-pressed="true"] {
+    background: color-mix(in srgb, var(--accent) 14%, var(--panel));
+    border-color: color-mix(in srgb, var(--accent) 50%, var(--edge));
+    color: var(--text);
+  }
+
+  /* カードのグリッド（16 = 4×4。auto-fit は使わない — 数が減った行でカードが伸びるため） */
   ul.tool-list {
-    flex: 1;
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
-    gap: 8px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
     list-style: none; margin: 0; padding: 0;
   }
+  @media (max-width: 980px) { ul.tool-list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 560px) { ul.tool-list { grid-template-columns: minmax(0, 1fr); } }
   ul.tool-list li { margin: 0; }
+
   /* リンクがカードいっぱいに広がる = どこを押しても開く（HUB-14） */
   ul.tool-list a {
-    display: flex;
+    display: grid;
+    grid-template-columns: var(--tile) 1fr;
+    column-gap: 12px;
     align-items: center;
-    gap: 10px;
+    min-height: 76px;
     height: 100%;
-    padding: 8px 13px;
+    padding: 13px 16px 13px 13px;
     background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 12px;
+    border: 1px solid var(--edge);
+    border-radius: 10px;
     box-shadow: var(--shadow);
     color: var(--text);
     text-decoration: none;
-    transition: border-color .15s, box-shadow .15s, transform .1s;
+    transition: background-color .15s, border-color .15s;
   }
-  ul.tool-list a:hover {
-    border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
-    box-shadow: var(--shadow-hover);
-    transform: translateY(-1px);
+  /* ホバーは面と枠だけ（文字色を変えるとコントラストが 12.5:1 → 4.0:1 に落ちる — 調査で実測） */
+  ul.tool-list a:hover, ul.tool-list a:focus-visible {
+    background: color-mix(in srgb, var(--accent) 7%, var(--panel));
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--edge));
   }
-  ul.tool-list .icon { font-size: 20px; line-height: 1; flex: none; }
+  .icon {
+    width: var(--tile); height: var(--tile);
+    display: grid; place-items: center;
+    font-size: 23px; line-height: 1;
+    border-radius: 11px;
+    background: color-mix(in srgb, var(--cat, var(--accent)) var(--tint), var(--panel));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cat, var(--accent)) var(--ring), transparent);
+    flex: none;
+  }
   ul.tool-list .body { min-width: 0; }
-  ul.tool-list .tool-name { font-weight: 650; font-size: 14px; }
-  ul.tool-list a:hover .tool-name { color: var(--accent); }
-  ul.tool-list .short { color: var(--muted); font-size: 11.5px; line-height: 1.3; margin-top: 1px; }
-
-  /* 最近使った: 同じカードを小さくした形（直前に開いたものなので一言は要らない） */
-  #recent { margin: 12px 0 4px; }
-  .recent-title {
-    font-size: 11px; color: var(--muted); margin: 0 0 5px; font-weight: 700;
-    text-transform: uppercase; letter-spacing: .06em;
+  /* 1行に収める（長い一言でも行の高さが揃う = カードの高さが暴れない） */
+  ul.tool-list .tool-name,
+  ul.tool-list .short {
+    display: block;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    line-height: 1.35;
   }
+  ul.tool-list .tool-name { font-size: 15px; font-weight: 600; color: var(--text); }
+  ul.tool-list .short { font-size: 13px; color: var(--muted-card); }
+
+  /* 最近使った: カードを小さくした形（直前に開いたものなので一言は要らない） */
+  #recent { margin: 12px 0 2px; }
+  .recent-title { font-size: 11px; color: var(--muted-card); margin: 0 0 6px; font-weight: 700; }
   ul.recent-list { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; margin: 0; padding: 0; }
   ul.recent-list li { margin: 0; }
   ul.recent-list a {
-    display: flex; align-items: center; gap: 8px;
-    padding: 7px 13px;
+    display: flex; align-items: center; gap: 9px;
+    padding: 6px 13px 6px 7px;
     background: var(--panel);
-    border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
-    border-radius: 12px;
+    border: 1px solid var(--edge);
+    border-radius: 10px;
     box-shadow: var(--shadow);
-    color: var(--accent);
-    font-weight: 650; font-size: 13.5px;
+    color: var(--text);
+    font-weight: 600; font-size: 13px;
     text-decoration: none;
-    transition: border-color .15s, box-shadow .15s, transform .1s;
+    transition: background-color .15s, border-color .15s;
   }
-  ul.recent-list a:hover {
-    border-color: var(--accent);
-    box-shadow: var(--shadow-hover);
-    transform: translateY(-1px);
+  ul.recent-list a:hover, ul.recent-list a:focus-visible {
+    background: color-mix(in srgb, var(--accent) 7%, var(--panel));
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--edge));
   }
-  ul.recent-list .icon { font-size: 16px; line-height: 1; }
-  #empty-msg { color: var(--muted); margin-top: 24px; }
-
-  /* 狭幅ではカテゴリ名を行の上に置く（左に置くとカードが潰れる） */
-  @media (max-width: 640px) {
-    .cat-row { flex-direction: column; gap: 4px; }
-    .category-title { flex: none; text-align: left; padding-top: 6px; }
-  }
+  ul.recent-list .icon { --tile: 26px; font-size: 15px; border-radius: 7px; }
+  #empty-msg { color: var(--muted-card); margin-top: 24px; }
 </style>
 </head>
 <body>
@@ -98,6 +151,7 @@
     <p class="recent-title">最近使った</p>
     <ul class="recent-list"></ul>
   </div>
+  <div id="chips" class="chips" role="group" aria-label="カテゴリで絞り込み"></div>
   <div id="list"></div>
   <p id="empty-msg" hidden></p>
 </main>
@@ -167,6 +221,7 @@ const emptyEl = document.getElementById('empty-msg');
 const searchEl = document.getElementById('search');
 const recentEl = document.getElementById('recent');
 const recentListEl = recentEl.querySelector('ul.recent-list');
+const chipsEl = document.getElementById('chips');
 
 /* ---------- 最近使った（tools:hub） ----------
    16本になり「カテゴリの中から目で探す」のが面倒になったため（利用者 2026-08-18）。
@@ -196,6 +251,7 @@ function makeCard(tool, compact) {
   a.href = tool.path;
   // 長い説明と用途は画面に出さず、ここ（マウスオーバー）と検索にだけ残す
   a.title = tool.desc + (tool.when ? '\nいつ使う: ' + tool.when : '');
+  a.dataset.cat = tool.category || '';   // タイルの色（意味はチップと title が担う — 色だけに頼らない）
   const icon = document.createElement('span');
   icon.className = 'icon';
   icon.textContent = tool.icon || '';
@@ -212,7 +268,6 @@ function makeCard(tool, compact) {
     short.className = 'short';
     short.textContent = tool.short || '';
     body.appendChild(name);
-    body.appendChild(document.createElement('br'));
     body.appendChild(short);
     a.appendChild(body);
   }
@@ -239,6 +294,16 @@ document.addEventListener('keydown', e => {
   searchEl.focus();
 });
 
+// 表示順: CATEGORY_ORDER の順（同カテゴリが隣り合うのでタイルの色が帯になって群が見える）。
+// CATEGORY_ORDER 外のカテゴリ（typo 等）は末尾に置いて無言で落とさない
+function inOrder(tools) {
+  const rank = t => {
+    const i = CATEGORY_ORDER.indexOf(t.category);
+    return i === -1 ? CATEGORY_ORDER.length : i;
+  };
+  return tools.slice().sort((a, b) => rank(a) - rank(b) || TOOLS.indexOf(a) - TOOLS.indexOf(b));
+}
+
 function render(tools) {
   listEl.textContent = '';
   if (TOOLS.length === 0) {
@@ -253,31 +318,53 @@ function render(tools) {
   }
   emptyEl.hidden = true;
 
-  const renderGroup = (title, items) => {
-    if (items.length === 0) return;
-    // カテゴリ名は行の左（狭幅では上）。見出し1行分の高さを使わずに済む
-    const row = document.createElement('div');
-    row.className = 'cat-row';
-    const titleEl = document.createElement('p');
-    titleEl.className = 'category-title';
-    titleEl.textContent = title;
-    row.appendChild(titleEl);
-
-    const ul = document.createElement('ul');
-    ul.className = 'tool-list';
-    for (const t of items) ul.appendChild(makeCard(t, false));
-    row.appendChild(ul);
-    listEl.appendChild(row);
-  };
-
-  for (const cat of CATEGORY_ORDER) {
-    renderGroup(cat, tools.filter(t => t.category === cat));
-  }
-  // CATEGORY_ORDER 外のカテゴリ（typo 等）を無言で落とさない
-  renderGroup('その他', tools.filter(t => !CATEGORY_ORDER.includes(t.category)));
+  // カテゴリごとに分けず**1枚のグリッド**に流す（分けると升目の6割が空く — 2026-08-18 の調査）
+  const ul = document.createElement('ul');
+  ul.className = 'tool-list';
+  for (const t of inOrder(tools)) ul.appendChild(makeCard(t, false));
+  listEl.appendChild(ul);
 }
 
-searchEl.addEventListener('input', () => render(filter(searchEl.value)));
+/* ---------- カテゴリの絞り込みチップ（件数つき = 目次も兼ねる） ---------- */
+
+let catFilter = null;   // null = すべて
+
+// 検索文字列とチップの両方を通した結果（合成する）
+function visibleTools() {
+  return filter(searchEl.value).filter(t => catFilter === null || t.category === catFilter);
+}
+
+function makeChip(label, cat, count) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'chip';
+  b.dataset.cat = cat === null ? '' : cat;
+  b.setAttribute('aria-pressed', String(catFilter === cat));
+  b.appendChild(document.createTextNode(label));
+  const n = document.createElement('span');
+  n.className = 'n';
+  n.textContent = String(count);
+  b.appendChild(n);
+  b.addEventListener('click', () => {
+    catFilter = catFilter === cat ? null : cat;   // 押されているチップをもう一度押すと解除
+    renderChips();
+    render(visibleTools());
+  });
+  return b;
+}
+
+function renderChips() {
+  chipsEl.textContent = '';
+  chipsEl.appendChild(makeChip('すべて', null, TOOLS.length));
+  const cats = CATEGORY_ORDER.concat(
+    TOOLS.map(t => t.category).filter(c => !CATEGORY_ORDER.includes(c)));
+  for (const cat of cats) {
+    const n = TOOLS.filter(t => t.category === cat).length;
+    if (n > 0) chipsEl.appendChild(makeChip(cat, cat, n));
+  }
+}
+
+searchEl.addEventListener('input', () => render(visibleTools()));
 
 // Enter で先頭のツールを開く（打つ → Enter だけで到達できる）。
 // **IME ガード必須** — 変換確定の Enter でページ遷移させない（taskboard TB-I の教訓）
@@ -291,13 +378,14 @@ searchEl.addEventListener('keydown', e => {
 
 loadRecent();
 renderRecent();
+renderChips();
 render(TOOLS);
 ToolStorage.mountWarning();
 searchEl.focus();   // 開いた瞬間から打てる（探すより打つ方が速い）
 
-// テスト用フック。CATEGORY_ORDER も公開する — ハーネスが「描画されたグループが
+// テスト用フック。CATEGORY_ORDER も公開する — ハーネスが「描画された並びが
 // TOOLS × CATEGORY_ORDER どおりか」を**導出して**照合するため（期待値の二重管理を避ける）
-window.hub = { TOOLS, CATEGORY_ORDER, filter, recordUse };
+window.hub = { TOOLS, CATEGORY_ORDER, filter, recordUse, inOrder };
 </script>
 </body>
 </html>
