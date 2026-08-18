@@ -46,6 +46,7 @@
 
 <script src="../lib/ui.js"></script>
 <script src="../lib/storage.js"></script>
+<script src="../lib/handoff.js"></script>
 <script src="../lib/edit.js"></script>
 <script src="../lib/vendor/mermaid.min.js"></script>
 <script src="../lib/mmd.js"></script>
@@ -287,6 +288,12 @@ el('sample-btn').addEventListener('click', () => {
 });
 
 restore();
+// 他ツールからの受け渡しを取り込む（sessionStorage の一時バッファ・取り出したら消える —
+// coding-rules「ツール間の受け渡し」）
+{
+  const handoff = window.ToolHandoff && ToolHandoff.take('mindmap');
+  if (handoff && handoff.text) el('input').value = handoff.text;
+}
 updateSampleBtn();
 if (el('input').value !== '') render(el('input').value);
 ToolStorage.mountWarning();

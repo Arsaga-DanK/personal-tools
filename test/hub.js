@@ -446,6 +446,117 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     && enterNav.afterIme === null && enterNav.navigated === 'Draw Gantt',
     JSON.stringify(enterNav));
 
+  /* ---------- HUB-22: データから探す（判定は純関数・候補は受け取れるツールだけ） ---------- */
+  await page.goto(fileUrl('index.html'));
+  const route = await page.evaluate(() => {
+    const f = window.hub.routeText;
+    const aliases = t => f(t).map(x => x.alias);
+    return {
+      json: aliases('{"a":1,"b":[2,3]}'),
+      ddl: aliases('CREATE TABLE t (id int);\nCOMMENT ON TABLE t IS \'x\';'),
+      plan: aliases('内容\t開始日\t期限\t日数\t状態\tセクション\nA\t2026-08-18\t2026-08-22\t5\t未着手\t設計'),
+      tasks: aliases('- [ ] 基本設計 \u{1F6EB} 2026-08-18 \u{1F4C5} 2026-08-22'),
+      mdHead: aliases('# 機能一覧\n## 商品管理\n- 検索できる'),
+      bullets: aliases('- 枝A\n- 枝B\n  - 葉'),
+      tsv: aliases('見出し1\t見出し2\nA\tB\nC\tD'),
+      mdTable: aliases('| a | b |\n|---|---|\n| 1 | 2 |'),
+      mermaid: aliases('graph TD; A-->B;'),
+      empty: aliases('   '),
+      prose: aliases('ただの文章です。行き先は決められません。'),
+      // 候補は必ず「受け取れる実装がある」ツールだけ（出して受け取れないのは嘘）
+      allReceivable: ['{"a":1}', '# 見出し\n- x', 'a\tb\nc\td', 'CREATE TABLE t (id int);']
+        .flatMap(t => f(t)).every(h => window.hub.RECEIVERS.includes(h.alias)),
+      // 「なぜそこに行けるか」が必ず付く
+      hasWhy: f('# 見出し\n- x').every(h => typeof h.why === 'string' && h.why.length > 0),
+    };
+  });
+  r.check('HUB-22（routeText: JSON/DDL/計画表/tasks.md/md見出し/箇条書き/TSV/md表/mermaid を判定・不明は空・候補は受け取れるツールだけ）',
+    eq(route.json, ['devpad']) && eq(route.ddl, ['ddl2spec'])
+    && eq(route.plan, ['gantt', 'excel2md'])   // 計画表はタブ区切りでもあるので表としても行ける
+    && eq(route.tasks, ['gantt'])
+    && eq(route.mdHead, ['doc2xl', 'mindmap'])   // どちらもあり得るので両方出す
+    && eq(route.bullets, ['mindmap'])
+    && eq(route.tsv, ['excel2md']) && eq(route.mdTable, ['excel2md'])
+    && eq(route.mermaid, ['diagram'])
+    && eq(route.empty, []) && eq(route.prose, [])
+    && route.allReceivable === true && route.hasWhy === true,
+    JSON.stringify(route));
+
+  /* ---------- HUB-23: 貼って押すとデータを持って遷移する ---------- */
+  const routeUi = await page.evaluate(() => {
+    const toggle = document.getElementById('router-toggle');
+    const before = { hidden: document.getElementById('router').hidden, expanded: toggle.getAttribute('aria-expanded') };
+    toggle.click();
+    const after = { hidden: document.getElementById('router').hidden, expanded: toggle.getAttribute('aria-expanded') };
+    const ta = document.getElementById('router-in');
+    ta.value = 'CREATE TABLE t (id int);';
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    const names = Array.from(document.querySelectorAll('#router-out .tool-name')).map(e => e.textContent);
+    const whys = Array.from(document.querySelectorAll('#router-out .short')).map(e => e.textContent);
+    // 押しても遷移させない（handoff の書き込みだけ見る）
+    sessionStorage.removeItem('tools:handoff');
+    const a = document.querySelector('#router-out a');
+    a.addEventListener('click', e => e.preventDefault(), { once: true });
+    a.click();
+    const raw = sessionStorage.getItem('tools:handoff');
+    const d = raw ? JSON.parse(raw) : null;
+    sessionStorage.removeItem('tools:handoff');
+    return { before, after, names, whys, to: d && d.to, text: d && d.text, recent: JSON.parse(localStorage.getItem('tools:hub') || '{}') };
+  });
+  r.check('HUB-23（データから探す: 開閉・候補カードに理由・押すと handoff にデータが入り最近使ったにも記録）',
+    routeUi.before.hidden === true && routeUi.before.expanded === 'false'
+    && routeUi.after.hidden === false && routeUi.after.expanded === 'true'
+    && eq(routeUi.names, ['Document Schema'])
+    && routeUi.whys.length === 1 && routeUi.whys[0].includes('定義書')
+    && routeUi.to === 'ddl2spec' && routeUi.text === 'CREATE TABLE t (id int);',
+    JSON.stringify(routeUi));
+
+  /* ---------- HUB-24: 貼る → 候補を押す → 受け側にデータが入る（実機通し・6ツール） ----------
+     「候補に出るのに受け取れない」は嘘になるので、**受け側の実装まで通して**確かめる。
+     使い捨ての手動確認にせずここへ残す（CLAUDE.md 検証の作法） */
+  const HANDOFF_CASES = [
+    ['{"a":1,"b":[2,3]}', 'Convert Data', 'devpad', 'json-in'],
+    ['CREATE TABLE t (id int);', 'Document Schema', 'ddl2spec', 'input'],
+    ['# 見出し\n- 項目', 'Export Outline', 'doc2xl', 'input'],
+    ['- 枝A\n- 枝B\n  - 葉', 'Draw Mindmap', 'mindmap', 'input'],
+    ['graph TD; A-->B;', 'Draw Diagram', 'diagram', 'input'],
+    ['a\tb\nc\td', 'Convert Table', 'excel2md', 'input'],
+  ];
+  const handoffResults = [];
+  for (const [text, name, alias, inputId] of HANDOFF_CASES) {
+    await page.goto(fileUrl('index.html'));
+    await page.evaluate(() => { sessionStorage.clear(); });
+    await page.click('#router-toggle');
+    await page.evaluate(t => {
+      const ta = document.getElementById('router-in');
+      ta.value = t;
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+    }, text);
+    const clicked = await page.evaluate(n => {
+      const a = Array.from(document.querySelectorAll('#router-out a'))
+        .find(x => (x.querySelector('.tool-name') || {}).textContent === n);
+      if (!a) return false;
+      a.click();
+      return true;
+    }, name);
+    if (!clicked) { handoffResults.push({ alias, ok: false, why: '候補に出ない' }); continue; }
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(600);
+    const got = await page.evaluate(id => {
+      const e = document.getElementById(id);
+      return { value: e ? e.value : null, leftover: sessionStorage.getItem('tools:handoff') };
+    }, inputId);
+    handoffResults.push({
+      alias,
+      // 受け側の入力欄に渡した文字列が入り、handoff は消えている（戻っても再挿入されない）
+      ok: got.value === text && got.leftover === null,
+      got: got.value === text ? '' : got,
+    });
+  }
+  r.check('HUB-24（貼る→候補を押す→6ツールすべてで受け側の入力に入り handoff は消える）',
+    handoffResults.length === 6 && handoffResults.every(x => x.ok),
+    JSON.stringify(handoffResults.filter(x => !x.ok)));
+
   await browser.close();
   r.report('ハブ（index.html）');
 })().catch(e => {

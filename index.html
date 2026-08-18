@@ -17,7 +17,7 @@
      - アイコンは角丸タイルに載せて内側1pxリングを敷く（絵文字ごとの濃さの差を吸収する） */
   #search { width: 100%; max-width: 420px; padding: 9px 14px; font-size: 14px; border-radius: 999px; }
 
-  #chips, #list, #recent {
+  #chips, #list, #recent, #router-out {
     --tile: 46px;
     --tint: 28%;          /* タイルの塗りの濃さ */
     --ring: 55%;          /* タイルの内側リング */
@@ -25,7 +25,7 @@
     --edge: var(--border);
   }
   @media (prefers-color-scheme: dark) {
-    #chips, #list, #recent {
+    #chips, #list, #recent, #router-out {
       --tint: 34%;
       --ring: 60%;
       --muted-card: #aab4c8;   /* --muted は面 --panel に対し 4.06:1 で AA 不合格（実測） */
@@ -144,13 +144,39 @@
   }
   ul.recent-list .icon { --tile: 26px; font-size: 15px; border-radius: 7px; }
   #empty-msg { color: var(--muted-card); margin-top: 24px; }
+
+  /* データから探す（貼ったものの行き先を出す）。既定は折りたたみ = 1画面を崩さない */
+  .search-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  #router-toggle { font-size: 12px; padding: 7px 12px; border-radius: 999px; }
+  #router-toggle[aria-expanded="true"] {
+    background: color-mix(in srgb, var(--accent) 14%, var(--panel));
+    border-color: color-mix(in srgb, var(--accent) 50%, var(--edge));
+  }
+  #router { margin: 10px 0 0; }
+  #router textarea {
+    width: 100%; min-height: 96px; font-size: 13px;
+    border-radius: 12px; border: 1px solid var(--edge); background: var(--panel);
+    color: var(--text); padding: 10px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  #router-out { margin: 8px 0 0; }
+  #router-out .why { font-size: 12px; color: var(--muted-card); margin: 0 0 6px; }
 </style>
 </head>
 <body>
 <main class="app-wide">
   <h1>Personal Tools</h1>
   <p class="subtitle">打ち始めると絞り込み・Enter で先頭を開く（詳しい説明はマウスを乗せると出ます）</p>
-  <input type="text" id="search" placeholder="検索（名前・説明・用途・カテゴリ。/ でフォーカス）" autocomplete="off">
+  <div class="search-row">
+    <input type="text" id="search" placeholder="検索（名前・説明・用途・カテゴリ。/ でフォーカス）" autocomplete="off">
+    <button type="button" id="router-toggle" aria-expanded="false" aria-controls="router"
+      title="Excelの表・JSON・DDL・tasks.md などを貼ると、行ける道具が出ます">データから探す</button>
+  </div>
+  <div id="router" hidden>
+    <textarea id="router-in" spellcheck="false" aria-label="データを貼り付け"
+      placeholder="ここに貼り付け — Excel の表 / JSON / CREATE TABLE / tasks.md / md の見出し / mermaid など"></textarea>
+    <div id="router-out"></div>
+  </div>
   <div id="recent" hidden>
     <p class="recent-title">最近使った</p>
     <ul class="recent-list"></ul>
@@ -161,6 +187,7 @@
 </main>
 
 <script src="lib/storage.js"></script>
+<script src="lib/handoff.js"></script>
 <script>
 'use strict';
 
@@ -218,6 +245,58 @@ function filter(query) {
     (t.short || '').toLowerCase().includes(q) ||
     t.desc.toLowerCase().includes(q) || (t.when || '').toLowerCase().includes(q) ||
     (t.category || '').toLowerCase().includes(q));
+}
+
+/* ---------- データから探す（貼ったものの行き先を決める・2026-08-18） ----------
+   16本のうち11本が「貼る」から始まるのに、ツール名を知らないと辿り着けなかった
+   （診断: ツール間リンク0本）。**受け取れるツールだけを候補に出す**（出して受け取れないのは嘘）。
+   判定は決め打ちにせず**候補を複数出して選ばせる**（md の見出しはアウトラインとも読める）。 */
+
+// 受け取り側を実装済みのツールだけ（lib/handoff.js の take を呼んでいるもの）
+const RECEIVERS = ['excel2md', 'devpad', 'ddl2spec', 'doc2xl', 'mindmap', 'diagram', 'gantt'];
+
+// 純関数: 貼ったテキスト → [{alias, why}]（確度の高い順）。テストフックで公開する
+function routeText(text) {
+  const t = String(text == null ? '' : text);
+  const body = t.trim();
+  if (body === '') return [];
+  const lines = body.split('\n');
+  const out = [];
+  const add = (alias, why) => {
+    if (RECEIVERS.includes(alias) && !out.some(x => x.alias === alias)) out.push({ alias, why });
+  };
+
+  // 形式がはっきり分かるものを先に
+  if (/^\s*[{[]/.test(body)) add('devpad', 'JSON として整形・検証できます');
+  if (/^\s*<\?xml|^\s*<[a-zA-Z]/.test(body)) add('devpad', 'XML として整形できます');
+  if (/\b(CREATE\s+TABLE|COMMENT\s+ON)\b/i.test(body)) add('ddl2spec', 'DDL からテーブル定義書を起こせます');
+  if (/^\s*(SELECT|INSERT|UPDATE|DELETE|WITH)\b/i.test(body)) add('devpad', 'SQL として整形できます');
+  if (/```\s*mermaid|^\s*(graph|flowchart|sequenceDiagram|stateDiagram|classDiagram|erDiagram|gantt|mindmap)\b/m.test(body)) {
+    add('diagram', 'mermaid の図として描けます');
+  }
+  // taskboard の「計画をコピー」= ガントに直行できる
+  if (/^内容\t開始日\t期限\t日数\t状態\tセクション/.test(body)) add('gantt', '計画表からガント画像を作れます');
+  // tasks.md（Obsidian Tasks 記法）
+  if (lines.some(l => /^\s*(\t*)- \[.\] /.test(l))) {
+    if (/[\u{1F6EB}\u{1F4C5}]/u.test(body)) add('gantt', 'タスクの日付からガント画像を作れます');
+  }
+  // md の見出し → 階層表 or マインドマップ（どちらもあり得るので両方出す）
+  if (/^#{1,6} /m.test(body)) {
+    add('doc2xl', '見出し階層を Excel 用の表にできます');
+    add('mindmap', '見出しと箇条書きをマインドマップにできます');
+  }
+  // 箇条書きだけ（見出しが無い）→ マインドマップ
+  if (!/^#{1,6} /m.test(body) && lines.filter(l => /^\s*([-*+]|\d+[.)])\s/.test(l)).length >= 2) {
+    add('mindmap', '箇条書きをマインドマップにできます');
+  }
+  // 表: md テーブル or タブ区切りの複数行
+  if (lines.length >= 2 && lines.filter(l => l.trim().startsWith('|')).length >= 2) {
+    add('excel2md', 'Markdown の表を Excel 用に戻せます');
+  }
+  if (lines.length >= 2 && lines.filter(l => l.includes('\t')).length >= 2) {
+    add('excel2md', 'タブ区切りの表を Markdown にできます');
+  }
+  return out;
 }
 
 const listEl = document.getElementById('list');
@@ -368,6 +447,55 @@ function renderChips() {
   }
 }
 
+/* ---------- 振り分けの UI ---------- */
+
+const routerEl = document.getElementById('router');
+const routerToggleEl = document.getElementById('router-toggle');
+const routerInEl = document.getElementById('router-in');
+const routerOutEl = document.getElementById('router-out');
+
+function renderRoute() {
+  routerOutEl.textContent = '';
+  const text = routerInEl.value;
+  if (text.trim() === '') return;
+  const hits = routeText(text);
+  const note = document.createElement('p');
+  note.className = 'why';
+  if (hits.length === 0) {
+    note.textContent = '行き先が判定できませんでした（そのままツールを選んで貼ってください）';
+    routerOutEl.appendChild(note);
+    return;
+  }
+  note.textContent = '貼ったデータの行き先（押すとデータを持って開きます）';
+  routerOutEl.appendChild(note);
+  const ul = document.createElement('ul');
+  ul.className = 'tool-list';
+  for (const hit of hits) {
+    const t = TOOLS.find(x => x.alias === hit.alias);
+    if (!t) continue;
+    // カードは一覧と同じ形。ただし一言は「なぜここに行けるか」に差し替える
+    const card = makeCard(Object.assign({}, t, { short: hit.why }), false);
+    const a = card.querySelector('a');
+    a.href = '#';
+    a.addEventListener('click', e => {
+      e.preventDefault();
+      recordUse(t.alias);
+      ToolHandoff.send(t.alias, 'router', text, t.path);
+    });
+    ul.appendChild(card);
+  }
+  routerOutEl.appendChild(ul);
+}
+
+routerToggleEl.addEventListener('click', () => {
+  const open = routerEl.hidden;
+  routerEl.hidden = !open;
+  routerToggleEl.setAttribute('aria-expanded', String(open));
+  if (open) routerInEl.focus();
+});
+routerInEl.addEventListener('input', renderRoute);
+routerInEl.addEventListener('paste', () => setTimeout(renderRoute, 0));
+
 searchEl.addEventListener('input', () => render(visibleTools()));
 
 // Enter で先頭のツールを開く（打つ → Enter だけで到達できる）。
@@ -389,7 +517,7 @@ searchEl.focus();   // 開いた瞬間から打てる（探すより打つ方が
 
 // テスト用フック。CATEGORY_ORDER も公開する — ハーネスが「描画された並びが
 // TOOLS × CATEGORY_ORDER どおりか」を**導出して**照合するため（期待値の二重管理を避ける）
-window.hub = { TOOLS, CATEGORY_ORDER, filter, recordUse, inOrder };
+window.hub = { TOOLS, CATEGORY_ORDER, filter, recordUse, inOrder, routeText, RECEIVERS };
 </script>
 </body>
 </html>

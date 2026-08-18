@@ -82,6 +82,7 @@
 <script src="../lib/ui.js"></script>
 <script src="../lib/excel.js"></script>
 <script src="../lib/storage.js"></script>
+<script src="../lib/handoff.js"></script>
 <script src="../lib/edit.js"></script>
 <script>
 'use strict';
@@ -874,6 +875,14 @@ el.copyBtn.addEventListener('click', () => {
   ToolStorage.mountWarning();
   updateSampleBtn();
   run();
+// 他ツールからの受け渡しを取り込む（sessionStorage の一時バッファ・取り出したら消える —
+// coding-rules「ツール間の受け渡し」）
+  const handoff = window.ToolHandoff && ToolHandoff.take('excel2md');
+  if (handoff && handoff.text) {
+    el.input.value = handoff.text;
+    updateSampleBtn();
+    run();
+  }
   // Tab = タブ文字（列区切りをキーボードで足せる。Esc→Tab で脱出 — lib/edit.js）
   ToolEdit.tabIndent(el.input);
 })();

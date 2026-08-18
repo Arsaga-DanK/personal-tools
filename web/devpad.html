@@ -232,6 +232,7 @@
 <script src="../lib/ui.js"></script>
 <script src="../lib/sql.js"></script>
 <script src="../lib/storage.js"></script>
+<script src="../lib/handoff.js"></script>
 <script src="../lib/edit.js"></script>
 <script>
 'use strict';
@@ -1592,6 +1593,23 @@ function restoreState() {
   });
 
   ToolStorage.mountWarning();
+
+  /* 他ツール・ハブからの受け渡しを取り込む（sessionStorage の一時バッファ・取り出したら消える —
+     coding-rules「ツール間の受け渡し」）。タブは中身から選ぶ（渡し手に決めさせない） */
+  {
+    const handoff = window.ToolHandoff && ToolHandoff.take('devpad');
+    if (handoff && handoff.text) {
+      const t = handoff.text.trim();
+      const tab = /^[{[]/.test(t) ? 'json' : (/^<[a-zA-Z?]/.test(t) ? 'xml' : 'sql');
+      switchTab(tab);
+      const input = $(tab + '-in');
+      input.value = handoff.text;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      // JSON/XML/SQL はボタン変換なので、そのタブの整形を1回走らせて成果を見せる
+      const runBtn = $(tab + '-format');
+      if (runBtn) runBtn.click();
+    }
+  }
 })();
 
 /* ========== テスト用フック ========== */

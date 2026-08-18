@@ -56,6 +56,7 @@
 <script src="../lib/ui.js"></script>
 <script src="../lib/excel.js"></script>
 <script src="../lib/storage.js"></script>
+<script src="../lib/handoff.js"></script>
 <script src="../lib/edit.js"></script>
 <script>
 'use strict';
@@ -524,6 +525,12 @@ window.doc2xl = { convert: convert, buildExcelHtml: buildExcelHtml };
 ToolStorage.mountWarning();
 restore();
 syncCustomVisibility();
+// 他ツールからの受け渡しを取り込む（sessionStorage の一時バッファ・取り出したら消える —
+// coding-rules「ツール間の受け渡し」）
+{
+  const handoff = window.ToolHandoff && ToolHandoff.take('doc2xl');
+  if (handoff && handoff.text) el('input').value = handoff.text;
+}
 run();
 ToolEdit.tabIndent(el('input'), { mdList: true });   // Tab=インデント＋md リスト補助（lib/edit.js）
 </script>
