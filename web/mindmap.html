@@ -23,19 +23,19 @@
 <main class="app-wide">
   <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">入力は自動保存されます</span></p>
   <h1>Draw Mindmap</h1>
-  <p class="subtitle">箇条書き → マインドマップ（mermaid 同梱）— 1行目が中心テーマ・タブで階層。思考の速度で打てて、テキストはそのままノートに貼れる</p>
+  <p class="subtitle">Markdown のアウトライン → マインドマップ（mermaid 同梱）— 見出しと箇条書きで階層。Obsidian のノートをそのまま貼れて、書いたテキストもそのままノートに戻せる</p>
 
   <div class="toolbar">
     <button class="primary" id="copy-btn" title="Cmd/Ctrl+Enter">PNG をコピー</button>
-    <span class="muted" style="font-size:12px">インデントはタブ1個（またはスペース2個）で1階層。# 始まりはメモ行（図に出ない）</span>
+    <span class="muted" style="font-size:12px">見出し（#・##）で階層・箇条書き（- 1.）は見出しの1つ下・字下げでさらに下。%% 始まりはコメント（図に出ない）</span>
   </div>
 
   <div class="banner" id="banner" hidden></div>
 
   <div class="panes">
     <div class="pane">
-      <p class="pane-title">アウトライン<button type="button" class="sample-btn" id="sample-btn">サンプルを入れる</button></p>
-      <textarea id="input" spellcheck="false" placeholder="新サービス案&#10;&#9;課題&#10;&#9;&#9;価格が高い&#10;&#9;打ち手&#10;&#9;&#9;無料プラン"></textarea>
+      <p class="pane-title">アウトライン（Markdown）<button type="button" class="sample-btn" id="sample-btn">サンプルを入れる</button></p>
+      <textarea id="input" spellcheck="false" placeholder="# 新サービス案&#10;## 課題&#10;- 価格が高い&#10;## 打ち手&#10;- 無料プラン"></textarea>
     </div>
     <div class="pane">
       <p class="pane-title">マインドマップ（プレビュー）</p>
@@ -66,8 +66,37 @@ function sanitizeNode(s) {
     .replace(/\{/g, '｛').replace(/\}/g, '｝');
 }
 
-// md のリスト記号（Obsidian のアウトライン互換 — MM-Q4）
-const BULLET_RE = /^[-*+]\s+/;
+// md のリスト記号（Obsidian のアウトライン互換 — MM-Q4。番号つきリストも同じ扱い）
+const BULLET_RE = /^([-*+]|\d+[.)])\s+/;
+// 見出し = 階層（MM-Q6。`#` はコメントではない）
+const HEADING_RE = /^(#{1,6})\s+(.*)$/;
+// コメントは Obsidian の記法（MM-Q6）
+const COMMENT_RE = /^%%/;
+
+// 貼り付けたノートに混ざる記法を落とす（MM-Q7。警告は出さない）
+function stripInline(s) {
+  return s
+    .replace(/^\[[ xX\-/]\]\s*/, '')                    // - [ ] / - [x] のチェックボックス
+    .replace(/!?\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2')    // [[ノート|別名]] → 別名
+    .replace(/!?\[\[([^\]]+)\]\]/g, '$1')               // [[ノート]] → ノート
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')          // [表示](url) → 表示
+    .replace(/`([^`]*)`/g, '$1')                        // `code`
+    .replace(/\*\*([^*]+)\*\*/g, '$1')                  // **強調**
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')                      // *強調*
+    .trim();
+}
+
+// 先頭の YAML front matter を落とす（Obsidian のノートをそのまま貼れるように — MM-Q7）
+function stripFrontMatter(lines) {
+  let i = 0;
+  while (i < lines.length && lines[i].trim() === '') i++;
+  if (i >= lines.length || lines[i].trim() !== '---') return lines;
+  for (let j = i + 1; j < lines.length; j++) {
+    if (lines[j].trim() === '---') return lines.slice(0, i).concat(lines.slice(j + 1));
+  }
+  return lines;   // 閉じが無ければ front matter とみなさない（本文を消さない）
+}
 
 // スペース字下げの「1階層ぶんの幅」を自動検出（2でも4でも合う — MM-Q4）。
 // タブ字下げの行は対象外（タブは常に1階層）
@@ -75,7 +104,8 @@ function detectIndentUnit(lines) {
   let unit = 0;
   for (const raw of lines) {
     const content = raw.trim();
-    if (content === '' || content.startsWith('#')) continue;
+    // 見出しとコメントは字下げの手本にならないので除く
+    if (content === '' || HEADING_RE.test(content) || COMMENT_RE.test(content)) continue;
     const ws = /^[\t ]*/.exec(raw)[0];
     if (ws === '' || ws.includes('\t')) continue;
     unit = unit === 0 ? ws.length : Math.min(unit, ws.length);
@@ -96,25 +126,41 @@ function indentLevel(raw, unit) {
 
 function buildMindmapDsl(text) {
   const warnings = [];
-  const lines = String(text == null ? '' : text).split('\n');
+  const lines = stripFrontMatter(String(text == null ? '' : text).split('\n'));
   const unit = detectIndentUnit(lines);
   const body = [];
   let hasRoot = false;
+  let baseHeading = 0;      // 最初の見出しの `#` の数（H3 から始まってもそれが中心テーマ）
+  let headDepth = null;     // 直前の見出しの深さ（null = まだ見出しが無い）
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i];
-    let content = raw.trim();
-    if (content === '' || content.startsWith('#')) continue;
-    const isBullet = BULLET_RE.test(content);
-    if (isBullet) content = content.replace(BULLET_RE, '').trim();
+    const trimmed = raw.trim();
+    if (trimmed === '' || COMMENT_RE.test(trimmed)) continue;
+
+    const head = HEADING_RE.exec(trimmed);
+    let content, level;
+    if (head) {
+      if (baseHeading === 0) baseHeading = head[1].length;
+      headDepth = Math.max(0, head[1].length - baseHeading);
+      content = stripInline(head[2]);
+      level = headDepth;
+    } else {
+      const isBullet = BULLET_RE.test(trimmed);
+      content = stripInline(isBullet ? trimmed.replace(BULLET_RE, '') : trimmed);
+      level = headDepth === null
+        // 見出しがまだ無い = 従来どおり（記号のある行は階層+1）
+        ? indentLevel(raw, unit) + (isBullet ? 1 : 0)
+        // 見出しの下の箇条書きは、その見出しの1つ下から字下げぶん深くなる（MM-Q6）
+        : headDepth + 1 + indentLevel(raw, unit);
+    }
     if (content === '') continue;
+
     const node = sanitizeNode(content);
     if (!hasRoot) {
       hasRoot = true;
       body.push('  root((' + node + '))');
       continue;
     }
-    // リスト記号の行は階層+1（md では中心テーマの直下が「トップレベルの箇条書き」— MM-Q4）
-    let level = indentLevel(raw, unit) + (isBullet ? 1 : 0);
     if (level === 0) {   // 2つ目以降のルートは1階層下げる（mermaid はルート1つ — MM-Q2）
       warnings.push((i + 1) + '行目: 中心テーマは1つです（1階層下げて描きます）');
       level = 1;
@@ -143,7 +189,7 @@ async function render(text) {
   if (dsl === null) {
     lastSvg = null;
     el('output').textContent = '';
-    showBanner('warn', '内容の行がありません（# 始まりはメモ行です）');
+    showBanner('warn', '内容の行がありません（%% 始まりはコメントです）');
     return { ok: false, error: '内容なし' };
   }
   try {
@@ -232,7 +278,7 @@ document.addEventListener('keydown', e => {
 });
 
 el('sample-btn').addEventListener('click', () => {
-  el('input').value = '業務効率化のアイデア\n\t困りごと\n\t\t定型連絡に時間がかかる\n\t\tスクショの加工が面倒\n\t打ち手\n\t\tテンプレ化\n\t\t専用ツールを作る\n\t\t\t1枚HTMLで起動レス\n\tやらないこと\n\t\tチーム共有情報の管理';
+  el('input').value = '# 業務効率化のアイデア\n## 困りごと\n- 定型連絡に時間がかかる\n- スクショの加工が面倒\n## 打ち手\n- テンプレ化\n- 専用ツールを作る\n  - 1枚HTMLで起動レス\n## やらないこと\n- チーム共有情報の管理';
   render(el('input').value);
   updateSampleBtn();
   scheduleSave();

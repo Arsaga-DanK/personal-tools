@@ -22,7 +22,7 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     /* ========== MM-01: DSL 生成（タブ/スペース・全角化・複数ルート） ========== */
     const mm01 = await page.evaluate(() => {
       const input = [
-        '# ブレストのメモ',
+        '%% ブレストのメモ',
         '新サービス案',
         '\t課題',
         '\t\t価格が高い(要検討)',
@@ -56,7 +56,7 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
 
     /* ========== MM-03: 空・コメントのみは描画しない ========== */
     const mm03 = await page.evaluate(async () => {
-      const built = window.mindmap.buildMindmapDsl('# コメントだけ');
+      const built = window.mindmap.buildMindmapDsl('%% コメントだけ');
       const resEmpty = await window.mindmap.render('');
       return { built, resEmpty, info: window.mindmap.svgInfo(),
                bannerHidden: document.getElementById('banner').hidden };
@@ -77,6 +77,69 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     r.check('MM-04（md リスト: 記号が外れ階層+1・4スペース字下げを自動検出・警告なし）',
       mm04.dsl === want04 && mm04.warnings.length === 0,
       JSON.stringify(mm04));
+
+    /* ========== MM-05: 見出しが階層になる（MM-Q6） ========== */
+    const mm05 = await page.evaluate(() => window.mindmap.buildMindmapDsl([
+      '# 新サービス案',
+      '## 課題',
+      '- 価格が高い',
+      '  - 特に初期費用',
+      '### 競合',
+      '- A社',
+      '## 打ち手',
+      '1. 無料プラン',
+    ].join('\n')));
+    const want05 = [
+      'mindmap',
+      '  root((新サービス案))',
+      '    課題',
+      '      価格が高い',
+      '        特に初期費用',
+      '      競合',
+      '        A社',
+      '    打ち手',
+      '      無料プラン',
+    ].join('\n');
+    r.check('MM-05（見出しで階層・箇条書きは見出しの1つ下・字下げでさらに下・番号リストも同じ）',
+      mm05.dsl === want05 && mm05.warnings.length === 0,
+      JSON.stringify(mm05));
+
+    /* ========== MM-06: H3 始まり／見出しなし ========== */
+    const mm06 = await page.evaluate(() => ({
+      deep: window.mindmap.buildMindmapDsl('### 中心\n#### 枝\n- 葉'),
+      none: window.mindmap.buildMindmapDsl('中心\n\t枝\n\t\t葉'),
+    }));
+    r.check('MM-06（H3 始まりでもそれが中心テーマ・見出しが無ければ従来どおり最初の行が中心）',
+      mm06.deep.dsl === ['mindmap', '  root((中心))', '    枝', '      葉'].join('\n')
+      && mm06.deep.warnings.length === 0
+      && mm06.none.dsl === ['mindmap', '  root((中心))', '    枝', '      葉'].join('\n'),
+      JSON.stringify(mm06));
+
+    /* ========== MM-07: Obsidian のノートをそのまま貼る（MM-Q7） ========== */
+    const mm07 = await page.evaluate(() => window.mindmap.buildMindmapDsl([
+      '---',
+      'tags: [brainstorm]',
+      '---',
+      '# 週次の棚卸し',
+      '%% ここはメモなので図に出ない',
+      '## やったこと',
+      '- [x] [[設計メモ|設計]]をまとめた',
+      '- [ ] **レビュー**の準備',
+      '## 参考',
+      '- [仕様書](https://example.com/spec) と `code` の確認',
+    ].join('\n')));
+    const want07 = [
+      'mindmap',
+      '  root((週次の棚卸し))',
+      '    やったこと',
+      '      設計をまとめた',
+      '      レビューの準備',
+      '    参考',
+      '      仕様書 と code の確認',
+    ].join('\n');
+    r.check('MM-07（front matter/コメント/チェックボックス/リンク/強調を落として中身だけ描く）',
+      mm07.dsl === want07 && mm07.warnings.length === 0,
+      JSON.stringify(mm07));
   }
 
   /* ========== MM-U1: 自動保存（pagehide フラッシュ → reload） ========== */
