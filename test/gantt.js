@@ -264,6 +264,7 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
   /* ========== GN-U4: Ctrl/Cmd+; で今日の日付（lib/edit.js） ========== */
   const u4g = await page.evaluate(() => {
     if (!window.ToolEdit) return { missing: true };
+    document.getElementById('view-text').click();   // 既定は行エディタ（GN-Q20）— textarea を出す
     const ta = document.getElementById('input');
     ta.value = '作業\t';
     ta.focus();
@@ -571,7 +572,7 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
       rows: document.querySelectorAll('#editor .ed-row').length,
     };
   });
-  // enum ガード: 不正な view 値はテキストに倒す（reload 前に save を止める — verification-notes §4）
+  // enum ガード: 不正な view 値は**既定（行エディタ）**へ（reload 前に save を止める — verification-notes §4）
   await page.evaluate(() => {
     ToolStorage.save = () => true;
     const env = JSON.parse(localStorage.getItem('tools:gantt'));
@@ -583,7 +584,7 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
   const u13b = await page.evaluate(() => {
     const ed = document.getElementById('editor');
     if (!ed) return { missing: true };
-    return { editorHidden: ed.hidden, taVisible: !document.getElementById('input').hidden };
+    return { editorVisible: !ed.hidden, taHidden: document.getElementById('input').hidden };
   });
   // 500行の上限: 501行では行エディタを開かない
   const u13c = await page.evaluate(() => {
@@ -600,9 +601,9 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
       banner: document.getElementById('banner').textContent,
     };
   });
-  r.check('GN-U13（ビュー復元・不正値はテキストへ・501行はバナーで案内しテキストに留まる）',
+  r.check('GN-U13（ビュー復元・不正値は既定の行エディタへ・501行はバナーを出してテキストへ落ちる）',
     !u13a.missing && u13a.editorVisible === true && u13a.taHidden === true && u13a.rows === 1
-    && !u13b.missing && u13b.editorHidden === true && u13b.taVisible === true
+    && !u13b.missing && u13b.editorVisible === true && u13b.taHidden === true
     && !u13c.missing && u13c.editorHidden === true && u13c.taVisible === true && u13c.banner.includes('500'),
     JSON.stringify({ u13a, u13b, u13c }));
 

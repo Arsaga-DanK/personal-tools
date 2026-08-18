@@ -83,7 +83,7 @@
   <div class="toolbar">
     <button class="primary" id="copy-btn" title="Cmd/Ctrl+Enter">PNG をコピー</button>
     <label class="toggle"><input type="checkbox" id="exclude-weekends" checked> 土日を除外</label>
-    <span class="muted" style="font-size:12px">1行=1タスク「名前⇥開始⇥終了か日数」。## 見出しはセクション・箇条書きや md テーブルもそのまま読めます（%% はコメント）</span>
+    <span class="muted" id="text-hint" style="font-size:12px" hidden>1行=1タスク「名前⇥開始⇥終了か日数」。## 見出しはセクション・箇条書きや md テーブルもそのまま読めます（%% はコメント）</span>
   </div>
 
   <div class="banner" id="banner" hidden></div>
@@ -688,6 +688,12 @@ function makeRow(row) {
 // 再構築（構造変更・外部書き換えの後だけ。フィールド編集では呼ばない — フォーカス維持）。
 // focus: 'first' | {line, field?} | {nextOf} | null（フォーカス規則は spec「行の操作」）
 function buildEditor(focus) {
+  // 開いたまま上限を超えた（大きな貼り付け等）ならテキストへ落とす
+  if (view === 'editor' && lineCount(el('input').value) > EDITOR_MAX_LINES) {
+    setView('text');
+    showBanner('warn', CAP_NOTICE);
+    return;
+  }
   cancelCommit();
   undoArmed = null;
   const host = el('editor-rows');
@@ -781,11 +787,20 @@ const CAP_NOTICE = '行が多すぎるため行エディタは使えません（
   + EDITOR_MAX_LINES + '行まで — テキストで編集してください）';
 
 function setView(next, opts) {
+  // 上限超過なら**テキストへ落とす**（開こうとしたときだけでなく、開いたまま超えた場合も。
+  // 落とさないと大きな貼り付けの後に行エディタから抜けられない — GN-Q15）
   if (next === 'editor' && lineCount(el('input').value) > EDITOR_MAX_LINES) {
+    next = 'text';
     // 復元経路は直後の初期 render にバナーを消されるので、呼び出し側に返して後で出させる
-    if (opts && opts.deferNotice) return CAP_NOTICE;
-    showBanner('warn', CAP_NOTICE);
-    return null;
+    if (!(opts && opts.deferNotice)) showBanner('warn', CAP_NOTICE);
+    view = next;
+    el('input').hidden = false;
+    el('editor').hidden = true;
+    el('view-text').classList.add('active');
+    el('view-editor').classList.remove('active');
+    el('text-hint').hidden = false;
+    scheduleSave();
+    return opts && opts.deferNotice ? CAP_NOTICE : null;
   }
   flushCommit();
   view = next;
@@ -793,8 +808,17 @@ function setView(next, opts) {
   el('editor').hidden = next !== 'editor';
   el('view-text').classList.toggle('active', next === 'text');
   el('view-editor').classList.toggle('active', next === 'editor');
+  el('text-hint').hidden = next !== 'text';   // 記法の説明はテキストを書くときだけ出す
   // 復元でのフォーカス奪取はしない（ページを開いた瞬間にキーボードが開く・読み上げ位置が飛ぶ）
-  if (next === 'editor') buildEditor(opts && opts.noFocus ? null : 'first');
+  if (next === 'editor') {
+    // 行が0本なら空の1行を用意する（開いた瞬間に打ち始められる — GN-Q20）
+    if (parseRows(el('input').value).length === 0) {
+      const ta = el('input');
+      ta.value = ta.value === '' ? '\t\t' : ta.value.replace(/\n?$/, '\n\t\t');
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    buildEditor(opts && opts.noFocus ? null : 'first');
+  }
   scheduleSave();
   return null;
 }
@@ -877,18 +901,20 @@ document.addEventListener('visibilitychange', () => {
 
 function restore() {
   const data = ToolStorage.load(TOOL);
-  if (!data) return;
+  // 既定は行エディタ（GN-Q20 — 記法を書かせる画面を既定にしない）。
+  // 保存済みの選択が 'text' のときだけテキストにする（enum ガード: 不正値は既定へ）
+  if (!data) return setView('editor', { noFocus: true, deferNotice: true });
   if (typeof data.input === 'string') el('input').value = data.input;
   else if (data.input && data.input.omitted) {
     showBanner('info', '前回の内容は大きすぎたため復元されませんでした（保存上限 100KB）');
   }
   if (typeof data.excludeWeekends === 'boolean') el('exclude-weekends').checked = data.excludeWeekends;
-  // enum ガード（不正値・無指定はテキストのまま）。復元ではフォーカスを奪わない
-  if (data.view === 'editor') return setView('editor', { noFocus: true, deferNotice: true });
-  return null;
+  if (data.view === 'text') return null;
+  return setView('editor', { noFocus: true, deferNotice: true });
 }
 
-function updateSampleBtn() { el('sample-btn').hidden = el('input').value !== ''; }
+// 空の1行（\t\t）だけの状態も「空」とみなす（既定が行エディタになり最初から1行あるため）
+function updateSampleBtn() { el('sample-btn').hidden = /\S/.test(el('input').value.replace(/\t/g, '')); }
 
 el('input').addEventListener('input', () => {
   scheduleRender();
