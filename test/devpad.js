@@ -1027,7 +1027,7 @@ const TAB_IDS = ['json', 'xml', 'sql', 'escape', 'url', 'base64', 'regex', 'base
 
   /* ========== ハブからの導線 ========== */
   await page.goto(fileUrl('index.html'));
-  await page.click('ul.tool-list a:text-is("Convert Data")');
+  await page.click('ul.tool-list .tool-name:text-is("Convert Data")');
   await page.waitForLoadState('load');
   const title = await page.title();
   r.check('ハブから「Convert Data」→ devpad へ遷移できる', title.includes('devpad'), title);

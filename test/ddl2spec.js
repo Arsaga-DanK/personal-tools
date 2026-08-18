@@ -515,7 +515,7 @@ const GENERATED_DDL = [
   await page.goto(fileUrl('index.html'));
   const s19cat = await page.evaluate(() =>
     Array.from(document.querySelectorAll('.category-title')).map(e => e.textContent));
-  await page.click('ul.tool-list a:text-is("Document Schema")');
+  await page.click('ul.tool-list .tool-name:text-is("Document Schema")');
   await page.waitForLoadState('load');
   const s19title = await page.title();
   r.check('DS-19（ハブに「設計」カテゴリが出て Schema から遷移できる）',

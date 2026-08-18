@@ -434,7 +434,7 @@ const { launch, fileUrl, createRunner, eq, bannerIs } = require('./helpers');
   await page.goto(fileUrl('index.html'));
   const hubCats = await page.evaluate(() =>
     Array.from(document.querySelectorAll('.category-title')).map(e => e.textContent));
-  await page.click('ul.tool-list a:text-is("Export Outline")');
+  await page.click('ul.tool-list .tool-name:text-is("Export Outline")');
   await page.waitForLoadState('load');
   const hubTitle = await page.title();
   const hubH1 = await page.evaluate(() => document.querySelector('h1').textContent);

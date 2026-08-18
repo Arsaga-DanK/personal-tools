@@ -215,7 +215,7 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
 
   /* ========== ハブ導線 ========== */
   await page.goto(fileUrl('index.html'));
-  await page.click('ul.tool-list a:text-is("Draw Diagram")');
+  await page.click('ul.tool-list .tool-name:text-is("Draw Diagram")');
   await page.waitForLoadState('load');
   const hubTitle = await page.title();
   r.check('ハブの「設計」から遷移でき title が命名規約どおり',

@@ -177,7 +177,7 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
 
   /* ========== ハブ導線 ========== */
   await page.goto(fileUrl('index.html'));
-  await page.click('ul.tool-list a:text-is("Fill Template")');
+  await page.click('ul.tool-list .tool-name:text-is("Fill Template")');
   await page.waitForLoadState('load');
   const hubTitle = await page.title();
   r.check('ハブの「変換・比較」から遷移でき title が命名規約どおり',

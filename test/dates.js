@@ -208,7 +208,7 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
   await page.goto(fileUrl('index.html'));
   const hubCats = await page.evaluate(() =>
     Array.from(document.querySelectorAll('.category-title')).map(e => e.textContent));
-  await page.click('ul.tool-list a:text-is("Calc Dates")');
+  await page.click('ul.tool-list .tool-name:text-is("Calc Dates")');
   await page.waitForLoadState('load');
   const hubTitle = await page.title();
   r.check('ハブの「PM」カテゴリ（初使用）から遷移でき title が命名規約どおり',

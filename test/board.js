@@ -573,7 +573,7 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
 
   /* ========== ハブ導線 ========== */
   await page.goto(fileUrl('index.html'));
-  await page.click('ul.tool-list a:text-is("Sort Ideas")');
+  await page.click('ul.tool-list .tool-name:text-is("Sort Ideas")');
   await page.waitForLoadState('load');
   const hubTitle = await page.title();
   r.check('ハブの「発想」から遷移できる（title = Sort Ideas (board)）',

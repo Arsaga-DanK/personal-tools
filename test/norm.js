@@ -458,7 +458,7 @@ const ALL_OFF = {
 
   /* ========== ハブからの導線 ========== */
   await page.goto(fileUrl('index.html'));
-  await page.click('ul.tool-list a:text-is("Normalize Text")');
+  await page.click('ul.tool-list .tool-name:text-is("Normalize Text")');
   await page.waitForLoadState('load');
   const title = await page.title();
   r.check('ハブから「Normalize Text」→ norm へ遷移できる', title.includes('norm'), title);

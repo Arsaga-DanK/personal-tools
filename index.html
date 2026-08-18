@@ -8,51 +8,91 @@
 <link rel="stylesheet" href="lib/ui.css">
 <style>
   /* ハブ固有のコンテンツ描画スタイル（ui.css クラスの再定義はしない）。
-     2026-08-18: 名前だけのチップ配置に変更 — 16本を1画面に収めて「探す」を無くす（HUB-17/18）。
-     説明と用途は画面から消し、マウスを乗せたとき（title 属性）と検索にだけ残す */
+     2026-08-18: カード（アイコン＋名前＋一言）のグリッド。カテゴリ名は行の左に置いて
+     見出し行ぶんの高さを使わない — 16本を1画面に近づけるため（HUB-17/18） */
   #search { width: 100%; max-width: 420px; padding: 9px 14px; font-size: 14px; border-radius: 999px; }
+
+  .cat-row { display: flex; align-items: flex-start; gap: 12px; margin: 0 0 6px; }
   .category-title {
-    font-size: 11px; color: var(--muted); margin: 16px 0 6px; font-weight: 700;
-    text-transform: uppercase; letter-spacing: .08em;
+    flex: 0 0 74px;
+    text-align: right;
+    font-size: 11px; color: var(--muted); font-weight: 700;
+    margin: 0; padding-top: 22px;
+    text-transform: uppercase; letter-spacing: .06em;
   }
-  ul.tool-list, ul.recent-list {
-    display: flex; flex-wrap: wrap; gap: 6px; list-style: none; margin: 0; padding: 0;
+  ul.tool-list {
+    flex: 1;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+    gap: 8px;
+    list-style: none; margin: 0; padding: 0;
   }
-  ul.tool-list li, ul.recent-list li { margin: 0; }
-  /* リンクがチップいっぱいに広がる = 余白を押しても開く（HUB-14） */
-  ul.tool-list a, ul.recent-list a {
-    display: block;
-    padding: 7px 14px;
+  ul.tool-list li { margin: 0; }
+  /* リンクがカードいっぱいに広がる = どこを押しても開く（HUB-14） */
+  ul.tool-list a {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 100%;
+    padding: 8px 13px;
     background: var(--panel);
     border: 1px solid var(--border);
-    border-radius: 999px;
+    border-radius: 12px;
     box-shadow: var(--shadow);
     color: var(--text);
-    font-weight: 600;
-    font-size: 13.5px;
     text-decoration: none;
-    transition: border-color .15s, color .15s, box-shadow .15s, transform .1s;
+    transition: border-color .15s, box-shadow .15s, transform .1s;
   }
-  ul.tool-list a:hover, ul.recent-list a:hover {
+  ul.tool-list a:hover {
     border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
-    color: var(--accent);
     box-shadow: var(--shadow-hover);
     transform: translateY(-1px);
   }
-  /* 最近使った: 同じ形のまま色だけ変えて「別の並び」だと分かるようにする */
-  #recent { margin-top: 16px; }
+  ul.tool-list .icon { font-size: 20px; line-height: 1; flex: none; }
+  ul.tool-list .body { min-width: 0; }
+  ul.tool-list .tool-name { font-weight: 650; font-size: 14px; }
+  ul.tool-list a:hover .tool-name { color: var(--accent); }
+  ul.tool-list .short { color: var(--muted); font-size: 11.5px; line-height: 1.3; margin-top: 1px; }
+
+  /* 最近使った: 同じカードを小さくした形（直前に開いたものなので一言は要らない） */
+  #recent { margin: 12px 0 4px; }
   .recent-title {
-    font-size: 11px; color: var(--muted); margin: 0 0 6px; font-weight: 700;
-    text-transform: uppercase; letter-spacing: .08em;
+    font-size: 11px; color: var(--muted); margin: 0 0 5px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .06em;
   }
-  ul.recent-list a { border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); color: var(--accent); }
+  ul.recent-list { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; margin: 0; padding: 0; }
+  ul.recent-list li { margin: 0; }
+  ul.recent-list a {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 13px;
+    background: var(--panel);
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    color: var(--accent);
+    font-weight: 650; font-size: 13.5px;
+    text-decoration: none;
+    transition: border-color .15s, box-shadow .15s, transform .1s;
+  }
+  ul.recent-list a:hover {
+    border-color: var(--accent);
+    box-shadow: var(--shadow-hover);
+    transform: translateY(-1px);
+  }
+  ul.recent-list .icon { font-size: 16px; line-height: 1; }
   #empty-msg { color: var(--muted); margin-top: 24px; }
+
+  /* 狭幅ではカテゴリ名を行の上に置く（左に置くとカードが潰れる） */
+  @media (max-width: 640px) {
+    .cat-row { flex-direction: column; gap: 4px; }
+    .category-title { flex: none; text-align: left; padding-top: 6px; }
+  }
 </style>
 </head>
 <body>
-<main class="app">
+<main class="app-wide">
   <h1>Personal Tools</h1>
-  <p class="subtitle">打ち始めると絞り込み・Enter で先頭を開く（説明はマウスを乗せると出ます）</p>
+  <p class="subtitle">打ち始めると絞り込み・Enter で先頭を開く（詳しい説明はマウスを乗せると出ます）</p>
   <input type="text" id="search" placeholder="検索（名前・説明・用途・カテゴリ。/ でフォーカス）" autocomplete="off">
   <div id="recent" hidden>
     <p class="recent-title">最近使った</p>
@@ -73,28 +113,37 @@
 // 配列の順序が同一カテゴリ内の表示順になる。最も使うものを先頭に置く
 // name だけで何をするツールか分かるようにする（ブックマーク・タブ・履歴では desc が消えて
 // 名前しか残らない）。規約の正本は CLAUDE.md「命名規約」
-// **desc / when は画面に出さない**（2026-08-18 — 16本で縦2.3画面になり探すのが面倒になったため
-// 名前だけのチップ表示にした）。両者は「マウスを乗せたときの title」と「検索の当たり」に効く。
-// したがって desc は**短くしない** — 機能名・別名を盛り込むほど検索で辿り着ける（HUB-11 参照）
+//
+// **画面に出るのは icon / name / short の3つだけ**（2026-08-18）。
+// 経緯: 16本で縦2.3画面になり探すのが面倒 → 名前だけのチップにしたら「使いにくい・説明が無いと
+// 分かりにくい」（利用者）→ **カード＋一言**に落ち着いた。
+// - short: カードに出す一言（全角12〜18字が目安。長いと2行で崩れる）
+// - desc / when: **画面には出さない**が title（マウスオーバー）と検索に効く。
+//   したがって desc は**短くしない** — 機能名・別名を盛り込むほど検索で辿り着ける（HUB-11 参照）
+// - icon: カードの目印。**各ツールの favicon と同じ絵文字**を基本にするが、
+//   U+FE0F（異体字セレクタ）が要るもの（board / doc2xl / devpad の favicon）は
+//   文字ゲートに掛かるので、単独で絵文字として出る字に置換する。
+//   重複する絵文字も避ける（favicon では excel2md と gantt が同じで目印にならない）。
+//   **このコメントに実物の絵文字を貼らないこと** — 貼った瞬間に自分がゲートの検出対象になる
 // alias はファイル名・spec 名・localStorage キー・window フックと同じ英小文字名で、
 // 画面には出さず検索にだけ効かせる（過去のメモは英名で書かれている）
 const TOOLS = [
-  { name: 'Plan Tasks', alias: 'taskboard', path: 'web/taskboard.html', desc: 'vault の tasks.md（正本）を表形式で閲覧・編集 — 完了・開始日・期限・優先度、計画ビュー（タイムライン）、Excel用コピー', category: 'タスク', when: '朝の計画と期限付け・週次の棚卸し・大きなタスクの期間管理・Excel報告への転記' },
-  { name: 'Convert Table', alias: 'excel2md', path: 'web/excel2md.html', desc: 'Excelのセル範囲（TSV）⇔ Markdownテーブル 双方向変換 — 結合セルの展開・表プレビュー上で列の揃え指定', category: '変換・比較', when: 'Excel の表を設計書や議事録の Markdown に貼るとき／その逆' },
-  { name: 'Convert Data', alias: 'devpad', path: 'web/devpad.html', desc: '開発ユーティリティ集 — JSON・XML・SQL の整形・エスケープ・URL・Base64・正規表現・基数変換・Unix時刻・UUID・文字数カウント', category: '変換・比較', when: 'API レスポンスの整形・エンコード・時刻変換・正規表現の動作確認をその場で済ませたいとき' },
-  { name: 'Normalize Text', alias: 'norm', path: 'web/norm.html', desc: '日本語表記の正規化（全角半角・ハイフン・波ダッシュ・空白・NFKC）変更箇所ハイライト付き', category: '変換・比較', when: '顧客提供テキストや仕様書の表記ゆれを揃えるとき' },
-  { name: 'Compare Text', alias: 'diff', path: 'web/diff.html', desc: 'テキスト比較 — 行単位差分＋文字単位ハイライト、空白無視・全半角同一視オプション', category: '変換・比較', when: '文言修正の前後比較や設計記述の突き合わせ' },
-  { name: 'Unify Terms', alias: 'terms', path: 'web/terms.html', desc: '用語統一表（変換前→変換後）を原稿へ一括適用 — 同時置換・長い語優先、ルール別件数と未適用の表示', category: '変換・比較', when: '顧客の用語集・表記ルールに原稿を合わせるとき' },
-  { name: 'Fill Template', alias: 'fill', path: 'web/fill.html', desc: '定型文テンプレの差し込み — 本文の {{変数}} から入力フォームを自動生成、埋めて完成文をコピー（{{今日}} は日付を自動セット）', category: '変換・比較', when: '日報・週報・議事録の送付文・依頼文など、毎回少しだけ変わる定型連絡を作るとき' },
-  { name: 'Document Schema', alias: 'ddl2spec', path: 'web/ddl2spec.html', desc: 'PostgreSQL の DDL（CREATE TABLE ＋ COMMENT ON）⇔ テーブル定義書（Markdown表）双方向変換 — 論理名・複合キー・FK・CHECK・Excel用コピー', category: '設計', when: '既存 DDL から定義書を起こすとき／定義書から DDL を作るとき（正本は DDL 側）' },
-  { name: 'Export Outline', alias: 'doc2xl', path: 'web/doc2xl.html', desc: 'Markdown 文書の見出し階層 → Excel 用の階層表（大項目/中項目/小項目＋内容）— Markdown表・TSV 出力', category: '設計', when: '設計書を Markdown で下書きして、納品時に Excel の階層表へ移すとき' },
-  { name: 'Draw Diagram', alias: 'diagram', path: 'web/diagram.html', desc: 'テキストから図を描く（mermaid 同梱・オフライン）— フローチャート・シーケンス図・状態遷移図を書いて PNG コピー/SVG 保存', category: '設計', when: 'draw.io を開くほどでもない図を資料や Teams に貼るとき' },
-  { name: 'Draw Mindmap', alias: 'mindmap', path: 'web/mindmap.html', desc: '箇条書き → マインドマップ描画（mermaid 同梱）— 1行目が中心テーマ・タブで階層。PNG コピー/テキストはそのままノートへ', category: '発想', when: 'ブレインストーミングや打ち合わせ前の論点洗い出しに' },
-  { name: 'Sort Ideas', alias: 'board', path: 'web/board.html', desc: '付箋ボード — ダブルクリックで付箋を置いて直接入力・ドラッグで並べ・色で分け・線で結ぶ → md アウトライン書き出し/PNG コピー', category: '発想', when: 'ブレインストーミングで出した発想を、並べて・まとめて・ノートに持ち帰るとき' },
-  { name: 'Mask Image', alias: 'mask', path: 'web/mask.html', desc: 'スクショのマスキングと注釈 — 貼り付け → モザイク/黒塗り/白塗り・枠・矢印・テキスト・番号スタンプ・切り抜き → PNG コピー（画像は保存しない）', category: '画像', when: 'スクショを Teams・設計書に貼る前の機密隠しと説明入れ' },
-  { name: 'Check Vault', alias: 'vaultlint', path: 'web/vaultlint.html', desc: 'Obsidian vault の健全性チェック — リンク切れ・添付消失・ファイル名の罠・Inbox のデイリーを検出し、承認した修復（テキスト化・リネーム追随・アーカイブ移動）まで実行（Chrome 限定）', category: '整理', when: 'vault の棚卸しと掃除に。設定した非公開フォルダは読み込まない・実行前に git コミット' },
-  { name: 'Calc Dates', alias: 'dates', path: 'web/dates.html', desc: '日付・営業日・工数の計算 — N営業日後・期限の逆算・期間の営業日数・和暦/年度・人日⇄時間⇄人月換算（祝日2020〜2027年を同梱）', category: 'PM', when: '納期やレビュー期限の逆算と、見積の工数換算に' },
-  { name: 'Draw Gantt', alias: 'gantt', path: 'web/gantt.html', desc: 'タスクと期間の表 → ガントチャート画像（PNG コピー・mermaid 同梱）— 管理はしない・資料貼り付け用', category: 'PM', when: 'スケジュール感を資料や Teams でさっと共有したいとき' },
+  { name: 'Plan Tasks', alias: 'taskboard', path: 'web/taskboard.html', icon: '✅', short: 'tasks.md を表で編集', desc: 'vault の tasks.md（正本）を表形式で閲覧・編集 — 完了・開始日・期限・優先度、計画ビュー（タイムライン）、Excel用コピー', category: 'タスク', when: '朝の計画と期限付け・週次の棚卸し・大きなタスクの期間管理・Excel報告への転記' },
+  { name: 'Convert Table', alias: 'excel2md', path: 'web/excel2md.html', icon: '📊', short: 'Excel の表 ⇔ Markdown', desc: 'Excelのセル範囲（TSV）⇔ Markdownテーブル 双方向変換 — 結合セルの展開・表プレビュー上で列の揃え指定', category: '変換・比較', when: 'Excel の表を設計書や議事録の Markdown に貼るとき／その逆' },
+  { name: 'Convert Data', alias: 'devpad', path: 'web/devpad.html', icon: '🔧', short: 'JSON・SQL 整形ほか11種', desc: '開発ユーティリティ集 — JSON・XML・SQL の整形・エスケープ・URL・Base64・正規表現・基数変換・Unix時刻・UUID・文字数カウント', category: '変換・比較', when: 'API レスポンスの整形・エンコード・時刻変換・正規表現の動作確認をその場で済ませたいとき' },
+  { name: 'Normalize Text', alias: 'norm', path: 'web/norm.html', icon: '🔤', short: '表記ゆれを正規化', desc: '日本語表記の正規化（全角半角・ハイフン・波ダッシュ・空白・NFKC）変更箇所ハイライト付き', category: '変換・比較', when: '顧客提供テキストや仕様書の表記ゆれを揃えるとき' },
+  { name: 'Compare Text', alias: 'diff', path: 'web/diff.html', icon: '🔍', short: '2つの文章の差分', desc: 'テキスト比較 — 行単位差分＋文字単位ハイライト、空白無視・全半角同一視オプション', category: '変換・比較', when: '文言修正の前後比較や設計記述の突き合わせ' },
+  { name: 'Unify Terms', alias: 'terms', path: 'web/terms.html', icon: '📖', short: '用語統一表を一括適用', desc: '用語統一表（変換前→変換後）を原稿へ一括適用 — 同時置換・長い語優先、ルール別件数と未適用の表示', category: '変換・比較', when: '顧客の用語集・表記ルールに原稿を合わせるとき' },
+  { name: 'Fill Template', alias: 'fill', path: 'web/fill.html', icon: '📝', short: '定型文の穴埋め', desc: '定型文テンプレの差し込み — 本文の {{変数}} から入力フォームを自動生成、埋めて完成文をコピー（{{今日}} は日付を自動セット）', category: '変換・比較', when: '日報・週報・議事録の送付文・依頼文など、毎回少しだけ変わる定型連絡を作るとき' },
+  { name: 'Document Schema', alias: 'ddl2spec', path: 'web/ddl2spec.html', icon: '📋', short: 'DDL ⇔ テーブル定義書', desc: 'PostgreSQL の DDL（CREATE TABLE ＋ COMMENT ON）⇔ テーブル定義書（Markdown表）双方向変換 — 論理名・複合キー・FK・CHECK・Excel用コピー', category: '設計', when: '既存 DDL から定義書を起こすとき／定義書から DDL を作るとき（正本は DDL 側）' },
+  { name: 'Export Outline', alias: 'doc2xl', path: 'web/doc2xl.html', icon: '📤', short: '見出し → Excel 階層表', desc: 'Markdown 文書の見出し階層 → Excel 用の階層表（大項目/中項目/小項目＋内容）— Markdown表・TSV 出力', category: '設計', when: '設計書を Markdown で下書きして、納品時に Excel の階層表へ移すとき' },
+  { name: 'Draw Diagram', alias: 'diagram', path: 'web/diagram.html', icon: '📈', short: 'テキスト → フロー図', desc: 'テキストから図を描く（mermaid 同梱・オフライン）— フローチャート・シーケンス図・状態遷移図を書いて PNG コピー/SVG 保存', category: '設計', when: 'draw.io を開くほどでもない図を資料や Teams に貼るとき' },
+  { name: 'Draw Mindmap', alias: 'mindmap', path: 'web/mindmap.html', icon: '🧠', short: '箇条書き → マインドマップ', desc: '箇条書き → マインドマップ描画（mermaid 同梱）— 1行目が中心テーマ・タブで階層。PNG コピー/テキストはそのままノートへ', category: '発想', when: 'ブレインストーミングや打ち合わせ前の論点洗い出しに' },
+  { name: 'Sort Ideas', alias: 'board', path: 'web/board.html', icon: '🧩', short: '付箋を並べて発想をまとめる', desc: '付箋ボード — ダブルクリックで付箋を置いて直接入力・ドラッグで並べ・色で分け・線で結ぶ → md アウトライン書き出し/PNG コピー', category: '発想', when: 'ブレインストーミングで出した発想を、並べて・まとめて・ノートに持ち帰るとき' },
+  { name: 'Mask Image', alias: 'mask', path: 'web/mask.html', icon: '🫥', short: 'スクショの目隠しと注釈', desc: 'スクショのマスキングと注釈 — 貼り付け → モザイク/黒塗り/白塗り・枠・矢印・テキスト・番号スタンプ・切り抜き → PNG コピー（画像は保存しない）', category: '画像', when: 'スクショを Teams・設計書に貼る前の機密隠しと説明入れ' },
+  { name: 'Check Vault', alias: 'vaultlint', path: 'web/vaultlint.html', icon: '🧹', short: 'vault のリンク切れ点検', desc: 'Obsidian vault の健全性チェック — リンク切れ・添付消失・ファイル名の罠・Inbox のデイリーを検出し、承認した修復（テキスト化・リネーム追随・アーカイブ移動）まで実行（Chrome 限定）', category: '整理', when: 'vault の棚卸しと掃除に。設定した非公開フォルダは読み込まない・実行前に git コミット' },
+  { name: 'Calc Dates', alias: 'dates', path: 'web/dates.html', icon: '📅', short: '営業日・和暦・工数の計算', desc: '日付・営業日・工数の計算 — N営業日後・期限の逆算・期間の営業日数・和暦/年度・人日⇄時間⇄人月換算（祝日2020〜2027年を同梱）', category: 'PM', when: '納期やレビュー期限の逆算と、見積の工数換算に' },
+  { name: 'Draw Gantt', alias: 'gantt', path: 'web/gantt.html', icon: '⏳', short: '表 → ガントチャート画像', desc: 'タスクと期間の表 → ガントチャート画像（PNG コピー・mermaid 同梱）— 管理はしない・資料貼り付け用', category: 'PM', when: 'スケジュール感を資料や Teams でさっと共有したいとき' },
 ];
 
 // カテゴリの表示順。最も使う「タスク」を先頭に置く。
@@ -108,6 +157,7 @@ function filter(query) {
   if (q === '') return TOOLS.slice();
   return TOOLS.filter(t =>
     t.name.toLowerCase().includes(q) || (t.alias || '').toLowerCase().includes(q) ||
+    (t.short || '').toLowerCase().includes(q) ||
     t.desc.toLowerCase().includes(q) || (t.when || '').toLowerCase().includes(q) ||
     (t.category || '').toLowerCase().includes(q));
 }
@@ -138,14 +188,34 @@ function recordUse(alias) {
   renderRecent();
 }
 
-// ツール1つ分のチップ（リンクが li いっぱいに広がる = 余白を押しても開く HUB-14）
-function makeChip(tool) {
+// ツール1つ分のカード（リンクがカードいっぱいに広がる = どこを押しても開く HUB-14）。
+// compact=true は「最近使った」用（アイコン＋名前だけ）
+function makeCard(tool, compact) {
   const li = document.createElement('li');
   const a = document.createElement('a');
   a.href = tool.path;
-  a.textContent = tool.name;
-  // 説明と用途は画面に出さず、ここ（マウスオーバー）と検索にだけ残す
+  // 長い説明と用途は画面に出さず、ここ（マウスオーバー）と検索にだけ残す
   a.title = tool.desc + (tool.when ? '\nいつ使う: ' + tool.when : '');
+  const icon = document.createElement('span');
+  icon.className = 'icon';
+  icon.textContent = tool.icon || '';
+  a.appendChild(icon);
+  if (compact) {
+    a.appendChild(document.createTextNode(tool.name));
+  } else {
+    const body = document.createElement('span');
+    body.className = 'body';
+    const name = document.createElement('span');
+    name.className = 'tool-name';
+    name.textContent = tool.name;
+    const short = document.createElement('span');
+    short.className = 'short';
+    short.textContent = tool.short || '';
+    body.appendChild(name);
+    body.appendChild(document.createElement('br'));
+    body.appendChild(short);
+    a.appendChild(body);
+  }
   a.addEventListener('click', () => recordUse(tool.alias));
   li.appendChild(a);
   return li;
@@ -156,7 +226,7 @@ function renderRecent() {
   recentEl.hidden = recent.length === 0;
   for (const alias of recent) {
     const t = TOOLS.find(x => x.alias === alias);
-    if (t) recentListEl.appendChild(makeChip(t));
+    if (t) recentListEl.appendChild(makeCard(t, true));
   }
 }
 
@@ -185,15 +255,19 @@ function render(tools) {
 
   const renderGroup = (title, items) => {
     if (items.length === 0) return;
+    // カテゴリ名は行の左（狭幅では上）。見出し1行分の高さを使わずに済む
+    const row = document.createElement('div');
+    row.className = 'cat-row';
     const titleEl = document.createElement('p');
     titleEl.className = 'category-title';
     titleEl.textContent = title;
-    listEl.appendChild(titleEl);
+    row.appendChild(titleEl);
 
     const ul = document.createElement('ul');
     ul.className = 'tool-list';
-    for (const t of items) ul.appendChild(makeChip(t));
-    listEl.appendChild(ul);
+    for (const t of items) ul.appendChild(makeCard(t, false));
+    row.appendChild(ul);
+    listEl.appendChild(row);
   };
 
   for (const cat of CATEGORY_ORDER) {

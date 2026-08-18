@@ -1366,7 +1366,7 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
   await page.goto(fileUrl('index.html'));
   const hubCats = await page.evaluate(() =>
     Array.from(document.querySelectorAll('.category-title')).map(e => e.textContent));
-  await page.click('ul.tool-list a:text-is("Mask Image")');
+  await page.click('ul.tool-list .tool-name:text-is("Mask Image")');
   await page.waitForLoadState('load');
   const hubTitle = await page.title();
   r.check('ハブの「画像」カテゴリから遷移でき title が命名規約どおり',
