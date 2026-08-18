@@ -24,7 +24,7 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     /* ========== GN-01: DSL 生成（正規化・全角化・警告） ========== */
     const gn01 = await page.evaluate(() => {
       const input = [
-        '# コメント行',
+        '%% コメント行',
         '設計フェーズ',
         '基本設計\t2026-08-18\t2026-08-22',
         '詳細設計\t2026-08-25\t5d',
@@ -58,8 +58,8 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
 
     /* ========== GN-03: タスク0件は描画しない ========== */
     const gn03 = await page.evaluate(async () => {
-      const built = window.gantt.buildDsl('# コメントだけ\n不正\txx\tyy', { excludeWeekends: true });
-      const res = await window.gantt.render('# コメントだけ\n不正\txx\tyy');
+      const built = window.gantt.buildDsl('%% コメントだけ\n不正\txx\tyy', { excludeWeekends: true });
+      const res = await window.gantt.render('%% コメントだけ\n不正\txx\tyy');
       return { built, res, info: window.gantt.svgInfo() };
     });
     r.check('GN-03（タスク0件: dsl null・警告あり・描画しない）',
@@ -110,7 +110,7 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     ].join('\n');
     r.check('GN-06（tasks.md 直貼り: 変換表どおり・件数集約の警告・取り込みコメント）',
       !gn06.missing && gn06.kind === 'tasks'
-      && /^# 取り込み: \d{4}-\d{2}-\d{2}\n/.test(gn06.text)
+      && /^%% 取り込み: \d{4}-\d{2}-\d{2}\n/.test(gn06.text)
       && gn06.text.split('\n').slice(1).join('\n') === want06
       && gn06.warnings.length === 2
       && gn06.warnings.some(w => w.includes('終わったタスク1件'))
@@ -162,6 +162,55 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
       && gn09.headEmpty.dsl === null && gn09.headEmpty.warnings.length === 1
       && gn09.headEmpty.warnings[0].includes('開始'),
       JSON.stringify(gn09));
+  }
+
+  if (ready) {
+    /* ========== GN-12: Markdown で書いた表（GN-Q19） ========== */
+    const gn12 = await page.evaluate(() => window.gantt.buildDsl([
+      '---',
+      'tags: [plan]',
+      '---',
+      '## 設計フェーズ',
+      '%% ここはコメント',
+      '- 基本設計\t2026-08-18\t2026-08-22',
+      '- [ ] [[詳細設計メモ|詳細設計]]\t2026-08-25\t5d',
+      '## 実装フェーズ',
+      '| 名前 | 開始 | 終了 |',
+      '|---|---|---|',
+      '| **実装** | 2026-09-01 | 10日 |',
+    ].join('\n'), { excludeWeekends: true }));
+    const want12 = [
+      'gantt',
+      'dateFormat YYYY-MM-DD',
+      'axisFormat %m/%d',
+      'excludes weekends',
+      'section 設計フェーズ',
+      '基本設計 :t1, 2026-08-18, 2026-08-23',
+      '詳細設計 :t2, 2026-08-25, 5d',
+      'section 実装フェーズ',
+      '実装 :t3, 2026-09-01, 10d',
+    ].join('\n');
+    r.check('GN-12（md: 見出し=セクション・箇条書き/チェックボックス/リンク記法は外れる・テーブル行も読む・front matter と %% は出ない）',
+      gn12.dsl === want12 && gn12.warnings.length === 1
+      && gn12.warnings[0].includes('9行目'),   // 表のヘッダー行（2列目が日付でない）は解釈できない行
+      JSON.stringify(gn12));
+
+    /* ========== GN-13: 行エディタも同じ規則で読む ========== */
+    const gn13 = await page.evaluate(() => {
+      const rows = window.gantt.parseRows([
+        '## 設計フェーズ',
+        '%% コメント',
+        '- 基本設計\t2026-08-18\t2026-08-22',
+        '| 実装 | 2026-09-01 | 10日 |',
+      ].join('\n'));
+      return rows.map(x => ({ type: x.type, line: x.line, tokens: x.tokens || null }));
+    });
+    r.check('GN-13（parseRows: 見出し=section・%%=comment・箇条書きとテーブル行=task）',
+      gn13.length === 4
+      && gn13[0].type === 'section' && gn13[1].type === 'comment'
+      && gn13[2].type === 'task' && eq(gn13[2].tokens, ['基本設計', '2026-08-18', '2026-08-22'])
+      && gn13[3].type === 'task' && eq(gn13[3].tokens, ['実装', '2026-09-01', '10日']),
+      JSON.stringify(gn13));
   }
 
   /* ========== GN-U1: 自動保存（入力＋チェック） ========== */
@@ -249,7 +298,7 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
   });
   r.check('GN-U5（paste: tasks.md は変換挿入＋コメント・Excel形式は変換せず案内）',
     !u5g.missing
-    && /# 取り込み: \d{4}-\d{2}-\d{2}/.test(u5g.converted.v)
+    && /%% 取り込み: \d{4}-\d{2}-\d{2}/.test(u5g.converted.v)
     && u5g.converted.v.includes('貼り付けタスク\t2026-08-18\t2026-08-20')
     && u5g.excel.v === u5g.converted.v
     && u5g.excel.banner.includes('計画をコピー'),
@@ -283,7 +332,7 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
   const gn10 = await page.evaluate(() => {
     if (!window.gantt.parseRows) return { missing: true };
     const text = [
-      '# 取り込み: 2026-08-17',
+      '%% 取り込み: 2026-08-17',
       '設計フェーズ',
       '基本設計\t2026-08-18\t2026-08-22',
       '',
@@ -481,7 +530,7 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
   r.check('GN-U11（エディタ表示中の paste: tasks.md は変換して末尾挿入＋再構築・Excel 形式は案内）',
     !u11.missing
     && u11.converted.text.includes('A\t2026-08-18\t1d')
-    && /# 取り込み: \d{4}-\d{2}-\d{2}/.test(u11.converted.text)
+    && /%% 取り込み: \d{4}-\d{2}-\d{2}/.test(u11.converted.text)
     && u11.converted.text.includes('貼り付けタスク\t2026-08-18\t2026-08-20')
     && u11.converted.rows >= 3
     && u11.excel.text === u11.converted.text
@@ -715,7 +764,7 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     };
   });
   r.check('GN-U18（再構築中の blur がテキストを汚染しない: 鮮度ガードが古い行の書き込みを弾く）',
-    !u18.missing && u18.domRows === 6 && u18.lines === 6 && u18.text0 === '設計フェーズ',
+    !u18.missing && u18.domRows === 6 && u18.lines === 6 && u18.text0 === '## 設計フェーズ',
     JSON.stringify(u18));
 
   // 後続テストのためテキストビューへ戻す

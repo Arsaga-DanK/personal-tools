@@ -78,12 +78,12 @@
 <main class="app-wide">
   <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">入力とオプションは自動保存されます</span></p>
   <h1>Draw Gantt</h1>
-  <p class="subtitle">タスクと期間の表 → ガントチャート画像（PNG コピー）— 管理はしない・資料貼り付け用。1行「タスク名、開始、終了か日数」・区切りのない行はセクション見出し</p>
+  <p class="subtitle">タスクと期間の表 → ガントチャート画像（PNG コピー）— 管理はしない・資料貼り付け用。Markdown で書けて、tasks.md や計画表を貼るだけでも取り込めます</p>
 
   <div class="toolbar">
     <button class="primary" id="copy-btn" title="Cmd/Ctrl+Enter">PNG をコピー</button>
     <label class="toggle"><input type="checkbox" id="exclude-weekends" checked> 土日を除外</label>
-    <span class="muted" style="font-size:12px">例: 基本設計⇥2026-08-18⇥2026-08-22（タブかカンマ区切り。日数は 5d / 5日）</span>
+    <span class="muted" style="font-size:12px">1行=1タスク「名前⇥開始⇥終了か日数」。## 見出しはセクション・箇条書きや md テーブルもそのまま読めます（%% はコメント）</span>
   </div>
 
   <div class="banner" id="banner" hidden></div>
@@ -97,7 +97,7 @@
         </span>
         <button type="button" class="sample-btn" id="sample-btn">サンプルを入れる</button>
       </p>
-      <textarea id="input" spellcheck="false" placeholder="設計フェーズ&#10;基本設計&#9;2026-08-18&#9;2026-08-22&#10;詳細設計&#9;2026-08-25&#9;5d"></textarea>
+      <textarea id="input" spellcheck="false" placeholder="## 設計フェーズ&#10;- 基本設計&#9;2026-08-18&#9;2026-08-22&#10;- 詳細設計&#9;2026-08-25&#9;5d"></textarea>
       <div id="editor" hidden>
         <div id="editor-rows"></div>
         <div class="ed-foot">
@@ -149,6 +149,63 @@ function normDate(s) {
 // 日数の上限（約10年）。文言と対で変える — 性能ガードの二重管理（GN-Q18）
 const MAX_DURATION_DAYS = 3650;
 
+/* ---------- Markdown の記法（GN-Q19。mindmap の MM-Q6/Q7 と揃える） ---------- */
+
+const MD_HEADING_RE = /^(#{1,6})\s+(.*)$/;      // 見出し = セクション（深さは問わない）
+const MD_COMMENT_RE = /^%%/;                     // コメント（Obsidian 記法）
+const MD_BULLET_RE = /^([-*+]|\d+[.)])\s+/;      // 箇条書き記号
+const MD_TABLE_DELIM_RE = /^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?$/;   // |---|---|
+
+// 名前に混ざる md 記法を落とす（貼り付けたノートをそのまま読むため）。
+// keepIndent=true は行頭の字下げを残す（取り込みの全角スペース字下げを消さない — GN-Q9）
+function stripMd(s, keepIndent) {
+  const out = String(s)
+    .replace(/^\[[ xX\-/]\]\s*/, '')                    // - [ ] / - [x]
+    .replace(/!?\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2')    // [[ノート|別名]]
+    .replace(/!?\[\[([^\]]+)\]\]/g, '$1')               // [[ノート]]
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')          // [表示](url)
+    .replace(/`([^`]*)`/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1');
+  return keepIndent ? out : out.trim();
+}
+
+// 先頭の YAML front matter を落とす（**行は消さず空にする** — 消すと警告の行番号がずれる）
+function stripFrontMatter(lines) {
+  let i = 0;
+  while (i < lines.length && lines[i].trim() === '') i++;
+  if (i >= lines.length || lines[i].trim() !== '---') return lines;
+  for (let j = i + 1; j < lines.length; j++) {
+    if (lines[j].trim() === '---') {
+      return lines.map((l, k) => (k >= i && k <= j ? '' : l));
+    }
+  }
+  return lines;   // 閉じが無ければ front matter とみなさない（本文を消さない）
+}
+
+/* 1行 → { kind: 'skip'|'section'|'task', name?, tokens? }。
+   buildDsl と行エディタ（parseRows）が同じ規則を使う唯一の場所（GN-Q19） */
+function readLine(raw) {
+  const line = raw.trim();
+  if (MD_COMMENT_RE.test(line)) return { kind: 'skip' };
+  if (line !== '') {
+    const head = MD_HEADING_RE.exec(line);
+    if (head) return { kind: 'section', name: stripMd(head[2]) };
+    // md テーブルの行（区切り行は捨てる）
+    if (line.startsWith('|')) {
+      if (MD_TABLE_DELIM_RE.test(line)) return { kind: 'skip' };
+      const cells = line.replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => stripMd(c));
+      return cells.length >= 3 ? { kind: 'task', tokens: cells } : { kind: 'skip' };
+    }
+  }
+  // 字下げはスペースだけ剥がす（**タブは列区切り**なので剥がすと空の1列目が消える）
+  const body = raw.replace(/^ */, '').replace(MD_BULLET_RE, '');
+  const parts = body.includes('\t') ? body.split('\t') : body.split(',');
+  // 区切りが無い行: 空なら読み飛ばし、内容があればセクション見出し
+  if (parts.length === 1) return line === '' ? { kind: 'skip' } : { kind: 'section', name: stripMd(parts[0]) };
+  return { kind: 'task', tokens: parts.map((c, i) => (i === 0 ? stripMd(c, true) : c)) };
+}
+
 // '5d' / '5日' → '5d'（それ以外は null）
 function normDuration(s) {
   const m = /^(\d+)\s*(d|日)$/.exec(String(s).trim());
@@ -186,16 +243,16 @@ function buildDsl(text, opts) {
   const chained = {};   // 開始空欄で補完した行番号（0始まり）→ 実効開始日（行エディタのキャプション — GN-11）
   let taskN = 0;
   let prevEnd = null;   // 直前タスクの終了（含む）— チェーン入力の起点
-  const lines = String(text == null ? '' : text).split('\n');
+  const lines = stripFrontMatter(String(text == null ? '' : text).split('\n'));
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i];
-    const line = raw.trim();
-    if (line === '' || line.startsWith('#')) continue;
-    const parts = raw.includes('\t') ? raw.split('\t') : raw.split(',');
-    if (parts.length === 1) {   // 区切りなし = セクション見出し
-      body.push('section ' + line.replace(/:/g, '：'));
+    const read = readLine(raw);
+    if (read.kind === 'skip') continue;
+    if (read.kind === 'section') {
+      if (read.name !== '') body.push('section ' + read.name.replace(/:/g, '：'));
       continue;
     }
+    const parts = read.tokens;
     if (parts.length < 3) {
       warnings.push((i + 1) + '行目: 「名前、開始、終了か日数」の3列が必要です');
       continue;
@@ -291,7 +348,7 @@ function importText(raw) {
       out.push(c[0] + '\t' + start + '\t' + (due || '1d'));
     }
     const warnings = done > 0 ? ['終わったタスク' + done + '件をスキップしました'] : [];
-    return { text: '# 取り込み: ' + ToolEdit.today() + '\n' + out.join('\n'), warnings, kind: 'plan' };
+    return { text: '%% 取り込み: ' + ToolEdit.today() + '\n' + out.join('\n'), warnings, kind: 'plan' };
   }
   // tasks.md（Obsidian Tasks 記法）
   if (!lines.some(l => TASK_RE.test(l))) return { text: null, warnings: [], kind: null };
@@ -313,7 +370,7 @@ function importText(raw) {
   const warnings = [];
   if (done > 0) warnings.push('終わったタスク' + done + '件をスキップしました');
   if (dateless > 0) warnings.push('日付のない' + dateless + '行をスキップしました');
-  return { text: '# 取り込み: ' + ToolEdit.today() + '\n' + out.join('\n'), warnings, kind: 'tasks' };
+  return { text: '%% 取り込み: ' + ToolEdit.today() + '\n' + out.join('\n'), warnings, kind: 'tasks' };
 }
 
 /* ========== 行エディタ（spec「行エディタ」GN-Q9〜Q15）==========
@@ -332,13 +389,15 @@ function normEditorDur(s) {
   return +m[1] > MAX_DURATION_DAYS ? null : m[1] + 'd';
 }
 
-// 1行の型。buildDsl のトークン化規則と一致させる（タブ優先・なければカンマ・#=コメント）
+// 1行の型。トークン化は buildDsl と同じ readLine を通す（規則が2箇所に分かれないように）
 function classifyLine(raw) {
   const t = raw.trim();
   if (t === '' && !raw.includes('\t')) return 'empty';
-  if (t.startsWith('#')) return 'comment';
-  const parts = raw.includes('\t') ? raw.split('\t') : raw.split(',');
-  if (parts.length === 1) return 'section';
+  if (MD_COMMENT_RE.test(t)) return 'comment';
+  const read = readLine(raw);
+  if (read.kind === 'skip') return 'comment';        // md テーブルの区切り行など（触らせない）
+  if (read.kind === 'section') return 'section';
+  const parts = read.tokens;
   if (parts.length < 3) return 'invalid';
   const st = parts[1].trim(), en = parts[2].trim();
   const stOk = st === '' || normDate(st) !== null;
@@ -356,7 +415,7 @@ function parseRows(text) {
     const type = classifyLine(raw);
     if (type === 'empty') continue;
     if (type === 'task') {
-      rows.push({ type, line: i, raw, tokens: raw.includes('\t') ? raw.split('\t') : raw.split(',') });
+      rows.push({ type, line: i, raw, tokens: readLine(raw).tokens });
     } else {
       rows.push({ type, line: i, raw });
     }
@@ -459,7 +518,11 @@ function mutateLines(fn) {
 // フィールドのサニタイズ（型シフト防止）: タブ・改行は空白へ・行頭 # は全角へ・
 // セクションのカンマは全角へ（名前の ':' 全角化と同じ流儀）
 function sanitizeName(s) {
-  return String(s).replace(/[\t\r\n]/g, ' ').replace(/^(\s*)#/, '$1＃');
+  // 行頭の # と %% は見出し・コメントに化けるので全角へ（行の型シフト防止）
+  return String(s).replace(/[\t\r\n]/g, ' ')
+    .replace(/^(\s*)#/, '$1＃')
+    .replace(/^(\s*)%%/, '$1％％')
+    .replace(/^(\s*)\|/, '$1｜');
 }
 function sanitizeSection(s) {
   return sanitizeName(s).replace(/,/g, '，');
@@ -881,7 +944,7 @@ document.addEventListener('keydown', e => {
 });
 
 el('sample-btn').addEventListener('click', () => {
-  el('input').value = '設計フェーズ\n基本設計\t2026-08-18\t2026-08-22\n詳細設計\t2026-08-25\t5d\n実装フェーズ\n実装\t2026-09-01\t10日\n結合テスト\t2026-09-16\t2026-09-19';
+  el('input').value = '## 設計フェーズ\n- 基本設計\t2026-08-18\t2026-08-22\n- 詳細設計\t2026-08-25\t5d\n## 実装フェーズ\n- 実装\t2026-09-01\t10日\n- 結合テスト\t2026-09-16\t2026-09-19';
   render(el('input').value);
   updateSampleBtn();
   scheduleSave();
