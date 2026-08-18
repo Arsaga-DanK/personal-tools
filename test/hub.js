@@ -557,6 +557,33 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     handoffResults.length === 6 && handoffResults.every(x => x.ok),
     JSON.stringify(handoffResults.filter(x => !x.ok)));
 
+  /* ---------- HUB-25: Obsidian 用のリンク集（パスは実行時に組む・vault には書かない） ---------- */
+  await page.goto(fileUrl('index.html'));
+  const notes = await page.evaluate(async () => {
+    if (!window.hub.buildNotesMd) return { missing: true };
+    const md = window.hub.buildNotesMd();
+    let copied = null;
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true, value: { writeText: async t => { copied = t; } },
+    });
+    document.getElementById('copy-notes').click();
+    await new Promise(d => setTimeout(d, 200));
+    return {
+      md, copied, label: document.getElementById('copy-notes').textContent,
+      // 全ツールが載る・パスは file:// の絶対 URL・ハブへのリンクもある
+      allListed: window.hub.TOOLS.every(t => md.includes('[' + t.name + '](file://')),
+      hasHub: /- \[ツール一覧（ハブ）\]\(file:\/\/.*index\.html\)/.test(md),
+      cats: window.hub.CATEGORY_ORDER.every(c => md.includes('## ' + c)),
+      // 環境依存のパスをコードに埋め込んでいない（いま開いている場所から組む）
+      fromLocation: md.includes(location.href.replace(/index\.html$/, '')),
+    };
+  });
+  r.check('HUB-25（Obsidian 用のリンク集: 全16本＋ハブ＋カテゴリ見出しの md をコピー・パスは実行時に組む）',
+    !notes.missing && notes.allListed === true && notes.hasHub === true
+    && notes.cats === true && notes.fromLocation === true
+    && notes.copied === notes.md && notes.label === '✓ コピーしました',
+    JSON.stringify({ label: notes.label, head: notes.md.split('\n').slice(0, 4) }));
+
   await browser.close();
   r.report('ハブ（index.html）');
 })().catch(e => {

@@ -147,7 +147,7 @@
 
   /* データから探す（貼ったものの行き先を出す）。既定は折りたたみ = 1画面を崩さない */
   .search-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-  #router-toggle { font-size: 12px; padding: 7px 12px; border-radius: 999px; }
+  #router-toggle, #copy-notes { font-size: 12px; padding: 7px 12px; border-radius: 999px; }
   #router-toggle[aria-expanded="true"] {
     background: color-mix(in srgb, var(--accent) 14%, var(--panel));
     border-color: color-mix(in srgb, var(--accent) 50%, var(--edge));
@@ -171,6 +171,7 @@
     <input type="text" id="search" placeholder="検索（名前・説明・用途・カテゴリ。/ でフォーカス）" autocomplete="off">
     <button type="button" id="router-toggle" aria-expanded="false" aria-controls="router"
       title="Excelの表・JSON・DDL・tasks.md などを貼ると、行ける道具が出ます">データから探す</button>
+    <button type="button" id="copy-notes" title="Obsidian のノートに貼る用のリンク集をコピー（このハブと全ツールへの直リンク。パスはいま開いている場所から作ります）">Obsidian 用のリンク集</button>
   </div>
   <div id="router" hidden>
     <textarea id="router-in" spellcheck="false" aria-label="データを貼り付け"
@@ -487,6 +488,38 @@ function renderRoute() {
   routerOutEl.appendChild(ul);
 }
 
+/* ---------- Obsidian 用のリンク集（2026-08-18） ----------
+   ツールを思い出す瞬間は Obsidian の中で来る。vault にノートを1枚置けば導線になる。
+   **パスはコードに書かない** — いま開いている場所（location）から組む（環境依存を持たない）。
+   ここでは vault に書き込まず、**貼るための md をクリップボードに渡すだけ**（正本は利用者が置く） */
+function buildNotesMd() {
+  const hubUrl = location.href.replace(/[?#].*$/, '');
+  const base = hubUrl.replace(/index\.html$/, '');
+  const lines = ['# ツール', '', '- [ツール一覧（ハブ）](' + hubUrl + ')', ''];
+  for (const cat of CATEGORY_ORDER) {
+    const items = TOOLS.filter(t => t.category === cat);
+    if (!items.length) continue;
+    lines.push('## ' + cat);
+    for (const t of items) {
+      lines.push('- [' + t.name + '](' + base + t.path + ') — ' + t.short);
+    }
+    lines.push('');
+  }
+  return lines.join('\n');
+}
+
+document.getElementById('copy-notes').addEventListener('click', () => {
+  const btn = document.getElementById('copy-notes');
+  const md = buildNotesMd();
+  const done = ok => { btn.textContent = ok ? '✓ コピーしました' : 'コピーできません';
+    setTimeout(() => { btn.textContent = 'Obsidian 用のリンク集'; }, 1500); };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(md).then(() => done(true), () => done(false));
+  } else {
+    done(false);
+  }
+});
+
 routerToggleEl.addEventListener('click', () => {
   const open = routerEl.hidden;
   routerEl.hidden = !open;
@@ -517,7 +550,7 @@ searchEl.focus();   // 開いた瞬間から打てる（探すより打つ方が
 
 // テスト用フック。CATEGORY_ORDER も公開する — ハーネスが「描画された並びが
 // TOOLS × CATEGORY_ORDER どおりか」を**導出して**照合するため（期待値の二重管理を避ける）
-window.hub = { TOOLS, CATEGORY_ORDER, filter, recordUse, inOrder, routeText, RECEIVERS };
+window.hub = { TOOLS, CATEGORY_ORDER, filter, recordUse, inOrder, routeText, RECEIVERS, buildNotesMd };
 </script>
 </body>
 </html>
