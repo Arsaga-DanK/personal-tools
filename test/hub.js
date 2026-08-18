@@ -166,29 +166,24 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     slash.focused && slash.prevented && slash.inFieldPrevented === false,
     JSON.stringify(slash));
 
-  /* ---------- カード全体がクリック可能（HUB-14） ---------- */
-  await page.click('ul.tool-list li .desc');   // ツール名リンクの外（説明文）をクリック
+  /* ---------- チップ全体がクリック可能（HUB-14。2026-08-18 に「名前だけ」化して余白まで当たり判定） ---------- */
+  const chipFills = await page.evaluate(() => {
+    // リンクが li いっぱいに広がっていること（＝チップの余白を押しても開く）
+    const li = document.querySelector('ul.tool-list li');
+    const a = li.querySelector('a');
+    const lr = li.getBoundingClientRect(), ar = a.getBoundingClientRect();
+    return {
+      fills: Math.abs(lr.width - ar.width) < 1 && Math.abs(lr.height - ar.height) < 1,
+      padded: ar.height >= 24,   // 指・カーソルで押せる高さがある
+    };
+  });
+  await page.click('ul.tool-list li');   // li を押す（実体はチップの余白部分）
   await page.waitForLoadState('load');
   const cardNav = await page.title();
   await page.goto(fileUrl('index.html'));
-  const cardSelectGuard = await page.evaluate(() => {
-    // テキスト選択中のクリック（選択して離した瞬間）では遷移しない
-    const li = document.querySelector('ul.tool-list li');
-    const desc = li.querySelector('.desc');
-    const range = document.createRange();
-    range.selectNodeContents(desc);
-    const sel = window.getSelection();
-    sel.removeAllRanges();
-    sel.addRange(range);
-    let navigated = false;
-    li.querySelector('a').addEventListener('click', () => { navigated = true; }, { once: true });
-    desc.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    sel.removeAllRanges();
-    return navigated;
-  });
-  r.check('HUB-14（カードのどこを押しても開く・テキスト選択中は遷移しない）',
-    cardNav === 'Plan Tasks (taskboard)' && cardSelectGuard === false,
-    JSON.stringify([cardNav, cardSelectGuard]));
+  r.check('HUB-14（チップの余白を押しても開く: リンクが li いっぱいに広がっている）',
+    chipFills.fills === true && chipFills.padded === true && cardNav === 'Plan Tasks (taskboard)',
+    JSON.stringify([chipFills, cardNav]));
 
   const typeSearch = async q => {
     await page.fill('#search', q);
@@ -289,6 +284,102 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
   r.check('HUB-16（README の英字太字はすべて現行のツール表示名 — 旧名の残りを検出）',
     unknownBold.length === 0,
     JSON.stringify({ unknownBold, checked: boldTokens.length }));
+
+  /* ---------- HUB-17: 説明は画面から消し、マウスを乗せたとき（title）に出す ---------- */
+  await page.goto(fileUrl('index.html'));
+  const titles = await page.evaluate(() => {
+    const links = Array.from(document.querySelectorAll('ul.tool-list a'));
+    const byName = new Map(window.hub.TOOLS.map(t => [t.name, t]));
+    return {
+      // 全リンクに説明が title として付いているか（導出 — 固定文字列で書かない）
+      missingTitle: links.filter(a => {
+        const t = byName.get(a.textContent);
+        return !t || !(a.title || '').includes(t.desc);
+      }).map(a => a.textContent),
+      // 画面のテキストには説明・用途を出さない（1画面に収める目的）。
+      // **body 全体ではなく main を見る** — body.textContent はインラインスクリプトの
+      // ソース（TOOLS の定義）まで含むので、必ず「説明が画面にある」と判定されてしまう
+      descOnScreen: window.hub.TOOLS.filter(t => document.querySelector('main').textContent.includes(t.desc)).map(t => t.name),
+      whenOnScreen: window.hub.TOOLS.filter(t => t.when && document.querySelector('main').textContent.includes(t.when)).map(t => t.name),
+      // 縦に積まない（カテゴリごとに横並び）ことを、同じ行に2つ以上並ぶことで見る
+      sameRow: (() => {
+        const ul = Array.from(document.querySelectorAll('ul.tool-list'))
+          .find(u => u.querySelectorAll('a').length >= 3);
+        if (!ul) return false;
+        const tops = Array.from(ul.querySelectorAll('a')).map(a => Math.round(a.getBoundingClientRect().top));
+        return new Set(tops).size < tops.length;
+      })(),
+    };
+  });
+  r.check('HUB-17（説明と用途は画面に出さず title に持つ・カテゴリ内は横並び）',
+    titles.missingTitle.length === 0 && titles.descOnScreen.length === 0
+    && titles.whenOnScreen.length === 0 && titles.sameRow === true,
+    JSON.stringify(titles));
+
+  /* ---------- HUB-18: 1画面に収まる（16本 + 見出し + 検索欄） ---------- */
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const fits = await page.evaluate(() => ({
+    scrollH: document.documentElement.scrollHeight,
+    clientH: document.documentElement.clientHeight,
+    links: document.querySelectorAll('ul.tool-list a').length,
+  }));
+  r.check('HUB-18（1280x900 で縦スクロールなしに16本すべて見える）',
+    fits.links === 16 && fits.scrollH <= fits.clientH,
+    JSON.stringify(fits));
+
+  /* ---------- HUB-19: 最近使った（クリックで記録・先頭・重複なし・上限5） ----------
+     直前の HUB-7 が全16本をクリックで巡回して履歴を作っているので、
+     「履歴なしの表示」を見るには**消してから読み込み直す**（消すだけでは再描画されない） */
+  await page.evaluate(() => localStorage.removeItem('tools:hub'));
+  await page.reload();
+  const recentEmpty = await page.evaluate(() => document.getElementById('recent').hidden);
+  const recent = await page.evaluate(async () => {
+    const out = {};
+    const hub = window.hub;
+    if (!hub.recordUse) return { missing: true };
+    out.emptyHidden = true;
+    ['gantt', 'mask', 'gantt', 'board', 'dates', 'fill', 'norm'].forEach(a => hub.recordUse(a));
+    hub.recordUse('存在しない英名');                                // 未知は無視する
+    const stored = JSON.parse(localStorage.getItem('tools:hub'));
+    out.envelope = { tool: stored.tool, v: stored.v };
+    out.list = stored.data.recent;
+    out.shown = Array.from(document.querySelectorAll('#recent .recent-list a')).map(a => a.textContent);
+    out.recentHidden = document.getElementById('recent').hidden;
+    // ハブの一覧（tool-list）の本数は最近使った行の影響を受けない
+    out.listLinks = document.querySelectorAll('ul.tool-list a').length;
+    return out;
+  });
+  r.check('HUB-19（最近使った: 新しい順・重複なし・上限5・未知の英名は無視・履歴なしでは出さない）',
+    !recent.missing && recentEmpty === true && recent.recentHidden === false
+    && eq(recent.list, ['norm', 'fill', 'dates', 'board', 'gantt'])
+    && eq(recent.shown, ['Normalize Text', 'Fill Template', 'Calc Dates', 'Sort Ideas', 'Draw Gantt'])
+    && recent.envelope.tool === 'hub' && recent.envelope.v === 1
+    && recent.listLinks === 16,
+    JSON.stringify(recent));
+
+  /* ---------- HUB-20: 検索の自動フォーカスと Enter で先頭を開く（IME ガード） ---------- */
+  await page.goto(fileUrl('index.html'));
+  const enterNav = await page.evaluate(() => {
+    const s = document.getElementById('search');
+    const autofocused = document.activeElement === s;
+    s.value = 'ガント';
+    s.dispatchEvent(new Event('input', { bubbles: true }));
+    const first = document.querySelector('ul.tool-list a');
+    let navigated = null;
+    const stub = e => { e.preventDefault(); navigated = e.currentTarget.textContent; };
+    first.addEventListener('click', stub);
+    // 変換確定の Enter では開かない
+    const ime = new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true, cancelable: true });
+    s.dispatchEvent(ime);
+    const afterIme = navigated;
+    const plain = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+    s.dispatchEvent(plain);
+    return { autofocused, filtered: first.textContent, afterIme, navigated };
+  });
+  r.check('HUB-20（起動時に検索へフォーカス・Enter で先頭を開く・IME 中の Enter は開かない）',
+    enterNav.autofocused === true && enterNav.filtered === 'Draw Gantt'
+    && enterNav.afterIme === null && enterNav.navigated === 'Draw Gantt',
+    JSON.stringify(enterNav));
 
   await browser.close();
   r.report('ハブ（index.html）');

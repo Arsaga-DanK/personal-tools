@@ -7,44 +7,62 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🧰%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="lib/ui.css">
 <style>
-  /* ハブ固有のコンテンツ描画スタイル（ui.css クラスの再定義はしない） */
+  /* ハブ固有のコンテンツ描画スタイル（ui.css クラスの再定義はしない）。
+     2026-08-18: 名前だけのチップ配置に変更 — 16本を1画面に収めて「探す」を無くす（HUB-17/18）。
+     説明と用途は画面から消し、マウスを乗せたとき（title 属性）と検索にだけ残す */
   #search { width: 100%; max-width: 420px; padding: 9px 14px; font-size: 14px; border-radius: 999px; }
   .category-title {
-    font-size: 12px; color: var(--muted); margin: 26px 0 8px; font-weight: 700;
+    font-size: 11px; color: var(--muted); margin: 16px 0 6px; font-weight: 700;
     text-transform: uppercase; letter-spacing: .08em;
   }
-  ul.tool-list { list-style: none; margin: 0; padding: 0; }
-  ul.tool-list li {
+  ul.tool-list, ul.recent-list {
+    display: flex; flex-wrap: wrap; gap: 6px; list-style: none; margin: 0; padding: 0;
+  }
+  ul.tool-list li, ul.recent-list li { margin: 0; }
+  /* リンクがチップいっぱいに広がる = 余白を押しても開く（HUB-14） */
+  ul.tool-list a, ul.recent-list a {
+    display: block;
+    padding: 7px 14px;
     background: var(--panel);
     border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 12px 16px;
-    margin: 8px 0;
+    border-radius: 999px;
     box-shadow: var(--shadow);
-    transition: box-shadow .15s, border-color .15s, transform .1s;
-    cursor: pointer;   /* カード全体がクリック可能（HUB-14） */
+    color: var(--text);
+    font-weight: 600;
+    font-size: 13.5px;
+    text-decoration: none;
+    transition: border-color .15s, color .15s, box-shadow .15s, transform .1s;
   }
-  ul.tool-list li:hover {
-    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  ul.tool-list a:hover, ul.recent-list a:hover {
+    border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+    color: var(--accent);
     box-shadow: var(--shadow-hover);
     transform: translateY(-1px);
   }
-  ul.tool-list a { color: var(--accent); font-weight: 650; font-size: 15px; text-decoration: none; }
-  ul.tool-list a:hover { text-decoration: underline; }
-  ul.tool-list .desc { color: var(--muted); font-size: 13px; margin-left: 8px; }
-  ul.tool-list .when { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  /* 最近使った: 同じ形のまま色だけ変えて「別の並び」だと分かるようにする */
+  #recent { margin-top: 16px; }
+  .recent-title {
+    font-size: 11px; color: var(--muted); margin: 0 0 6px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .08em;
+  }
+  ul.recent-list a { border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); color: var(--accent); }
   #empty-msg { color: var(--muted); margin-top: 24px; }
 </style>
 </head>
 <body>
 <main class="app">
   <h1>Personal Tools</h1>
-  <p class="subtitle">業務効率化ツール一覧 — ツール名・説明・用途でインクリメンタル検索</p>
-  <input type="text" id="search" placeholder="検索（ツール名・説明・用途・カテゴリ。/ でフォーカス）" autocomplete="off">
+  <p class="subtitle">打ち始めると絞り込み・Enter で先頭を開く（説明はマウスを乗せると出ます）</p>
+  <input type="text" id="search" placeholder="検索（名前・説明・用途・カテゴリ。/ でフォーカス）" autocomplete="off">
+  <div id="recent" hidden>
+    <p class="recent-title">最近使った</p>
+    <ul class="recent-list"></ul>
+  </div>
   <div id="list"></div>
   <p id="empty-msg" hidden></p>
 </main>
 
+<script src="lib/storage.js"></script>
 <script>
 'use strict';
 
@@ -54,7 +72,10 @@
 //            when: いつ使うかの一言（省略可） }
 // 配列の順序が同一カテゴリ内の表示順になる。最も使うものを先頭に置く
 // name だけで何をするツールか分かるようにする（ブックマーク・タブ・履歴では desc が消えて
-// 名前しか残らない）。詳しい説明は desc と when が担う。規約の正本は CLAUDE.md「命名規約」
+// 名前しか残らない）。規約の正本は CLAUDE.md「命名規約」
+// **desc / when は画面に出さない**（2026-08-18 — 16本で縦2.3画面になり探すのが面倒になったため
+// 名前だけのチップ表示にした）。両者は「マウスを乗せたときの title」と「検索の当たり」に効く。
+// したがって desc は**短くしない** — 機能名・別名を盛り込むほど検索で辿り着ける（HUB-11 参照）
 // alias はファイル名・spec 名・localStorage キー・window フックと同じ英小文字名で、
 // 画面には出さず検索にだけ効かせる（過去のメモは英名で書かれている）
 const TOOLS = [
@@ -94,6 +115,50 @@ function filter(query) {
 const listEl = document.getElementById('list');
 const emptyEl = document.getElementById('empty-msg');
 const searchEl = document.getElementById('search');
+const recentEl = document.getElementById('recent');
+const recentListEl = recentEl.querySelector('ul.recent-list');
+
+/* ---------- 最近使った（tools:hub） ----------
+   16本になり「カテゴリの中から目で探す」のが面倒になったため（利用者 2026-08-18）。
+   記録はハブ経由で開いたときだけ（ブックマークから直接開いた分は載らない）。 */
+const RECENT_MAX = 5;
+let recent = [];
+
+function loadRecent() {
+  const data = ToolStorage.load('hub');
+  const list = data && Array.isArray(data.recent) ? data.recent : [];
+  // 型と値域のガード（未知の英名・文字列以外は捨てる — 改名や手書きの残骸で壊れない）
+  recent = list.filter(a => typeof a === 'string' && TOOLS.some(t => t.alias === a)).slice(0, RECENT_MAX);
+}
+
+function recordUse(alias) {
+  if (!TOOLS.some(t => t.alias === alias)) return;
+  recent = [alias].concat(recent.filter(a => a !== alias)).slice(0, RECENT_MAX);
+  ToolStorage.save('hub', { recent });
+  renderRecent();
+}
+
+// ツール1つ分のチップ（リンクが li いっぱいに広がる = 余白を押しても開く HUB-14）
+function makeChip(tool) {
+  const li = document.createElement('li');
+  const a = document.createElement('a');
+  a.href = tool.path;
+  a.textContent = tool.name;
+  // 説明と用途は画面に出さず、ここ（マウスオーバー）と検索にだけ残す
+  a.title = tool.desc + (tool.when ? '\nいつ使う: ' + tool.when : '');
+  a.addEventListener('click', () => recordUse(tool.alias));
+  li.appendChild(a);
+  return li;
+}
+
+function renderRecent() {
+  recentListEl.textContent = '';
+  recentEl.hidden = recent.length === 0;
+  for (const alias of recent) {
+    const t = TOOLS.find(x => x.alias === alias);
+    if (t) recentListEl.appendChild(makeChip(t));
+  }
+}
 
 // `/` で検索へフォーカス（HUB-13）。入力欄の中で押した `/` は文字として通す
 document.addEventListener('keydown', e => {
@@ -127,31 +192,7 @@ function render(tools) {
 
     const ul = document.createElement('ul');
     ul.className = 'tool-list';
-    for (const t of items) {
-      const li = document.createElement('li');
-      const a = document.createElement('a');
-      a.href = t.path;
-      a.textContent = t.name;
-      const desc = document.createElement('span');
-      desc.className = 'desc';
-      desc.textContent = t.desc;
-      li.appendChild(a);
-      li.appendChild(desc);
-      if (t.when) {
-        const when = document.createElement('div');
-        when.className = 'when';
-        when.textContent = 'いつ使う: ' + t.when;
-        li.appendChild(when);
-      }
-      // カードのどこを押しても開く（HUB-14）。テキスト選択して離した瞬間は遷移しない
-      li.addEventListener('click', e => {
-        if (e.target.closest('a')) return;
-        const sel = window.getSelection();
-        if (sel && String(sel).length > 0) return;
-        a.click();
-      });
-      ul.appendChild(li);
-    }
+    for (const t of items) ul.appendChild(makeChip(t));
     listEl.appendChild(ul);
   };
 
@@ -163,11 +204,26 @@ function render(tools) {
 }
 
 searchEl.addEventListener('input', () => render(filter(searchEl.value)));
+
+// Enter で先頭のツールを開く（打つ → Enter だけで到達できる）。
+// **IME ガード必須** — 変換確定の Enter でページ遷移させない（taskboard TB-I の教訓）
+searchEl.addEventListener('keydown', e => {
+  if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229) return;
+  const first = listEl.querySelector('ul.tool-list a');
+  if (!first) return;
+  e.preventDefault();
+  first.click();
+});
+
+loadRecent();
+renderRecent();
 render(TOOLS);
+ToolStorage.mountWarning();
+searchEl.focus();   // 開いた瞬間から打てる（探すより打つ方が速い）
 
 // テスト用フック。CATEGORY_ORDER も公開する — ハーネスが「描画されたグループが
 // TOOLS × CATEGORY_ORDER どおりか」を**導出して**照合するため（期待値の二重管理を避ける）
-window.hub = { TOOLS, CATEGORY_ORDER, filter };
+window.hub = { TOOLS, CATEGORY_ORDER, filter, recordUse };
 </script>
 </body>
 </html>
