@@ -491,6 +491,26 @@ const GENERATED_DDL = [
     && s24.toolbarAbovePanes && s24.label === '✓ コピーしました',
     JSON.stringify(s24));
 
+  /* ========== DS-30: Tab=インデント（DDL の字下げ — lib/edit.js） ========== */
+  const ds30 = await page.evaluate(() => {
+    if (!window.ToolEdit) return { missing: true };
+    const ta = document.getElementById('input');
+    ta.value = 'CREATE TABLE t (';
+    ta.focus();
+    ta.selectionStart = ta.selectionEnd = ta.value.length;
+    const ev = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    ta.dispatchEvent(ev);
+    const afterTab = { v: ta.value, prevented: ev.defaultPrevented };
+    ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    const ev2 = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    ta.dispatchEvent(ev2);
+    return { afterTab, escPass: !ev2.defaultPrevented };
+  });
+  r.check('DS-30（Tab=インデント・Esc→Tab は素通し）',
+    !ds30.missing && ds30.afterTab.v === 'CREATE TABLE t (\t' && ds30.afterTab.prevented === true
+    && ds30.escPass === true,
+    JSON.stringify(ds30));
+
   /* ========== DS-19: ハブ導線 ========== */
   await page.goto(fileUrl('index.html'));
   const s19cat = await page.evaluate(() =>

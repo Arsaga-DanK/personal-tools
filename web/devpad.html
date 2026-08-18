@@ -232,6 +232,7 @@
 <script src="../lib/ui.js"></script>
 <script src="../lib/sql.js"></script>
 <script src="../lib/storage.js"></script>
+<script src="../lib/edit.js"></script>
 <script>
 'use strict';
 
@@ -1609,6 +1610,9 @@ window.devpad = {
   switchTab,
   getState: collectState,
 };
+
+// Tab=インデントはコード系3タブの入力欄だけ（単一値の欄では「次の欄へ」が期待どおり — DEV-Q13）
+for (const id of ['json-in', 'xml-in', 'sql-in']) ToolEdit.tabIndent($(id));
 </script>
 </body>
 </html>

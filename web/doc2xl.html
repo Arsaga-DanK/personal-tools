@@ -56,6 +56,7 @@
 <script src="../lib/ui.js"></script>
 <script src="../lib/excel.js"></script>
 <script src="../lib/storage.js"></script>
+<script src="../lib/edit.js"></script>
 <script>
 'use strict';
 
@@ -524,6 +525,7 @@ ToolStorage.mountWarning();
 restore();
 syncCustomVisibility();
 run();
+ToolEdit.tabIndent(el('input'));   // Tab=インデント（箇条書きの入れ子。Esc→Tab で脱出 — lib/edit.js）
 </script>
 </body>
 </html>

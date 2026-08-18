@@ -69,7 +69,11 @@ CLAUDE.md（作業原則）と `docs/specs/`（ツール別契約）の間を埋
   リアルタイム型はコピーハンドラ先頭で `clearTimeout + run()`、
   ボタン変換型（ddl2spec）は**鮮度ガード**（変換時の入力と現在の入力を比較し、違えば警告して止める）
 - **書きやすさの共通部品（lib/edit.js）**:
-  複数行のコード的入力（アウトライン・記法・表）を受ける textarea には `ToolEdit.tabIndent` を適用
+  **構造テキスト**（記法・コード・アウトライン・タブ区切りの表）を受ける入力欄に `ToolEdit.tabIndent` を適用。
+  **散文・単一値・readonly の欄には入れない** — そこでは Tab は「次の欄へ」が期待どおりで、
+  奪うと移動手段を失う（2026-08-18 の横展開で確定した線引き。適用: excel2md/ddl2spec/doc2xl の入力・
+  devpad の JSON/XML/SQL・terms のルール欄・図系3本・gantt。非適用: terms の原稿欄・
+  devpad の単一値タブ・taskboard のモーダル TB-Q59）
   （**Tab = インデント**・Shift+Tab = 戻す・**Esc 直後の Tab はフォーカス移動** = 脱出経路・IME 中は奪わない
   — ブラウザの Tab がフォーカス移動に奪われて書けない、という利用者指摘 2026-08-17 への構造対処）。
   日付を書くページは `ToolEdit.mountTodayShortcut`（**Ctrl/Cmd+; = 今日** — Excel の慣習。

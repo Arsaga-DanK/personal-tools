@@ -273,6 +273,7 @@ comment on column public.customer.code is '顧客コード';
 | DS-28 | 未変換の状態で［出力をコピー］［Excel用コピー］ | どちらも「先に変換を実行してください」（文言統一） |
 | DS-29 | `parseDdl('今日の議事録です')` | 警告のスニペットが「今日の議事録です」（**CJK 間に空白が入らない**） |
 | DS-22 | 入力 → 500ms のデバウンスを待たずに `pagehide` | 最後の入力が保存されている（フラッシュ） |
+| DS-30 | 入力欄で Tab ／ Esc の直後に Tab | **タブ文字が入る**（DDL の字下げをキーボードで打てる — `lib/edit.js`）／ フォーカス移動に素通し（脱出経路） |
 
 照合フック: `window.ddl2spec = { ddlToSpec, specToDdl, parseDdl, parseSpec, buildTsv }`。
 

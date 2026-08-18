@@ -993,6 +993,38 @@ const TAB_IDS = ['json', 'xml', 'sql', 'escape', 'url', 'base64', 'regex', 'base
     && d48.copied === '<r/>' && d48.saved === true,
     JSON.stringify(d48));
 
+  /* ========== DEV-54: Tab=インデント（コード系3タブのみ — lib/edit.js・DEV-Q13） ========== */
+  const dev54 = await page.evaluate(() => {
+    if (!window.ToolEdit) return { missing: true };
+    const tab = (id, seed) => {
+      const ta = document.getElementById(id);
+      ta.value = seed;
+      ta.focus();
+      ta.selectionStart = ta.selectionEnd = ta.value.length;
+      const ev = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+      ta.dispatchEvent(ev);
+      return { v: ta.value, prevented: ev.defaultPrevented };
+    };
+    const json = tab('json-in', '{');
+    const xml = tab('xml-in', '<r>');
+    const sql = tab('sql-in', 'select');
+    const b64 = tab('b64-raw', 'abc');       // 単一値の欄は奪わない（次の欄へ）
+    const ta = document.getElementById('json-in');
+    ta.focus();
+    ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    const ev2 = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    ta.dispatchEvent(ev2);
+    return { json, xml, sql, b64, escPass: !ev2.defaultPrevented };
+  });
+  r.check('DEV-54（JSON/XML/SQL は Tab=インデント・Base64 等の単一値欄は素通し・Esc→Tab も素通し）',
+    !dev54.missing
+    && dev54.json.v === '{\t' && dev54.json.prevented === true
+    && dev54.xml.v === '<r>\t' && dev54.xml.prevented === true
+    && dev54.sql.v === 'select\t' && dev54.sql.prevented === true
+    && dev54.b64.v === 'abc' && dev54.b64.prevented === false
+    && dev54.escPass === true,
+    JSON.stringify(dev54));
+
   /* ========== ハブからの導線 ========== */
   await page.goto(fileUrl('index.html'));
   await page.click('ul.tool-list a:text-is("Convert Data")');

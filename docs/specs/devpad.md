@@ -309,6 +309,7 @@
 | DEV-50 | storage共通 | `localStorage.setItem` を throw させて保存 → 復旧させてもう一度保存 | 失敗で error バナー `#toolstorage-save-error`（role=alert）が出る。**保存が成功したら自動で消える**。`save()` の戻り値は false / true（可視化は `lib/storage.js` の共通核が担い、全ツールに効く） |
 | DEV-51 | Base64 | `b64encode('こんにちは🍣', true)` | `+` `/` `=` を含まず、`b64decode` で往復一致（URL-safe・パディング無し）。第2引数省略は従来どおり標準アルファベット |
 | DEV-52 | 時刻 | `epochToUtcIso('0','sec')` / `epochToUtcIso('1700000000','auto')` / 不正値 | `'1970-01-01T00:00:00Z'` / `'2023-11-14T22:13:20Z'` / `{error}`（epochToJst と同じ規約） |
+| DEV-54 | JSON / XML / SQL | 入力欄で Tab ／ Esc の直後に Tab | **タブ文字が入る**（コードの字下げ — `lib/edit.js`）／ 素通し。**エスケープ・URL・Base64・正規表現・基数・カウントの入力欄には入れない**（単一値の欄で Tab は「次の欄へ」が期待どおり — DEV-Q13） |
 | DEV-53 | カウント | 入力後に［集計をコピー］（writeText スタブ） | `文字数（コードポイント）: N` を含む**6行**がクリップボードへ・ボタンが ✓ 表示 |
 
 UI 手順ケース:
@@ -378,3 +379,6 @@ UI 手順ケース:
 - **DEV-Q11**: タブの並び → **決定: JSON XML SQL / エスケープ URL Base64 / 正規表現 基数 /
   時刻 UUID カウント**（既存タブ同士の相対順序は不変）
 - **DEV-Q12**: SQL 圧縮のコメント → **決定: 削除して件数を表示**（残すと1行化で SQL が壊れる）
+- **DEV-Q13**（2026-08-18）: Tab=インデント（`lib/edit.js`）は **JSON/XML/SQL の入力欄だけ**。
+  エスケープ・URL・Base64・正規表現・基数・カウントは1つの値を入れる欄で、
+  Tab を奪うと「次の欄へ」というキーボード移動の手段を失う（coding-rules の線引き）

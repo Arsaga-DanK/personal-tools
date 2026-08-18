@@ -161,6 +161,34 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
   await page.setViewportSize({ width: 1280, height: 900 });
   r.check('TM-U4（幅390pxで横スクロールなし）', u4 === true, String(u4));
 
+  /* ========== TM-08: ルール欄だけ Tab=タブ文字（原稿欄は素通し — lib/edit.js） ========== */
+  const tm08 = await page.evaluate(() => {
+    if (!window.ToolEdit) return { missing: true };
+    const hit = (id, seed) => {
+      const ta = document.getElementById(id);
+      ta.value = seed;
+      ta.focus();
+      ta.selectionStart = ta.selectionEnd = ta.value.length;
+      const ev = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+      ta.dispatchEvent(ev);
+      return { v: ta.value, prevented: ev.defaultPrevented };
+    };
+    const rules = hit('rules', 'サーバー');
+    const input = hit('input', '原稿です');   // 散文なので奪わない
+    const ta = document.getElementById('rules');
+    ta.focus();
+    ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    const ev2 = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    ta.dispatchEvent(ev2);
+    return { rules, input, escPass: !ev2.defaultPrevented };
+  });
+  r.check('TM-08（ルール欄は Tab でタブ文字・原稿欄と Esc→Tab は素通し）',
+    !tm08.missing
+    && tm08.rules.v === 'サーバー\t' && tm08.rules.prevented === true
+    && tm08.input.v === '原稿です' && tm08.input.prevented === false
+    && tm08.escPass === true,
+    JSON.stringify(tm08));
+
   /* ========== ハブ導線 ========== */
   await page.goto(fileUrl('index.html'));
   await page.click('ul.tool-list a:text-is("Unify Terms")');

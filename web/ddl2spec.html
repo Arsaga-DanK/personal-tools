@@ -45,6 +45,7 @@
 <script src="../lib/sql.js"></script>
 <script src="../lib/excel.js"></script>
 <script src="../lib/storage.js"></script>
+<script src="../lib/edit.js"></script>
 <script>
 'use strict';
 
@@ -856,6 +857,7 @@ window.ddl2spec = {
 restore();
 updateSampleBtn();
 ToolStorage.mountWarning();
+ToolEdit.tabIndent(el('input'));   // Tab=インデント（DDL の字下げ。Esc→Tab で脱出 — lib/edit.js）
 </script>
 </body>
 </html>

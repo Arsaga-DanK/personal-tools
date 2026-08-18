@@ -410,6 +410,26 @@ const { launch, fileUrl, createRunner, eq, bannerIs } = require('./helpers');
     && !!u7fill.html && !/rowspan/.test(u7fill.html),
     JSON.stringify([u7.plain, (u7.html || '').slice(0, 300), (u7fill.html || '').slice(0, 120)]));
 
+  /* ========== DX-21: Tab=インデント（箇条書きの入れ子 — lib/edit.js） ========== */
+  const dx21 = await page.evaluate(() => {
+    if (!window.ToolEdit) return { missing: true };
+    const ta = document.getElementById('input');
+    ta.value = '- 項目';
+    ta.focus();
+    ta.selectionStart = ta.selectionEnd = ta.value.length;
+    const ev = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    ta.dispatchEvent(ev);
+    const afterTab = { v: ta.value, prevented: ev.defaultPrevented };
+    ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    const ev2 = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    ta.dispatchEvent(ev2);
+    return { afterTab, escPass: !ev2.defaultPrevented };
+  });
+  r.check('DX-21（Tab=インデント・Esc→Tab は素通し）',
+    !dx21.missing && dx21.afterTab.v === '- 項目\t' && dx21.afterTab.prevented === true
+    && dx21.escPass === true,
+    JSON.stringify(dx21));
+
   /* ========== DX-18: ハブ導線 ========== */
   await page.goto(fileUrl('index.html'));
   const hubCats = await page.evaluate(() =>

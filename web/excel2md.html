@@ -82,6 +82,7 @@
 <script src="../lib/ui.js"></script>
 <script src="../lib/excel.js"></script>
 <script src="../lib/storage.js"></script>
+<script src="../lib/edit.js"></script>
 <script>
 'use strict';
 
@@ -873,6 +874,8 @@ el.copyBtn.addEventListener('click', () => {
   ToolStorage.mountWarning();
   updateSampleBtn();
   run();
+  // Tab = タブ文字（列区切りをキーボードで足せる。Esc→Tab で脱出 — lib/edit.js）
+  ToolEdit.tabIndent(el.input);
 })();
 </script>
 </body>

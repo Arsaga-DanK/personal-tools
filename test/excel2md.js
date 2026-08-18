@@ -492,6 +492,26 @@ const shotPath = name => path.join(REPO, '.playwright-mcp', name); // .gitignore
     await page.screenshot({ path: shotPath('excel2md-preview.png'), fullPage: true });
   }
 
+  /* ========== E2M-25: Tab=タブ文字（列区切りを打てる — lib/edit.js） ========== */
+  const e2m25 = await page.evaluate(() => {
+    if (!window.ToolEdit) return { missing: true };
+    const ta = document.getElementById('input');
+    ta.value = '見出し';
+    ta.focus();
+    ta.selectionStart = ta.selectionEnd = ta.value.length;
+    const ev = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    ta.dispatchEvent(ev);
+    const afterTab = { v: ta.value, prevented: ev.defaultPrevented };
+    ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    const ev2 = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    ta.dispatchEvent(ev2);
+    return { afterTab, escPass: !ev2.defaultPrevented };
+  });
+  r.check('E2M-25（Tab でタブ文字が入る・Esc→Tab は素通し）',
+    !e2m25.missing && e2m25.afterTab.v === '見出し\t' && e2m25.afterTab.prevented === true
+    && e2m25.escPass === true,
+    JSON.stringify(e2m25));
+
   /* ========== ハブ導線 ========== */
   await page.goto(fileUrl('index.html'));
   const hub = await page.evaluate(() => ({
