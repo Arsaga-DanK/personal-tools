@@ -22,7 +22,7 @@ CLAUDE.md（作業原則）と `docs/specs/`（ツール別契約）の間を埋
 | excel.js | `copy(html, text)` / `cellStyle(value, {header, align})` / `MANGLE_RES` | Excel 向けコピーは**必ず二重フレーバー**（execCommand 先行 — async clipboard は mso- 系をサニタイズする）。文字列化ガードの正本はここ。**表の組み立て（th/td・rowspan）は各ツールに書く** |
 | sql.js | `SqlLex.tokenize` | 字句解析のみ共有。整形・キーワードは devpad 側 |
 | mmd.js | `ToolMmd.render(host, dsl)` / `toPngBlob(svg, scale)` | 同梱 mermaid のラッパ（diagram/gantt/mindmap）。**テーマ固定と `htmlLabels:false`（トップレベルと flowchart の両方）が正本** — foreignObject が残ると canvas での PNG 化が壊れる（実測） |
-| edit.js | `ToolEdit.tabIndent(el)` / `mountTodayShortcut()` / `today()` | 適用範囲の線引きは下の「UI の標準形」。**構造テキストの欄だけ**に入れる |
+| edit.js | `ToolEdit.tabIndent(el, opts)` / `mountTodayShortcut()` / `today()` / `listItem` / `renumber` | 適用範囲の線引きは下の「UI の標準形」。**構造テキストの欄だけ**に入れる。`{mdList:true}` は**md を書く欄だけ**（下記） |
 
 - **共通化の条件**: 「同じ変更に N 箇所の編集が必要だった実測」または「2番目の利用者が生まれた瞬間」。
   美観・予感では抽出しない（見送り判断も tool-backlog / ux-backlog に記録する）
@@ -76,6 +76,14 @@ CLAUDE.md（作業原則）と `docs/specs/`（ツール別契約）の間を埋
   奪うと移動手段を失う（2026-08-18 の横展開で確定した線引き。適用: excel2md/ddl2spec/doc2xl の入力・
   devpad の JSON/XML/SQL・terms のルール欄・図系3本・gantt。非適用: terms の原稿欄・
   devpad の単一値タブ・taskboard のモーダル TB-Q59）
+- **md の書き味（`ToolEdit.tabIndent(el, {mdList:true})`・2026-08-18）**:
+  **Markdown を書く欄だけ**に付ける（現在: mindmap・gantt・doc2xl）。
+  JSON・SQL・DDL・TSV の欄で Enter の挙動を変えると事故になるので既定は off。
+  有効でも**箇条書きの行にいるときしか**変わらない:
+  **Enter** = 同じ記号で次の項目（番号つきは +1・チェックは未処理で継続。**空の項目なら記号を外す**）／
+  **Tab・Shift+Tab** = キャレットにタブを刺さず**行ごと1段深く/浅く**し、番号は並びに合わせて振り直す／
+  素の行は従来どおり。**外部エディタは同梱しない**（欲しい実質はこの2つで、
+  CodeMirror 等は数百KB とキーバインドの二重管理を持ち込む — 2026-08-18 の判断）
   （**Tab = インデント**・Shift+Tab = 戻す・**Esc 直後の Tab はフォーカス移動** = 脱出経路・IME 中は奪わない
   — ブラウザの Tab がフォーカス移動に奪われて書けない、という利用者指摘 2026-08-17 への構造対処）。
   日付を書くページは `ToolEdit.mountTodayShortcut`（**Ctrl/Cmd+; = 今日** — Excel の慣習。

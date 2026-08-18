@@ -80,6 +80,7 @@ render(text) → Promise<{ok, error|null}>, svgInfo() → {present, nodes} }`
 | MM-U2 | ［PNG をコピー］（`clipboard.write` スタブ） | ClipboardItem の types に `image/png`・✓ 表示 |
 | MM-U3 | 幅390px | ページの横スクロールなし |
 | MM-U4 | textarea で Tab / Shift+Tab / Esc→Tab | インデント挿入 / 行頭のタブ除去 / **素通し**（フォーカス移動に使える — lib/edit.js） |
+| MM-U5 | 箇条書きの行末で Enter ／ 空の `- ` で Enter ／ リスト行で Tab・Shift+Tab ／ `1.` の行で Enter | 次の行に同じ記号が付く ／ 記号が外れて空行になる ／ **行ごと**1段深く/浅くなり番号は振り直される ／ `2.` が付く（lib/edit.js の `{mdList:true}`） |
 
 ハブ導線: カテゴリ「発想」（新設）に載り、title は `Draw Mindmap (mindmap)`。
 

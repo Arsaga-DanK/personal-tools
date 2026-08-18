@@ -525,7 +525,7 @@ ToolStorage.mountWarning();
 restore();
 syncCustomVisibility();
 run();
-ToolEdit.tabIndent(el('input'));   // Tab=インデント（箇条書きの入れ子。Esc→Tab で脱出 — lib/edit.js）
+ToolEdit.tabIndent(el('input'), { mdList: true });   // Tab=インデント＋md リスト補助（lib/edit.js）
 </script>
 </body>
 </html>

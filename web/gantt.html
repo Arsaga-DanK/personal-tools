@@ -1022,7 +1022,7 @@ if (el('input').value !== '') {
 }
 ToolStorage.mountWarning();
 
-ToolEdit.tabIndent(el('input'));      // Tab=インデント（lib/edit.js — coding-rules）
+ToolEdit.tabIndent(el('input'), { mdList: true });      // Tab=インデント（lib/edit.js — coding-rules）
 ToolEdit.mountTodayShortcut();        // Ctrl/Cmd+; = 今日
 
 // テスト用フック（docs/specs/gantt.md）

@@ -773,6 +773,31 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     if (vt) vt.click();
   });
 
+
+  /* ========== GN-U19: md リストの書き味（lib/edit.js の {mdList:true}） ========== */
+  const u19g = await page.evaluate(() => {
+    if (!window.ToolEdit || !window.ToolEdit.listItem) return { missing: true };
+    const ta = document.getElementById('input');
+    const key = k => {
+      const ev = new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true });
+      ta.dispatchEvent(ev);
+      return ev.defaultPrevented;
+    };
+    ta.value = '- 基本設計';
+    ta.focus();
+    ta.selectionStart = ta.selectionEnd = ta.value.length;
+    const prevented = key('Enter');
+    const cont = ta.value;
+    ta.value = '- ';
+    ta.selectionStart = ta.selectionEnd = 2;
+    key('Enter');
+    return { prevented, cont, exit: ta.value };
+  });
+  r.check('GN-U19（箇条書きの行末 Enter で記号が続く・空項目では外れる）',
+    !u19g.missing && u19g.prevented === true
+    && u19g.cont === '- 基本設計\n- ' && u19g.exit === '',
+    JSON.stringify(u19g));
+
   /* ========== ハブ導線 ========== */
   await page.goto(fileUrl('index.html'));
   await page.click('ul.tool-list .tool-name:text-is("Draw Gantt")');

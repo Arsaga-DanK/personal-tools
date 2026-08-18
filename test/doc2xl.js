@@ -414,7 +414,7 @@ const { launch, fileUrl, createRunner, eq, bannerIs } = require('./helpers');
   const dx21 = await page.evaluate(() => {
     if (!window.ToolEdit) return { missing: true };
     const ta = document.getElementById('input');
-    ta.value = '- 項目';
+    ta.value = '見出しの下書き';
     ta.focus();
     ta.selectionStart = ta.selectionEnd = ta.value.length;
     const ev = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
@@ -426,9 +426,34 @@ const { launch, fileUrl, createRunner, eq, bannerIs } = require('./helpers');
     return { afterTab, escPass: !ev2.defaultPrevented };
   });
   r.check('DX-21（Tab=インデント・Esc→Tab は素通し）',
-    !dx21.missing && dx21.afterTab.v === '- 項目\t' && dx21.afterTab.prevented === true
+    !dx21.missing && dx21.afterTab.v === '見出しの下書き\t' && dx21.afterTab.prevented === true
     && dx21.escPass === true,
     JSON.stringify(dx21));
+
+
+  /* ========== DX-22: md リストの書き味（lib/edit.js の {mdList:true}） ========== */
+  const dx22 = await page.evaluate(() => {
+    if (!window.ToolEdit || !window.ToolEdit.listItem) return { missing: true };
+    const ta = document.getElementById('input');
+    const key = k => {
+      const ev = new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true });
+      ta.dispatchEvent(ev);
+      return ev.defaultPrevented;
+    };
+    ta.value = '- 項目';
+    ta.focus();
+    ta.selectionStart = ta.selectionEnd = ta.value.length;
+    const prevented = key('Enter');
+    const cont = ta.value;
+    ta.value = '- ';
+    ta.selectionStart = ta.selectionEnd = 2;
+    key('Enter');
+    return { prevented, cont, exit: ta.value };
+  });
+  r.check('DX-22（箇条書きの行末 Enter で記号が続く・空項目では外れる）',
+    !dx22.missing && dx22.prevented === true
+    && dx22.cont === '- 項目\n- ' && dx22.exit === '',
+    JSON.stringify(dx22));
 
   /* ========== DX-18: ハブ導線 ========== */
   await page.goto(fileUrl('index.html'));

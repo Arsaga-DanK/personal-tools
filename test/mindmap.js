@@ -210,6 +210,59 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     && u4m.afterShift === 'B' && u4m.escPass === true,
     JSON.stringify(u4m));
 
+  /* ========== MM-U5: md リストの書き味（lib/edit.js の {mdList:true}） ========== */
+  const u5m = await page.evaluate(() => {
+    if (!window.ToolEdit || !window.ToolEdit.listItem) return { missing: true };
+    const ta = document.getElementById('input');
+    const key = (k, shift) => {
+      const ev = new KeyboardEvent('keydown', { key: k, shiftKey: !!shift, bubbles: true, cancelable: true });
+      ta.dispatchEvent(ev);
+      return ev.defaultPrevented;
+    };
+    const set = (v, caret) => {
+      ta.value = v;
+      ta.focus();
+      ta.selectionStart = ta.selectionEnd = caret === undefined ? v.length : caret;
+    };
+    // ① 行末で Enter → 次の行に同じ記号
+    set('# テーマ\n- 枝A');
+    const contPrevented = key('Enter');
+    const cont = ta.value;
+    // ② 空の項目で Enter → 記号が外れる
+    set('# テーマ\n- ');
+    key('Enter');
+    const exit = ta.value;
+    // ③ 番号つきは +1
+    set('# テーマ\n1. 一つ目');
+    key('Enter');
+    const numbered = ta.value;
+    // ④ リスト行で Tab → 行ごと1段深く（番号は振り直す）
+    set('1. 一つ目\n2. 二つ目', 17);
+    key('Tab');
+    const indented = ta.value;
+    // ⑤ Shift+Tab で戻す
+    key('Enter');   // キャレットはそのまま（行末）
+    set('- 枝A\n\t- 葉A1', 12);
+    key('Tab', true);
+    const outdented = ta.value;
+    // ⑥ 変換中は奪わない
+    set('- 枝A');
+    const ime = new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true, cancelable: true });
+    ta.dispatchEvent(ime);
+    const imeValue = ta.value;
+    return { contPrevented, cont, exit, numbered, indented, outdented, imeValue,
+             imePrevented: ime.defaultPrevented };
+  });
+  r.check('MM-U5（Enter で箇条書きが続く・空項目で外れる・番号は+1・Tab/Shift+Tab は行ごと移動＋振り直し・IME中は無効）',
+    !u5m.missing
+    && u5m.contPrevented === true && u5m.cont === '# テーマ\n- 枝A\n- '
+    && u5m.exit === '# テーマ\n'
+    && u5m.numbered === '# テーマ\n1. 一つ目\n2. '
+    && u5m.indented === '1. 一つ目\n\t1. 二つ目'
+    && u5m.outdented === '- 枝A\n- 葉A1'
+    && u5m.imeValue === '- 枝A' && u5m.imePrevented === false,
+    JSON.stringify(u5m));
+
   /* ========== ハブ導線 ========== */
   await page.goto(fileUrl('index.html'));
   const hubCats = await page.evaluate(() =>
