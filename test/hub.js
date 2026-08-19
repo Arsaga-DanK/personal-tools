@@ -584,6 +584,47 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     && notes.copied === notes.md && notes.label === '✓ コピーしました',
     JSON.stringify({ label: notes.label, head: notes.md.split('\n').slice(0, 4) }));
 
+  /* ---------- HUB-26: ストレージが使えなくてもハブが壊れない ----------
+     2026-08-18 の監査で発見: index.html が lib/ui.js を読まずに storage.js を使っていたため、
+     **保存失敗と未対応の告知が TypeError で落ち、後続の searchEl.focus() と window.hub が失われていた**。
+     「コンソールエラー0件」を合否条件にしている運用の**外側**で起きる欠陥だったのでここでピンする */
+  await page.goto(fileUrl('index.html'));
+  const storageFail = await page.evaluate(() => {
+    const out = { save: null, mount: null };
+    // 保存が必ず失敗する状況（quota 超過相当）を作る
+    const orig = Storage.prototype.setItem;
+    Storage.prototype.setItem = () => { throw new Error('quota'); };
+    try {
+      out.save = ToolStorage.save('hub', { recent: [] });   // false を返し、例外を投げないこと
+    } catch (e) { out.save = 'THREW: ' + e.message; }
+    Storage.prototype.setItem = orig;
+    // 未対応環境の告知（available を強制的に false にして呼ぶ）
+    const availOrig = ToolStorage.available;
+    ToolStorage.available = false;
+    try {
+      ToolStorage.mountWarning();
+      out.mount = 'ok';
+    } catch (e) { out.mount = 'THREW: ' + e.message; }
+    ToolStorage.available = availOrig;
+    const warn = document.getElementById('toolstorage-warning');
+    return Object.assign(out, {
+      hasToolUI: typeof window.ToolUI === 'object' && typeof window.ToolUI.banner === 'function',
+      // ①保存失敗はバナーで見える ②未対応の告知も出る（どちらも role つきで表示される）
+      // ID は lib/storage.js の SAVE_ERROR_ID / WARNING_ID が正本（DEV-50 と同じ）
+      saveBannerRole: (document.querySelector('#toolstorage-save-error') || {}).getAttribute
+        ? document.getElementById('toolstorage-save-error').getAttribute('role') : null,
+      warnRole: warn ? warn.getAttribute('role') : null,
+      // ③後続の処理が生きている（フォーカスとテストフック）
+      hubHook: typeof window.hub === 'object' && typeof window.hub.filter === 'function',
+    });
+  });
+  r.check('HUB-26（ui.js を読んでいる: 保存失敗と未対応告知が例外にならずバナーになる・後続の処理が生きる）',
+    storageFail.hasToolUI === true
+    && storageFail.save === false && storageFail.mount === 'ok'
+    && storageFail.saveBannerRole === 'alert' && storageFail.warnRole === 'alert'
+    && storageFail.hubHook === true,
+    JSON.stringify(storageFail));
+
   await browser.close();
   r.report('ハブ（index.html）');
 })().catch(e => {

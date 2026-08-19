@@ -187,6 +187,8 @@
   <p id="empty-msg" hidden></p>
 </main>
 
+<!-- 読み込み順: ui.js → storage.js（storage.js は保存失敗と未対応の告知に ToolUI.banner を使う）→ handoff.js -->
+<script src="lib/ui.js"></script>
 <script src="lib/storage.js"></script>
 <script src="lib/handoff.js"></script>
 <script>
@@ -510,14 +512,10 @@ function buildNotesMd() {
 
 document.getElementById('copy-notes').addEventListener('click', () => {
   const btn = document.getElementById('copy-notes');
-  const md = buildNotesMd();
-  const done = ok => { btn.textContent = ok ? '✓ コピーしました' : 'コピーできません';
-    setTimeout(() => { btn.textContent = 'Obsidian 用のリンク集'; }, 1500); };
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(md).then(() => done(true), () => done(false));
-  } else {
-    done(false);
-  }
+  // 共通核を使う（textarea 選択方式のフォールバックと復帰時間はここが正本 — CLAUDE.md）
+  ToolUI.copy(buildNotesMd()).then(ok => {
+    ToolUI.feedback(btn, ok ? '✓ コピーしました' : 'コピーできません');
+  });
 });
 
 routerToggleEl.addEventListener('click', () => {
