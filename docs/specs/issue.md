@@ -104,6 +104,11 @@ tags: [issue]
 - **FSA 非対応（Safari / Firefox）ではボタンを無効にし、理由を出す**（`Check Vault` と同型）。
   コピー経路は常に使える
 
+**［md をコピー］は FSA が使えないときだけ出す**（2026-09-24。利用者「コピー用は必要ない。
+そのまま 04_Issues に保存できるんだよね？」）。直接保存できる環境では経路が2つあると迷うだけで、
+Safari / Firefox では**唯一の経路**なので消さない。`Cmd/Ctrl+Enter` は
+**そのとき有効な方**（作成 or コピー）に向ける。右ペインは「作られるノート（プレビュー）」として残す。
+
 **② tasks.md 用の行** — `次の一手` の各行を Obsidian Tasks 記法に
 
 - `- [ ] <内容>`、締切があれば ` 📅 YYYY-MM-DD` を付ける
@@ -151,7 +156,7 @@ tags: [issue]
 ## UI
 
 - `<main class="app-wide">`・`.tool-header`・2ペイン（左=貼る / 右=ノート md）
-- ツールバー: **［04_Issues にノートを作成］(`primary`)** ・［md をコピー］(`title="Cmd/Ctrl+Enter"`)・［tasks.md 用の行をコピー］・
+- ツールバー: **［04_Issues にノートを作成］(`primary` / `title="Cmd/Ctrl+Enter"`)**・［tasks.md 用の行をコピー］・
   締切（`<input type="date">`）・タイトル（`<input type="text">`）
 - 判定結果は入力の下に一覧表示（warn は `banner-warn` 相当の見た目、info は控えめ）
 - 入力は 200ms デバウンスでリアルタイム判定。**コピー時に確定**（ハンドラ先頭で `clearTimeout + run()`）
@@ -207,7 +212,9 @@ window.issue = {
 | IS-U3 | ［ノートをコピー］（writeText スタブ） | 右ペインの md が渡り ✓ 表示・実クリップボードに書かない |
 | IS-U4 | ［tasks.md 用の行をコピー］ | Tasks 記法の行が渡る |
 | IS-U5 | `pagehide` → reload | 入力・タイトル・締切が復元される（`tools:issue` envelope） |
-| IS-U6 | Cmd/Ctrl+Enter | ［ノートをコピー］が発火 |
+| IS-U6 | Cmd/Ctrl+Enter（FSA あり） | **［04_Issues にノートを作成］**が発火する |
+| IS-U22 | FSA あり / 無し | ［md をコピー］は **FSA が無いときだけ**見える（プレビューは常に出る） |
+| IS-U23 | Cmd/Ctrl+Shift+E | `web/taskboard.html` へ移動する |
 | IS-U7 | 入力を空に → サンプル投入 | 空のときだけサンプルボタンが見え、投入で判定と md が埋まる |
 | IS-U10 | ［04_Issues にノートを作成］（`showDirectoryPicker` をスタブ） | ピッカーが呼ばれ、`YYYY-MM-DD_<タイトル>.md` に右ペインと同じ md が書かれ、success バナーにファイル名が出る |
 | IS-U11 | 同名のノートが既にある状態で作成 | **上書きせず** warn で止まる（書き込みは発生しない） |

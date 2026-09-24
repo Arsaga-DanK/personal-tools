@@ -62,7 +62,7 @@
   <div class="toolbar">
     <button class="primary" id="wizard-btn">🎯 イシューを書く</button>
     <button id="create-btn">04_Issues にノートを作成</button>
-    <button id="copy-btn" title="Cmd/Ctrl+Enter">md をコピー</button>
+    <button id="copy-btn" hidden>md をコピー</button>
     <button id="copy-tasks-btn">tasks.md 用の行をコピー</button>
     <label class="field">締切<input type="date" id="deadline"></label>
     <label class="field">タイトル<input type="text" id="title" placeholder="本番停止手順書"></label>
@@ -77,7 +77,7 @@
       <textarea id="input" spellcheck="false" placeholder="## 1. ゴール&#10;- いつまでに何が達成されていればいい？&#10;&#10;## 2. 論点&#10;- 答えを出すべき問いを一行で&#10;&#10;## 3. 絵コンテ&#10;- 答えが出たとき最後に何を出す？&#10;&#10;## 4. サブイシュー&#10;- 聞く / 調べる / 試す を振る"></textarea>
     </div>
     <div class="pane">
-      <p class="pane-title">04_Issues に貼る md</p>
+      <p class="pane-title">作られるノート（プレビュー）</p>
       <textarea id="output" readonly spellcheck="false"></textarea>
     </div>
   </div>
@@ -481,7 +481,8 @@ $id('copy-tasks-btn').addEventListener('click', () => {
 document.addEventListener('keydown', e => {
   if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
     e.preventDefault();
-    $id('copy-btn').click();
+    // 直接保存できるなら作成、できないならコピー（＝そのときの唯一の経路）
+    $id(fsaAvailable() ? 'create-btn' : 'copy-btn').click();
   }
 });
 
@@ -530,8 +531,11 @@ function fsaAvailable() { return typeof window.showDirectoryPicker === 'function
 function updateEnvNote() {
   const no = !fsaAvailable();
   $id('create-btn').disabled = no;
+  // **直接保存できるならコピーは要らない**（利用者「コピー用は必要ない。そのまま保存できるんだよね？」）。
+  // 保存できない Safari / Firefox のときだけ、唯一の経路として出す
+  $id('copy-btn').hidden = !no;
   const msg = no
-    ? 'このブラウザでは直接作成できません（showDirectoryPicker が必要 — Chrome 系で開いてください）。［md をコピー］は使えます'
+    ? 'このブラウザでは直接作成できません（showDirectoryPicker が必要 — Chrome 系で開いてください）。下の［md をコピー］でノートに貼ってください'
     : '';
   $id('env-note').textContent = msg;
   $id('env-note').hidden = msg === '';
@@ -606,6 +610,7 @@ ToolStorage.mountWarning();
 
 ToolEdit.tabIndent($id('input'), { mdList: true });   // md を書く欄（coding-rules）
 ToolEdit.mountTodayShortcut();                        // Ctrl/Cmd+; = 今日（締切）
+ToolUI.mountModeSwitch();        // Cmd/Ctrl+Shift+E でタスク ⇔ イシュー
 
 
 /* ---------- 入力ウィザード（IS-Q8） ----------

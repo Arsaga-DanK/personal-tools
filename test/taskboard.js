@@ -6,7 +6,7 @@
 
    照合するID: TB-01〜20・parse チェック / TB-S1〜S11（セクション移動）/
    TB-A1〜A7（事故防止）/ TB-I1〜I7（IME ガード）/ TB-U1〜U7（追加の取り消し）/
-   TB-P1〜P19（計画ビュー: 🛫 とタイムライン）/ TB-M1〜M2（モード切替と共通モーダル）/ TB-AS1〜AS4（自動保存）
+   TB-P1〜P19（計画ビュー: 🛫 とタイムライン）/ TB-M1〜M2（モード切替と共通モーダル）/ TB-AS1〜AS4（自動保存）/ TB-T1〜T3（ツールバー整理・モード切替）
    仕様の正本は docs/specs/taskboard.md。期待値を変えるときは spec を先に直す。 */
 
 const path = require('path');
@@ -1246,7 +1246,7 @@ const F5 = [
   }, [F5, TODAY]));
   r.check('TB-M13（2行→3行は「変更1行・追加1行」/ 2行→1行は「1行を削除」）',
     m13.result.grow.banner === '保存しました（変更1行・追加1行）'
-    && m13.result.grow.badge === '保存（2）'
+    && m13.result.grow.badge === '今すぐ保存（2）'
     && m13.result.shrink.banner === '保存しました（1行を削除）',
     JSON.stringify(m13.result));
 
@@ -3591,6 +3591,38 @@ const F5 = [
     && shell.panelWidth > 0 && shell.radius !== '0px',
     JSON.stringify(shell));
 
+  /* ---------- TB-T1/T2: ツールバーの整理と未保存インジケータ ---------- */
+  await page.goto(fileUrl('web/taskboard.html'));
+  const tbT1 = await page.evaluate((f1) => {
+    window.taskboard.test.newSession(f1);
+    const bar = document.getElementById('main-toolbar');
+    const more = document.getElementById('more-menu');
+    const always = Array.from(bar.querySelectorAll(':scope > button'))
+      .filter(b => !b.hidden).map(b => b.id);
+    const folded = Array.from(more.querySelectorAll('button')).map(b => b.id);
+    return { always: always, folded: folded, moreOpen: more.open };
+  }, F1);
+  r.check('TB-T1（常時のボタンは最小・低頻度は ⋯ の中・⋯ は既定で閉じている）',
+    tbT1.always.includes('btn-add-form') && tbT1.always.includes('btn-copy')
+    && !tbT1.always.includes('btn-save')            // 未保存が無いので出ていない
+    && ['btn-weekly', 'btn-archive', 'btn-reload', 'btn-copy-all', 'btn-to-gantt']
+      .every(id => tbT1.folded.includes(id))
+    && tbT1.moreOpen === false,
+    JSON.stringify(tbT1));
+
+  const tbT2 = await page.evaluate(async (f1) => {
+    const s = window.taskboard.test.newSession(f1);
+    const before = document.getElementById('btn-save').hidden;
+    s.applyOps([{ type: 'complete', line: 9 }]);
+    const dirty = document.getElementById('btn-save').hidden;
+    await new Promise(d => setTimeout(d, 1500));   // 自動保存を待つ
+    return { before: before, dirtyHidden: dirty,
+      afterHidden: document.getElementById('btn-save').hidden };
+  }, F1);
+  r.check('TB-T2（［今すぐ保存］は未保存のときだけ出て、自動保存後に消える）',
+    tbT2.before === true && tbT2.dirtyHidden === false && tbT2.afterHidden === true,
+    JSON.stringify(tbT2));
+
   /* ---------- TB-AS1〜AS3: 自動保存（明示保存と同じ doSave を通す） ---------- */
   await page.goto(fileUrl('web/taskboard.html'));
 
@@ -3666,6 +3698,16 @@ const F5 = [
   });
   r.check('TB-AS4（自動保存をスキップしても［今すぐ保存］なら確認のうえ保存できる）',
     as4.asked === 1 && as4.ok === true && as4.saved === true, JSON.stringify(as4));
+
+  /* ---------- TB-T3: Cmd/Ctrl+Shift+E でモード切替（最後にやる — 遷移するため） ---------- */
+  await page.goto(fileUrl('web/taskboard.html'));
+  await page.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown',
+    { key: 'E', metaKey: true, shiftKey: true, bubbles: true, cancelable: true })));
+  await page.waitForURL(/issue\.html/, { timeout: 5000 }).catch(() => {});
+  await page.waitForLoadState('load');
+  const tbT3 = await page.title();
+  r.check('TB-T3（Cmd/Ctrl+Shift+E で Check Issue へ移る）',
+    tbT3 === 'Check Issue (issue)', tbT3);
 
   await browser.close();
   r.report('taskboard（docs/specs/taskboard.md）');

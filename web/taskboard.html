@@ -174,6 +174,24 @@
   .cell-edit-input { width: 100%; font: inherit; padding: 2px 6px; border: 1px solid var(--accent);
     border-radius: 4px; background: var(--panel); color: var(--text); }
   #file-actions button { margin-right: 8px; }
+  /* ⋯ メニュー: 低頻度の操作を畳む（常時11個は多すぎた — 2026-09-24 の利用者指摘） */
+  .more-menu { position: relative; }
+  .more-menu > summary {
+    list-style: none; cursor: pointer; user-select: none;
+    border: 1px solid var(--border); border-radius: 8px; background: var(--panel);
+    padding: 4px 12px; font-size: 14px; line-height: 1.4; color: var(--muted);
+  }
+  .more-menu > summary::-webkit-details-marker { display: none; }
+  .more-menu > summary:hover { color: var(--accent); }
+  .more-menu[open] > summary { color: var(--accent); border-color: var(--accent); }
+  .more-panel {
+    position: absolute; right: 0; top: calc(100% + 6px); z-index: 150;
+    display: flex; flex-direction: column; align-items: stretch; gap: 6px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.24); padding: 10px; min-width: 200px;
+  }
+  .more-panel .more-row { display: flex; align-items: center; justify-content: space-between;
+    gap: 8px; font-size: 13px; color: var(--muted); }
 </style>
 </head>
 <body>
@@ -239,17 +257,25 @@
       </select></label>
     </span>
     <span class="spacer"></span>
-    <select id="wr-period" title="週報の期間（月曜始まり）">
-      <option value="this" selected>今週</option>
-      <option value="last">先週</option>
-    </select>
-    <button id="btn-weekly" title="期間内に完了（✅）したタスクをセクション別にコピー — Teams の日報・週次に貼る用">週報コピー</button>
     <button id="btn-copy">Excel用コピー</button>
-    <button id="btn-to-gantt" hidden title="いま見えている計画を Draw Gantt に渡してガント画像にする">Draw Gantt で開く</button>
-    <button id="btn-copy-all" hidden>全文コピー</button>
-    <button id="btn-archive" disabled>完了をアーカイブ</button>
-    <button id="btn-reload">再読込</button>
-    <button id="btn-save" class="primary" disabled title="今すぐ保存 (Cmd/Ctrl+S)">今すぐ保存</button>
+    <!-- 自動保存が効いているので、**未保存の変更があるときだけ**出す（＝未保存インジケータを兼ねる） -->
+    <button id="btn-save" class="primary" hidden title="今すぐ保存 (Cmd/Ctrl+S)">今すぐ保存</button>
+    <details class="more-menu" id="more-menu">
+      <summary title="その他の操作">⋯</summary>
+      <div class="more-panel">
+        <label class="more-row">週報の期間
+          <select id="wr-period" title="週報の期間（月曜始まり）">
+            <option value="this" selected>今週</option>
+            <option value="last">先週</option>
+          </select>
+        </label>
+        <button id="btn-weekly" title="期間内に完了（✅）したタスクをセクション別にコピー — Teams の日報・週次に貼る用">週報コピー</button>
+        <button id="btn-to-gantt" hidden title="いま見えている計画を Draw Gantt に渡してガント画像にする">Draw Gantt で開く</button>
+        <button id="btn-copy-all" hidden>全文コピー</button>
+        <button id="btn-archive" disabled>完了をアーカイブ</button>
+        <button id="btn-reload">再読込</button>
+      </div>
+    </details>
   </div>
 
 
@@ -2728,14 +2754,20 @@ function updateCopyButton() {
 
 function updateSaveButton() {
   const btn = el('btn-save');
-  if (state.demo) { btn.textContent = '保存（デモ中は無効）'; btn.disabled = true; return; }
+  if (state.demo) {
+    btn.hidden = false; btn.textContent = '保存（デモ中は無効）'; btn.disabled = true; return;
+  }
   const c = state.loaded ? diffCounts(state.lines) : { changed: 0, added: 0 };
   const n = c.changed + c.added;
-  const base = (!fsaAvailable() && state.adapter && state.adapter.mode === 'fallback') ? '保存（ダウンロード）' : '保存';
+  const base = (!fsaAvailable() && state.adapter && state.adapter.mode === 'fallback')
+    ? '保存（ダウンロード）' : '今すぐ保存';
   // バッジは行単位の差分件数。有効・無効は isDirty() で判定する
   // （セクション移動は行内容が変わらず件数0になるため、件数で判定すると保存できなくなる）
   btn.textContent = n > 0 ? base + '（' + n + '）' : base;
   btn.disabled = !isDirty();
+  // **自動保存が効いているので、未保存が残っているときだけ見せる**（＝未保存インジケータ）。
+  // 自動保存をスキップしたとき（一括完了・fallback）はここが出たままになり、逃げ道が見える
+  btn.hidden = !isDirty();
 }
 
 /* ---------- 完了アーカイブ ---------- */
@@ -4026,6 +4058,7 @@ window.taskboard = {
 restoreUi();
 ToolStorage.mountWarning();
 ToolEdit.mountTodayShortcut();   // Cmd/Ctrl+; = 今日（lib/edit.js — TB-Q59。Tab はモーダルの移動に残す）
+ToolUI.mountModeSwitch();        // Cmd/Ctrl+Shift+E でタスク ⇔ イシュー
 render();
 initFile();
 </script>

@@ -4,7 +4,7 @@
    出力: 合否一覧と終了コード（全 pass かつコンソールエラー0件で 0）
    例:   node test/issue.js  /  ./test/run issue
 
-   照合するID: IS-01〜21（純関数）＋ IS-U1〜U21（UI 経路・FSA 書き込み・入力ウィザード）＋ハブ導線
+   照合するID: IS-01〜21（純関数）＋ IS-U1〜U23（UI 経路・FSA 書き込み・入力ウィザード・モード切替）＋ハブ導線
    仕様の正本は docs/specs/issue.md。期待値を変えるときは spec を先に直す。 */
 
 const { launch, fileUrl, createRunner, eq } = require('./helpers');
@@ -332,21 +332,32 @@ const SAMPLE_MD = [
     && u34.tasks.includes('📅 2026-09-30'),
     JSON.stringify(u34.tasks));
 
-  /* IS-U6: Cmd/Ctrl+Enter */
+  /* IS-U6: Cmd/Ctrl+Enter は「そのとき有効な方」= FSA があるので作成 */
   const u6 = await page.evaluate(async () => {
-    const out = { text: null };
-    Object.defineProperty(navigator, 'clipboard', {
-      configurable: true,
-      value: { writeText: async t => { out.text = t; } },
-    });
+    const before = Object.keys(window.__fsa.files).length;
+    document.getElementById('title').value = 'ショートカット検証';
+    document.getElementById('title').dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise(d => setTimeout(d, 300));
     document.dispatchEvent(new KeyboardEvent('keydown',
       { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
-    await new Promise(d => setTimeout(d, 200));
-    return { text: out.text, label: document.getElementById('copy-btn').textContent };
+    await new Promise(d => setTimeout(d, 400));
+    const names = Object.keys(window.__fsa.files);
+    return { before: before, after: names.length,
+      made: names.some(n => n.includes('ショートカット検証')) };
   });
-  r.check('IS-U6（Cmd/Ctrl+Enter で［ノートをコピー］が発火）',
-    typeof u6.text === 'string' && u6.text.includes('status: open')
-    && u6.label === '✓ コピーしました', JSON.stringify(u6.label));
+  r.check('IS-U6（Cmd/Ctrl+Enter で［04_Issues にノートを作成］が発火）',
+    u6.after === u6.before + 1 && u6.made, JSON.stringify(u6));
+
+  /* IS-U22: コピーボタンは FSA が無いときだけ出る（プレビューは常に出る） */
+  const u22 = await page.evaluate(() => ({
+    copyHidden: document.getElementById('copy-btn').hidden,
+    previewVisible: !!document.getElementById('output')
+      && document.getElementById('output').value.includes('## 2. 論点'),
+    tasksCopyVisible: !document.getElementById('copy-tasks-btn').hidden,
+  }));
+  r.check('IS-U22（FSA あり: ［md をコピー］は隠れ、プレビューと tasks.md 用コピーは残る）',
+    u22.copyHidden === true && u22.previewVisible && u22.tasksCopyVisible,
+    JSON.stringify(u22));
 
   /* IS-U5: pagehide フラッシュ → reload で復元 */
   await setValue('#title', '停止手順書');
@@ -591,10 +602,12 @@ const SAMPLE_MD = [
     note: document.getElementById('env-note').textContent,
     noteHidden: document.getElementById('env-note').hidden,
     copyEnabled: !document.getElementById('copy-btn').disabled,
+    copyVisible: !document.getElementById('copy-btn').hidden,
   }));
   await page2.close();
   r.check('IS-U12（FSA 非対応: 作成ボタンが無効＋理由を表示・コピーは使える）',
-    u12.disabled === true && !u12.noteHidden && u12.note.includes('Chrome') && u12.copyEnabled,
+    u12.disabled === true && !u12.noteHidden && u12.note.includes('Chrome')
+    && u12.copyEnabled && u12.copyVisible,
     JSON.stringify(u12));
 
   /* IS-U8: 幅390px */
@@ -603,6 +616,15 @@ const SAMPLE_MD = [
     document.documentElement.scrollWidth <= document.documentElement.clientWidth);
   await page.setViewportSize({ width: 1280, height: 900 });
   r.check('IS-U8（幅390pxで横スクロールなし）', u8 === true, String(u8));
+
+  /* IS-U23: Cmd/Ctrl+Shift+E で Plan Tasks へ（遷移するので最後） */
+  await page.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown',
+    { key: 'E', metaKey: true, shiftKey: true, bubbles: true, cancelable: true })));
+  await page.waitForURL(/taskboard\.html/, { timeout: 5000 }).catch(() => {});
+  await page.waitForLoadState('load');
+  const u23 = await page.title();
+  r.check('IS-U23（Cmd/Ctrl+Shift+E で Plan Tasks へ移る）',
+    u23 === 'Plan Tasks (taskboard)', u23);
 
   /* ========== ハブ導線 ========== */
   await page.goto(fileUrl('index.html'));
