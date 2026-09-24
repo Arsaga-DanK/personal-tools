@@ -4,7 +4,7 @@
    出力: 合否一覧と終了コード（全 pass かつコンソールエラー0件で 0）
    例:   node test/issue.js  /  ./test/run issue
 
-   照合するID: IS-01〜21・IS-L1〜L6（純関数）＋ IS-U1〜U23・IS-UL1〜UL7（UI 経路・FSA 読み書き・ウィザード・一覧・振り返り・書き殴りへの追記）＋ハブ導線
+   照合するID: IS-01〜21・IS-L1〜L9（純関数）＋ IS-U1〜U23・IS-UL1〜UL11（UI 経路・FSA 読み書き・ウィザード・一覧・振り返り・論点の行・切り出し）＋ハブ導線
    仕様の正本は docs/specs/issue.md。期待値を変えるときは spec を先に直す。 */
 
 const { launch, fileUrl, createRunner, eq } = require('./helpers');
@@ -366,6 +366,61 @@ const SAMPLE_MD = [
       && W2.line2.includes('> 答えが出たら: E'),        // 注記は残す
       JSON.stringify({ l1: W2.line1.slice(0, 160), l2n: (W2.line2.match(/## 2\. 論点/g) || []).length }));
 
+    /* ========== IS-L7〜L9: 論点の行（tasks.md と同じ最小単位） ========== */
+    const LINES_NOTE = [
+      '---', 'created: 2026-09-24', 'status: open', 'tags: [issue]', '---',
+      '# 20260924_現状整理', '',
+      '## 論点', '',
+      '- [ ] 手順書が書けないのは粒度の合意が無いからではないか \u{1F4C5} 2026-09-30',
+      '- [ ] V13 は再受領の可否が未確認だからではないか \u{1F4C5} 2026-10-02 [[2026-09-24_V13再受領]]',
+      '- [x] 検証は OS のみでよいのではないか \u{1F4C5} 2026-09-20 \u{2705} 2026-09-24 外れ',
+      '- ただの箇条書き（チェックボックス無し）は論点に数えない', '',
+      'TODO', '- 富士通に確認', '',
+    ].join('\n');
+
+    const LN = await page.evaluate((note) => {
+      const I = window.issue;
+      const items = I.issueLines(note);
+      const added = I.addIssueLine(note, '新しい論点は A ではなく B ではないか', '2026-10-05');
+      const made = I.addIssueLine('---\nstatus: open\n---\n# t\n\n書き殴り\n', '初めての論点', '');
+      const closed = I.closeLineRaw(items[0].raw, '当たり', '2026-09-24');
+      const twice = I.closeLineRaw(closed, '当たり', '2026-09-25');
+      const linked = I.linkLineRaw(items[0].raw, '2026-09-24_停止手順書.md');
+      const linkTwice = I.linkLineRaw(linked, '2026-09-24_停止手順書');
+      const replaced = I.replaceLine(note, items[0].lineNo, closed);
+      return { items, added, made, closed, twice, linked, linkTwice, replaced };
+    }, LINES_NOTE);
+
+    r.check('IS-L7（- [ ] 行だけを拾い、📅 ✅ 判定 リンクを外した本文を返す）',
+      LN.items.length === 3
+      && LN.items[0].text === '手順書が書けないのは粒度の合意が無いからではないか'
+      && LN.items[0].due === '2026-09-30' && LN.items[0].done === false
+      && LN.items[1].link === '2026-09-24_V13再受領'
+      && LN.items[1].text === 'V13 は再受領の可否が未確認だからではないか'
+      && LN.items[2].done === true && LN.items[2].doneDate === '2026-09-24'
+      && LN.items[2].verdict === '外れ'
+      && LN.items[2].text === '検証は OS のみでよいのではないか',
+      JSON.stringify(LN.items));
+
+    r.check('IS-L8（節の末尾に足す・節が無ければ本文の先頭に作る・指定行だけ差し替える）',
+      LN.added.indexOf('- [ ] 新しい論点は A ではなく B ではないか \u{1F4C5} 2026-10-05')
+        > LN.added.indexOf('- [x] 検証は OS のみでよいのではないか')
+      && LN.added.includes('TODO')
+      && LN.made.includes('## 論点') && LN.made.includes('- [ ] 初めての論点')
+      && LN.made.indexOf('## 論点') < LN.made.indexOf('書き殴り')
+      && LN.replaced.includes('- [x] 手順書が書けないのは')
+      && (LN.replaced.match(/- \[x\] 手順書/g) || []).length === 1,
+      JSON.stringify({ added: LN.added.slice(LN.added.indexOf('## 論点'), LN.added.indexOf('TODO')), made: LN.made }));
+
+    r.check('IS-L9（閉じると [x]＋✅日付＋判定・二重に付かない／リンクも二重に付かない）',
+      /^- \[x\] /.test(LN.closed) && LN.closed.includes('\u{2705} 2026-09-24')
+      && LN.closed.endsWith('当たり')
+      && (LN.twice.match(/\u{2705}/gu) || []).length === 1
+      && (LN.twice.match(/当たり/g) || []).length === 1
+      && LN.linked.endsWith('[[2026-09-24_停止手順書]]')
+      && (LN.linkTwice.match(/\[\[/g) || []).length === 1,
+      JSON.stringify([LN.closed, LN.twice, LN.linkTwice]));
+
     /* ========== IS-17/18: ウィザードの下書き → md ========== */
     const w = await page.evaluate(() => {
       const md = window.issue.buildMd({
@@ -652,6 +707,138 @@ const SAMPLE_MD = [
     && ul7.hasTitleField === false                    // 既存なのでノート名は聞かない
     && ul7.files === 1 && ul7.frameFirst && ul7.hasFive && ul7.kept && ul7.deadline && ul7.closed,
     JSON.stringify(ul7));
+
+  /* ========== IS-UL8〜UL11: 論点＝行（1ノート : N論点） ========== */
+  const LINES_MD = [
+    '---', 'created: 2026-09-24', 'status: open', 'tags: [issue]', '---',
+    '# 20260924_現状整理', '',
+    '## 論点', '',
+    '- [ ] 手順書が書けないのは粒度の合意が無いからではないか \u{1F4C5} 2026-09-30',
+    '- [ ] V13 は再受領の可否が未確認だからではないか \u{1F4C5} 2026-10-02',
+    '- [x] 検証は OS のみでよいのではないか \u{2705} 2026-09-20 外れ', '',
+    'TODO', '- 富士通に確認', '',
+  ].join('\n');
+  const PLAIN_MD = ['---', 'created: 2026-09-20', 'status: open', 'tags: [issue]', '---',
+    '# 書き殴りだけ', '', '- なんとなく気になること', ''].join('\n');
+
+  const ul8 = await page.evaluate(async (seed) => {
+    for (const k of Object.keys(window.__fsa.files)) delete window.__fsa.files[k];
+    window.__fsa.files['lines.md'] = seed.lines;
+    window.__fsa.files['plain.md'] = seed.plain;
+    await window.issue.load();
+    const count = () => document.querySelectorAll('.issue-card').length;
+    const heads = () => Array.from(document.querySelectorAll('.note-name')).map(e => e.textContent);
+    const open = { cards: count(), heads: heads() };
+    const f = document.getElementById('f-status');
+    f.value = 'all'; f.dispatchEvent(new Event('change', { bubbles: true }));
+    const all = count();
+    f.value = 'open'; f.dispatchEvent(new Event('change', { bubbles: true }));
+    return {
+      open, all,
+      firstIssue: document.querySelector('.issue-card .ic-issue').textContent,
+      // **1枚目（行カード）だけ**を見る。plain.md のノートカードには正しく .ic-title がある
+      noTitleOnLine: !document.querySelector('.issue-card').querySelector('.ic-title'),
+      titleOnNoteCard: !!document.querySelectorAll('.issue-card')[2].querySelector('.ic-title'),
+      addBtns: document.querySelectorAll('.note-add').length,
+    };
+  }, { lines: LINES_MD, plain: PLAIN_MD });
+  r.check('IS-UL8（`## 論点` があれば行ごとにカード・無ければノートで1枚・見出しでグループ化）',
+    ul8.open.cards === 3            // 行2枚（開）＋ plain.md のノートカード1枚
+    && ul8.all === 4                // 閉じた行を含めて4枚
+    && ul8.open.heads.length === 2  // ノート見出しが2つ
+    && ul8.firstIssue.includes('粒度の合意')
+    && ul8.noTitleOnLine && ul8.titleOnNoteCard   // 行カードは名前を持たず、ノートカードは持つ
+    && ul8.addBtns === 2,
+    JSON.stringify(ul8));
+
+  const ul9 = await page.evaluate(async () => {
+    // 「書き殴りだけ」= `## 論点` が無いノートにも足せる（行モデルへの移行がここから始まる）
+    const heads = Array.from(document.querySelectorAll('.note-head'));
+    const target = heads.find(h => h.querySelector('.note-name').textContent.includes('書き殴りだけ'));
+    target.querySelector('.note-add').click();
+    const box = target.nextSibling;
+    const line = box.querySelector('.ic-edit-line');
+    line.value = '気になることは A ではなく B ではないか';
+    line.dispatchEvent(new Event('input', { bubbles: true }));
+    const liveIds = Array.from(box.querySelectorAll('.ic-verdicts li')).map(li => li.dataset.id);
+    box.querySelector('.ic-edit-save').click();
+    await new Promise(d => setTimeout(d, 400));
+    const after = window.__fsa.files['plain.md'];
+    return {
+      liveIds, after,
+      hasSection: after.includes('## 論点'),
+      hasLine: after.includes('- [ ] 気になることは A ではなく B ではないか'),
+      keptScribble: after.includes('- なんとなく気になること'),
+      cards: document.querySelectorAll('.issue-card').length,
+    };
+  });
+  r.check('IS-UL9（＋論点を足す: 節が無いノートにも作れる・その場判定・書き殴りは残る）',
+    ul9.hasSection && ul9.hasLine && ul9.keptScribble
+    && ul9.liveIds.indexOf('picture') === -1 && ul9.liveIds.indexOf('evidence') === -1  // 行段階では問わない
+    && ul9.cards === 3,
+    JSON.stringify({ liveIds: ul9.liveIds, cards: ul9.cards }));
+
+  const ul10 = await page.evaluate(async () => {
+    const card = Array.from(document.querySelectorAll('.issue-card'))
+      .find(c => c.querySelector('.ic-issue').textContent.includes('粒度の合意'));
+    const before = window.__fsa.files['lines.md'];
+    card.querySelector('.ic-close').click();
+    document.querySelector('input[name="cm-v"][value="当たり"]').checked = true;
+    const n = document.getElementById('cm-note');
+    n.value = '粒度未合意が原因だった';
+    n.dispatchEvent(new Event('input', { bubbles: true }));
+    document.getElementById('cm-ok').click();
+    await new Promise(d => setTimeout(d, 400));
+    const after = window.__fsa.files['lines.md'];
+    return {
+      closedLine: /- \[x\] 手順書が書けないのは粒度の合意が無いからではないか .*当たり/.test(after),
+      hasDone: /\u{2705}\s*\d{4}-\d{2}-\d{2}/u.test(after.split('\n').find(l => l.includes('粒度の合意')) || ''),
+      child: after.includes('\t- 粒度未合意が原因だった'),
+      otherLineIntact: after.includes('- [ ] V13 は再受領の可否が未確認だからではないか \u{1F4C5} 2026-10-02'),
+      scribble: after.includes('TODO') && after.includes('- 富士通に確認'),
+      frontmatterIntact: /^status: open$/m.test(after),   // ノートの状態は触らない
+      gone: !Array.from(document.querySelectorAll('.ic-issue')).some(e => e.textContent.includes('粒度の合意')),
+    };
+  });
+  r.check('IS-UL10（行を閉じる: [x]＋✅＋判定・分かったことは子行・他の行とノートの状態は不変）',
+    ul10.closedLine && ul10.hasDone && ul10.child && ul10.otherLineIntact
+    && ul10.scribble && ul10.frontmatterIntact && ul10.gone,
+    JSON.stringify(ul10));
+
+  const ul11 = await page.evaluate(async () => {
+    const card = Array.from(document.querySelectorAll('.issue-card'))
+      .find(c => c.querySelector('.ic-issue').textContent.includes('V13'));
+    card.querySelector('.ic-frame').click();
+    const label = document.getElementById('wz-create').textContent;
+    const set = (sel, v) => { const el = document.querySelector(sel); el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); };
+    set('#wz-milestone', 'V13 を期限内に再受領できている');
+    set('#wz-milestone-due', '2026-10-02');
+    document.getElementById('wz-next').click();
+    const cand = document.querySelector('.wz-c-text').value;
+    set('#wz-issue-due', '2026-10-02');
+    document.getElementById('wz-next').click();
+    set('#wz-picture', '再受領の可否と期限の対応表');
+    document.getElementById('wz-next').click();
+    document.getElementById('wz-next').click();
+    set('#wz-next-what', 'ITK 経由で富士通に聞く');
+    set('#wz-note-title', 'V13再受領');
+    document.getElementById('wz-create').click();
+    await new Promise(d => setTimeout(d, 500));
+    const names = Object.keys(window.__fsa.files);
+    const made = names.find(n => n.includes('V13再受領'));
+    const src = window.__fsa.files['lines.md'];
+    return {
+      label, cand, made,
+      linked: src.includes('[[' + String(made).replace(/\.md$/, '') + ']]'),
+      backLink: made ? window.__fsa.files[made].includes('← [[lines]]') : false,
+      hasFive: made ? ['## 1. ゴール', '## 3. 絵コンテ', '## 5. 次の一手'].every(h => window.__fsa.files[made].includes(h)) : false,
+      spunBtn: !!Array.from(document.querySelectorAll('.ic-spun')).find(e => e.textContent.includes('V13再受領')),
+    };
+  });
+  r.check('IS-UL11（切り出し: 新ノート（5段）ができ、元の行に [[リンク]]、新ノートに ← 逆リンク）',
+    ul11.label === '切り出して作成' && ul11.cand.includes('V13')
+    && !!ul11.made && ul11.linked && ul11.backLink && ul11.hasFive && ul11.spunBtn,
+    JSON.stringify(ul11));
 
   /* IS-U4: tasks.md 用の行をコピー（md のコピーは FSA 非対応時のみなので IS-U12 で見る） */
   const u4 = await page.evaluate(async () => {
