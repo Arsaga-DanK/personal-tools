@@ -6,7 +6,7 @@
 
    照合するID: TB-01〜20・parse チェック / TB-S1〜S11（セクション移動）/
    TB-A1〜A7（事故防止）/ TB-I1〜I7（IME ガード）/ TB-U1〜U7（追加の取り消し）/
-   TB-P1〜P19（計画ビュー: 🛫 とタイムライン）
+   TB-P1〜P19（計画ビュー: 🛫 とタイムライン）/ TB-M1〜M2（モード切替と共通モーダル）
    仕様の正本は docs/specs/taskboard.md。期待値を変えるときは spec を先に直す。 */
 
 const path = require('path');
@@ -3551,6 +3551,45 @@ const F5 = [
     && h1.to === 'gantt' && h1.kind === 'plan'
     && h1.header === '内容\t開始日\t期限\t日数\t状態\tセクション' && h1.rows > 1,
     JSON.stringify(h1));
+
+  /* ---------- TB-M1/M2: モード切替と、lib/ui.css へ移設したモーダルの殻 ---------- */
+  await page.goto(fileUrl('web/taskboard.html'));
+  const modes = await page.evaluate(() => {
+    const links = Array.from(document.querySelectorAll('nav.modes a'));
+    return {
+      hrefs: links.map(a => a.getAttribute('href')),
+      labels: links.map(a => a.textContent.trim()),
+      current: links.filter(a => a.getAttribute('aria-current') === 'page')
+        .map(a => a.textContent.trim()),
+    };
+  });
+  r.check('TB-M1（モードセグメント: Check Issue へ行けて、自分側が aria-current="page"）',
+    modes.hrefs.includes('issue.html') && modes.labels.some(l => l.includes('イシュー'))
+    && modes.current.length === 1 && modes.current[0].includes('タスク'),
+    JSON.stringify(modes));
+
+  // 殻を lib/ui.css へ移した後も、中央固定・背景あり・パネル幅が効いていること（算出スタイルで見る）
+  const shell = await page.evaluate(() => {
+    const ov = document.getElementById('modal');
+    ov.hidden = false;
+    const cs = getComputedStyle(ov);
+    const panel = ov.querySelector('.modal');
+    const ps = getComputedStyle(panel);
+    const out = {
+      position: cs.position, display: cs.display,
+      align: cs.alignItems, justify: cs.justifyContent,
+      bg: cs.backgroundColor, zIndex: cs.zIndex,
+      panelWidth: parseFloat(ps.width), radius: ps.borderTopLeftRadius,
+    };
+    ov.hidden = true;
+    return out;
+  });
+  r.check('TB-M2（lib/ui.css へ移設後もモーダルの殻が効いている: 中央固定・背景・パネル幅）',
+    shell.position === 'fixed' && shell.display === 'flex'
+    && shell.align === 'center' && shell.justify === 'center'
+    && shell.bg !== 'rgba(0, 0, 0, 0)' && shell.zIndex === '200'
+    && shell.panelWidth > 0 && shell.radius !== '0px',
+    JSON.stringify(shell));
 
   await browser.close();
   r.report('taskboard（docs/specs/taskboard.md）');

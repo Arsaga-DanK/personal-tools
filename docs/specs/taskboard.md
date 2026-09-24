@@ -1823,6 +1823,19 @@ parse 表示チェック（`window.taskboard.test.parse(F1)`）:
 links=['2026-07-14_TODO','2026-07-21']・due='2026-08-05'・priority='high' /
 17行目 tags=['UL業務']・priority='low' / 12行目の親=10行目 / セクション=['PEW','UL','その他']。
 
+## モード切替（`Check Issue` と対）
+
+`.tool-header` の下に `<nav class="modes">` を置き、［✅ タスク］［🎯 イシュー］で
+`web/issue.html` と1クリックで行き来する（利用者「タスク画面からイシューの投稿ができるように。
+モードの切り替えみたいに」）。自分側は `aria-current="page"`。
+**スタイルは `lib/ui.css` の `.modes`**、**モーダルの殻も `lib/ui.css` へ移した**
+（`Check Issue` が2番目の利用者になったため — `docs/specs/issue.md` の IS-Q9）。
+
+| ID | 操作 | 期待 |
+|---|---|---|
+| TB-M1 | モードセグメント | ［🎯 イシュー］が `web/issue.html` へのリンクで、［✅ タスク］が `aria-current="page"` |
+| TB-M2 | モーダルを開く（既存の追加モーダル） | `lib/ui.css` へ移した後も中央に出て、背景が敷かれる（算出スタイルで確認） |
+
 ## 検証手順
 
 > **合否の正本は `./test/run taskboard` が全 pass（コンソールエラー0件を含む）。**

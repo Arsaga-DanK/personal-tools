@@ -21,16 +21,40 @@
   #verdict .v-ok { background: var(--success-bg); border-color: var(--success-border); }
   #verdict span { color: var(--muted); }
   #verdict .v-ok span { color: inherit; }
+  /* 入力ウィザード固有（殻は lib/ui.css の .modal-overlay / .modal / .mf / .modal-actions） */
+  .wz-head { display: flex; align-items: baseline; gap: 10px; margin: 0 0 6px;
+    font-size: 12px; color: var(--muted); }
+  #wz-dots { letter-spacing: 3px; }
+  .wz-why { font-size: 12px; color: var(--muted); margin: 10px 0 0;
+    border-left: 3px solid var(--border); padding-left: 10px; }
+  .wz-err { color: var(--error); margin: 8px 0 0; }
+  #wz-judge { list-style: none; margin: 10px 0 0; padding: 0;
+    display: flex; flex-direction: column; gap: 4px; }
+  #wz-judge li { font-size: 12px; padding: 4px 8px; border-radius: 6px;
+    border: 1px solid transparent; overflow-wrap: anywhere; }
+  #wz-judge .v-warn { background: var(--warn-bg); border-color: var(--warn-border); }
+  #wz-judge .v-info { color: var(--muted); }
+  #wz-judge .v-ok { background: var(--success-bg); border-color: var(--success-border); }
+  .wz-u { display: flex; gap: 6px; align-items: center; margin: 0 0 6px; flex-wrap: wrap; }
+  .wz-u-what { flex: 2 1 180px; min-width: 0; }
+  .wz-u-who { flex: 1 1 120px; min-width: 0; }
+  .wz-u textarea { min-height: 72px; }
+  .modal-actions .spacer { flex: 1; }
 </style>
 </head>
 <body>
 <main class="app-wide">
   <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">入力は自動保存されます</span></p>
+  <nav class="modes" aria-label="モード">
+    <a href="taskboard.html">✅ タスク</a>
+    <a href="issue.html" aria-current="page">🎯 イシュー</a>
+  </nav>
   <h1>Check Issue</h1>
   <p class="subtitle">論点を点検して形にする — 貼った文章が「イシューか」を判定し、04_Issues にノートを作る（tasks.md 用の行も出す）</p>
 
   <div class="toolbar">
-    <button class="primary" id="create-btn">04_Issues にノートを作成</button>
+    <button class="primary" id="wizard-btn">🎯 イシューを書く</button>
+    <button id="create-btn">04_Issues にノートを作成</button>
     <button id="copy-btn" title="Cmd/Ctrl+Enter">md をコピー</button>
     <button id="copy-tasks-btn">tasks.md 用の行をコピー</button>
     <label class="field">締切<input type="date" id="deadline"></label>
@@ -53,6 +77,24 @@
 
   <ul id="verdict" class="verdict"></ul>
 </main>
+
+<div id="wizard" class="modal-overlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="wz-title">
+    <p class="wz-head"><span id="wz-step"></span><span id="wz-dots"></span></p>
+    <p class="modal-title" id="wz-title"></p>
+    <div id="wz-body"></div>
+    <ul id="wz-judge"></ul>
+    <p class="wz-why" id="wz-why"></p>
+    <p class="summary wz-err" id="wz-err" hidden></p>
+    <div class="modal-actions">
+      <button id="wz-prev">← 戻る</button>
+      <button class="primary" id="wz-next">次へ →</button>
+      <button class="primary" id="wz-create" hidden>04_Issues に作成</button>
+      <span class="spacer"></span>
+      <button id="wz-close">閉じる</button>
+    </div>
+  </div>
+</div>
 
 <script src="../lib/ui.js"></script>
 <script src="../lib/storage.js"></script>
@@ -196,7 +238,8 @@ function toNote(parsed, opts) {
   L.push('| 分からないこと | 聞く / 調べる / 試す | 誰に・どこで | いつまでに |');
   L.push('| --- | --- | --- | --- |');
   const rows = (p.unknowns && p.unknowns.length) ? p.unknowns : [''];
-  for (const u of rows) L.push('| ' + u + ' | ' + wayOf(u) + ' |  |  |');
+  // ウィザードが組んだ表の行はそのまま通す（二重に表を組まない — IS-18）
+  for (const u of rows) L.push(/^\s*\|/.test(u) ? u : '| ' + u + ' | ' + wayOf(u) + ' |  |  |');
   L.push('');
   L.push('## 4. リスク');
   L.push('');
@@ -215,6 +258,36 @@ function toNote(parsed, opts) {
     for (const x of p.rest) L.push(x);
     L.push('');
   }
+  return L.join('\n');
+}
+
+/* ウィザードの下書き → 5ステップの md。**ウィザードは md を作るだけ**で、
+   判定・出力・書き込みは既存の経路（parseSections → judge / toNote）をそのまま通る。
+   実装を二重に持たないための設計（IS-Q8） */
+function buildMd(draft) {
+  const d = draft || {};
+  const one = v => nfc(v).trim().replace(/\s*\n+\s*/g, ' ');
+  const L = [];
+  const sec = (head, lines) => {
+    L.push(head); L.push('');
+    if (lines.length === 0) L.push('- '); else for (const x of lines) L.push(x);
+    L.push('');
+  };
+  const ms = one(d.milestone);
+  sec('## 1. ゴール', ms === '' ? []
+    : ['- ' + ms + (d.milestoneDue ? '（マイルストーン: ' + d.milestoneDue + '）' : '')]);
+  const iss = one(d.issue);
+  sec('## 2. 論点', iss === '' ? [] : ['- ' + iss]);
+  const us = (d.unknowns || []).filter(u => u && one(u.what) !== '');
+  sec('## 3. 不明点', us.map(u =>
+    '| ' + one(u.what) + ' | ' + one(u.way) + ' | ' + one(u.who) + ' | ' + one(u.due) + ' |'));
+  const rs = nfc(d.risks).split('\n').map(x => x.trim()).filter(x => x !== '');
+  sec('## 4. リスク', rs.map(x => '- ' + x));
+  const nx = one(d.next);
+  L.push('## 5. 次の一手'); L.push('');
+  L.push(nx === '' ? '- [ ] '
+    : '- [ ] ' + nx + (d.nextDue ? ' \u{1F4C5} ' + d.nextDue : ''));
+  L.push('');
   return L.join('\n');
 }
 
@@ -259,11 +332,11 @@ const SAMPLE = [
 
 let lastParsed = parseSections('');
 
-function renderVerdict(list) {
-  const el = $id('verdict');
+function renderVerdict(list, into) {
+  const el = into || $id('verdict');
   el.textContent = '';
   const warns = list.filter(v => v.level === 'warn');
-  el.className = 'verdict' + (warns.length === 0 ? ' verdict-ok' : '');
+  el.className = (el.id === 'verdict' ? 'verdict' : '') + (warns.length === 0 ? ' verdict-ok' : '');
   if (warns.length === 0) {
     const li = document.createElement('li');
     li.className = 'v-ok';
@@ -439,7 +512,7 @@ async function ensureDir() {
   return dirHandle;
 }
 
-$id('create-btn').addEventListener('click', async () => {
+async function createNote() {
   settle();                                   // デバウンス中の古い md を書かない
   const name = noteFileName($id('title').value, todayStr());
   let dir;
@@ -472,7 +545,8 @@ $id('create-btn').addEventListener('click', async () => {
   } catch (e) {
     ToolUI.banner($id('banner'), 'error', '作成できませんでした: ' + errText(e));
   }
-});
+}
+$id('create-btn').addEventListener('click', createNote);
 
 $id('sample-btn').addEventListener('click', () => {
   $id('input').value = SAMPLE;
@@ -493,9 +567,212 @@ ToolStorage.mountWarning();
 ToolEdit.tabIndent($id('input'), { mdList: true });   // md を書く欄（coding-rules）
 ToolEdit.mountTodayShortcut();                        // Ctrl/Cmd+; = 今日（締切）
 
+
+/* ---------- 入力ウィザード（IS-Q8） ----------
+   **ただの md 入力欄では Obsidian と同じ**という利用者の指摘への対処。
+   1問ずつ・逆算の順に答えさせ、Step1（マイルストーン）を飛ばせなくする。
+   ウィザードは **md を組み立てて既存の入力欄へ流すだけ** — 判定・出力・書き込みは
+   parseSections → judge / toNote / createNote の既存経路をそのまま通る */
+const WZ = [
+  { title: 'いつまでに、何が達成されていればいい？',
+    why: 'ここが決まらないと、何を問うかも決まらない。まずマイルストーンを置いて、そこから降りる（本: 最終形からたどる）' },
+  { title: 'で、そこに着くために「いま答えを出すべき問い」は？',
+    why: '主語と動詞を入れる／「なぜ」で始めない（どこ・何を・どう）／「〜ではなく〜」でスタンスを取る' },
+  { title: 'その問いは、何を見れば白黒つく？',
+    why: '今の手段で答えが出ないものはイシューではない。分からないことに「聞く / 調べる / 試す」を振る' },
+  { title: 'どこで詰まりそう？ 詰まったらどうする？',
+    why: '手を動かす前に詰まりどころと回避策を想定する（本: いきなり飛び込まない）。ここは飛ばしてよい' },
+  { title: '最初に潰すのはどれ？',
+    why: '崩れたら全部やり直しになるものから。決めた一手は tasks.md へ移す' },
+];
+
+const draft = { milestone: '', milestoneDue: '', issue: '', issueDue: '',
+                unknowns: [], risks: '', next: '', nextDue: '', title: '' };
+let wzStep = 0;
+
+function mkText(id, val, ph) {
+  const e = document.createElement('input');
+  e.type = 'text'; if (id) e.id = id; e.value = val || ''; e.placeholder = ph || '';
+  e.spellcheck = false; return e;
+}
+function mkDate(id, val) {
+  const e = document.createElement('input');
+  e.type = 'date'; if (id) e.id = id; e.value = val || ''; return e;
+}
+function mkArea(id, val, ph, rows) {
+  const e = document.createElement('textarea');
+  if (id) e.id = id; e.value = val || ''; e.placeholder = ph || '';
+  e.rows = rows || 3; e.spellcheck = false; return e;
+}
+function wzField(label, el) {
+  const l = document.createElement('label');
+  l.className = 'mf';
+  const s2 = document.createElement('span');
+  s2.textContent = label;
+  l.appendChild(s2); l.appendChild(el);
+  return l;
+}
+function wzBind(el, key) {
+  const on = () => { draft[key] = el.value; wzLive(); };
+  el.addEventListener('input', on);
+  el.addEventListener('change', on);
+}
+
+// Step 2 の判定は本体と同じ純関数を通す（二重実装しない）
+function wzLive() {
+  if (wzStep !== 1) return;
+  renderVerdict(judge([draft.issue], {
+    deadline: draft.issueDue,
+    unknowns: draft.unknowns.map(u => u.what).filter(x => nfc(x).trim() !== ''),
+  }), $id('wz-judge'));
+}
+
+function wzRows(list) {
+  list.textContent = '';
+  draft.unknowns.forEach((u, i) => {
+    const row = document.createElement('div');
+    row.className = 'wz-u';
+    const what = mkText('', u.what, '分からないこと');
+    what.className = 'wz-u-what';
+    what.addEventListener('input', () => { u.what = what.value; });
+    const way = document.createElement('select');
+    way.className = 'wz-u-way';
+    [['', '（未定）'], ['聞く', '聞く'], ['調べる', '調べる'], ['試す', '試す']].forEach(pair => {
+      const o = document.createElement('option');
+      o.value = pair[0]; o.textContent = pair[1];
+      way.appendChild(o);
+    });
+    way.value = u.way || '';
+    way.addEventListener('change', () => { u.way = way.value; });
+    const who = mkText('', u.who, '誰に・どこで');
+    who.className = 'wz-u-who';
+    who.addEventListener('input', () => { u.who = who.value; });
+    const due = mkDate('', u.due);
+    due.className = 'wz-u-due';
+    const setDue = () => { u.due = due.value; };
+    due.addEventListener('input', setDue);
+    due.addEventListener('change', setDue);
+    const del = document.createElement('button');
+    del.type = 'button'; del.textContent = '×'; del.title = 'この行を削除';
+    del.addEventListener('click', () => { draft.unknowns.splice(i, 1); wzRows(list); });
+    row.appendChild(what); row.appendChild(way); row.appendChild(who);
+    row.appendChild(due); row.appendChild(del);
+    list.appendChild(row);
+  });
+}
+
+function wzRender() {
+  const body = $id('wz-body');
+  body.textContent = '';
+  $id('wz-step').textContent = 'Step ' + (wzStep + 1) + ' / ' + WZ.length;
+  $id('wz-dots').textContent = WZ.map((_, i) => (i <= wzStep ? '●' : '○')).join('');
+  $id('wz-title').textContent = WZ[wzStep].title;
+  $id('wz-why').textContent = '💡 ' + WZ[wzStep].why;
+  $id('wz-err').textContent = '';
+  $id('wz-err').hidden = true;
+  $id('wz-judge').textContent = '';
+  $id('wz-judge').className = '';
+  $id('wz-prev').disabled = wzStep === 0;
+  $id('wz-next').hidden = wzStep === WZ.length - 1;
+  $id('wz-create').hidden = wzStep !== WZ.length - 1;
+
+  if (wzStep === 0) {
+    const t = mkArea('wz-milestone', draft.milestone,
+      '例: 運営チームが自分たちだけで本番を停止できる手順書が出ていて、「これで実行できます」と言われている', 3);
+    wzBind(t, 'milestone');
+    body.appendChild(wzField('達成されている状態', t));
+    const d = mkDate('wz-milestone-due', draft.milestoneDue);
+    wzBind(d, 'milestoneDue');
+    body.appendChild(wzField('いつまでに', d));
+  } else if (wzStep === 1) {
+    const t = mkArea('wz-issue', draft.issue,
+      '例: 手順書が書けないのは情報が足りないからではなく、どこまで書けば運営チームが実行できるかの合意が無いからではないか', 2);
+    wzBind(t, 'issue');
+    body.appendChild(wzField('論点（一行）', t));
+    const d = mkDate('wz-issue-due', draft.issueDue);
+    wzBind(d, 'issueDue');
+    body.appendChild(wzField('決着させる期限', d));
+    wzLive();
+  } else if (wzStep === 2) {
+    const list = document.createElement('div');
+    list.id = 'wz-unknowns';
+    body.appendChild(list);
+    if (draft.unknowns.length === 0) draft.unknowns.push({ what: '', way: '', who: '', due: '' });
+    wzRows(list);
+    const add = document.createElement('button');
+    add.type = 'button'; add.id = 'wz-add-unknown'; add.textContent = '＋ 行を追加';
+    add.addEventListener('click', () => {
+      draft.unknowns.push({ what: '', way: '', who: '', due: '' });
+      wzRows(list);
+    });
+    body.appendChild(add);
+  } else if (wzStep === 3) {
+    const t = mkArea('wz-risks', draft.risks,
+      '例: 本番環境へのアクセス日程が動くと全部ずれる → 先に開発環境で当たりを付ける（1行1件・空欄でも進めます）', 3);
+    wzBind(t, 'risks');
+    body.appendChild(wzField('リスク', t));
+  } else {
+    const t = mkText('wz-next-what', draft.next, '例: 運営チームに求める完成度（粒度）を確認する');
+    wzBind(t, 'next');
+    body.appendChild(wzField('次の一手', t));
+    const d = mkDate('wz-next-due', draft.nextDue);
+    wzBind(d, 'nextDue');
+    body.appendChild(wzField('期限', d));
+    const n = mkText('wz-note-title', draft.title, '例: 本番停止手順書');
+    wzBind(n, 'title');
+    body.appendChild(wzField('ノートの名前', n));
+  }
+}
+
+// 必須は Step1（マイルストーン）と Step2（論点）だけ。ここを飛ばせないのがウィザードの目的
+function wzValidate(step) {
+  if (step === 0 && (nfc(draft.milestone).trim() === '' || !draft.milestoneDue))
+    return 'マイルストーン（達成されている状態）と期限の両方を埋めてください — ここを飛ばすと、何を問うかが決まりません';
+  if (step === 1 && (nfc(draft.issue).trim() === '' || !draft.issueDue))
+    return '論点（一行）と、その問いを決着させる期限を埋めてください — いつ白黒つくか書けないものは、まだイシューではありません';
+  return '';
+}
+function wzError(msg) {
+  $id('wz-err').textContent = msg;
+  $id('wz-err').hidden = false;
+}
+
+function wzOpen() {
+  $id('wizard').hidden = false;
+  wzRender();
+  const first = $id('wz-body').querySelector('textarea, input, select');
+  if (first) first.focus();
+}
+function wzClose() { $id('wizard').hidden = true; }   // 下書きは残す（非破壊 = IME ガード不要）
+
+$id('wizard-btn').addEventListener('click', wzOpen);
+$id('wz-close').addEventListener('click', wzClose);
+$id('wz-prev').addEventListener('click', () => { if (wzStep > 0) { wzStep--; wzRender(); } });
+$id('wz-next').addEventListener('click', () => {
+  const err = wzValidate(wzStep);
+  if (err) { wzError(err); return; }
+  if (wzStep < WZ.length - 1) { wzStep++; wzRender(); }
+});
+$id('wz-create').addEventListener('click', async () => {
+  for (const st of [0, 1]) {
+    const err = wzValidate(st);
+    if (err) { wzStep = st; wzRender(); wzError(err); return; }
+  }
+  $id('input').value = buildMd(draft);
+  $id('deadline').value = draft.issueDue || '';
+  $id('title').value = draft.title || '';
+  updateSampleBtn();
+  scheduleSave();
+  wzClose();
+  await createNote();
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && !$id('wizard').hidden) { e.preventDefault(); wzClose(); }
+});
+
 // テスト用フック（docs/specs/issue.md）
 window.issue = { parseSections: parseSections, judge: judge, toNote: toNote,
-                 toTasks: toTasks, noteFileName: noteFileName };
+                 toTasks: toTasks, noteFileName: noteFileName, buildMd: buildMd };
 </script>
 </body>
 </html>

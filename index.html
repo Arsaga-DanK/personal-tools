@@ -217,7 +217,7 @@
 // 画面には出さず検索にだけ効かせる（過去のメモは英名で書かれている）
 const TOOLS = [
   { name: 'Plan Tasks', alias: 'taskboard', path: 'web/taskboard.html', icon: '✅', short: 'tasks.md を表で編集', desc: 'vault の tasks.md（正本）を表形式で閲覧・編集 — 完了・開始日・期限・優先度、計画ビュー（タイムライン）、Excel用コピー', category: 'タスク', when: '朝の計画と期限付け・週次の棚卸し・大きなタスクの期間管理・Excel報告への転記' },
-  { name: 'Check Issue', alias: 'issue', path: 'web/issue.html', icon: '🎯', short: '論点を点検して形にする', desc: '論点（イシュー）の点検 — 貼った文章から「これはイシューか」を判定（作業テーマ・WHY始まり・締切なし・比較の形を検出）し、04_Issues 用の md とタスク1行を出す', category: 'タスク', when: '定例や依頼の直後に「で、答えを出すべき問いは何か」を一行にするとき／手が止まって悩みはじめたとき' },
+  { name: 'Check Issue', alias: 'issue', path: 'web/issue.html', icon: '🎯', short: '論点を立ててノートにする', desc: '論点（イシュー）を立ててノートにする — 1問ずつ答えるウィザードで マイルストーン→論点→不明点→リスク→次の一手 を埋め、作業テーマ・WHY始まり・締切なし・比較の形を判定して 04_Issues にノートを作成（貼った文章の点検にも使える）', category: 'タスク', when: '定例や依頼の直後に「で、答えを出すべき問いは何か」を一行にするとき／手が止まって悩みはじめたとき' },
   { name: 'Convert Table', alias: 'excel2md', path: 'web/excel2md.html', icon: '📊', short: 'Excel の表 ⇔ Markdown', desc: 'Excelのセル範囲（TSV）⇔ Markdownテーブル 双方向変換 — 結合セルの展開・表プレビュー上で列の揃え指定', category: '変換・比較', when: 'Excel の表を設計書や議事録の Markdown に貼るとき／その逆' },
   { name: 'Convert Data', alias: 'devpad', path: 'web/devpad.html', icon: '🔧', short: 'JSON・SQL 整形ほか11種', desc: '開発ユーティリティ集 — JSON・XML・SQL の整形・エスケープ・URL・Base64・正規表現・基数変換・Unix時刻・UUID・文字数カウント', category: '変換・比較', when: 'API レスポンスの整形・エンコード・時刻変換・正規表現の動作確認をその場で済ませたいとき' },
   { name: 'Normalize Text', alias: 'norm', path: 'web/norm.html', icon: '🔤', short: '表記ゆれを正規化', desc: '日本語表記の正規化（全角半角・ハイフン・波ダッシュ・空白・NFKC）変更箇所ハイライト付き', category: '変換・比較', when: '顧客提供テキストや仕様書の表記ゆれを揃えるとき' },

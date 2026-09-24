@@ -259,3 +259,33 @@ textarea:focus {
 .muted { color: var(--muted); }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .summary { font-size: 13px; color: var(--muted); margin: 8px 2px; }
+
+/* ---------- モード切替セグメント（Plan Tasks ⇔ Check Issue） ----------
+   1ツール=1HTML を保ったまま「同じ画面をどちらのモードで開くか」を見せる。
+   現在地は aria-current="page" で示し、色だけに頼らない */
+nav.modes { display: inline-flex; margin: 0 0 12px; border: 1px solid var(--border);
+  border-radius: 8px; overflow: hidden; font-size: 13px; }
+nav.modes a { padding: 5px 14px; text-decoration: none; color: var(--muted);
+  background: var(--panel); border-right: 1px solid var(--border); }
+nav.modes a:last-child { border-right: 0; }
+nav.modes a:hover { color: var(--accent); }
+nav.modes a[aria-current="page"] { background: var(--accent); color: #fff; font-weight: 600; }
+
+/* ---------- モーダルの殻（taskboard の追加モーダル / issue の入力ウィザードで共有） ----------
+   2026-09-24 に taskboard のローカル style から移設（2番目の利用者が生まれたため —
+   coding-rules「共通化の条件」）。ツール固有の規則は各ツールに残す。
+   中央固定なので画面端で切れない（TB-Q26） */
+.modal-overlay { position: fixed; inset: 0; z-index: 200; display: flex;
+  align-items: center; justify-content: center; padding: 16px;
+  background: rgba(0,0,0,.35); }
+.modal { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.28); padding: 16px 18px;
+  width: min(620px, 94vw); max-height: 88vh; overflow: auto; font-size: 13px; }
+.modal-title { margin: 0 0 12px; font-size: 15px; font-weight: 600; }
+.mf { display: flex; gap: 10px; align-items: flex-start; margin: 0 0 10px; }
+.mf > span:first-child { flex: 0 0 5.5em; padding-top: 5px; color: var(--muted); }
+.mf > input, .mf > textarea, .mf-body { flex: 1 1 auto; min-width: 0; }
+.mf-body { display: flex; flex-direction: column; gap: 6px; }
+.modal-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  border-top: 1px solid var(--border); padding-top: 12px; }
+.modal-actions .muted { font-size: 12px; }

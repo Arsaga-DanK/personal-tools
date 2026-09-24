@@ -4,7 +4,7 @@
    出力: 合否一覧と終了コード（全 pass かつコンソールエラー0件で 0）
    例:   node test/issue.js  /  ./test/run issue
 
-   照合するID: IS-01〜16（純関数）＋ IS-U1〜U12（UI 経路・FSA 書き込み）＋ハブ導線
+   照合するID: IS-01〜18（純関数）＋ IS-U1〜U19（UI 経路・FSA 書き込み・入力ウィザード）＋ハブ導線
    仕様の正本は docs/specs/issue.md。期待値を変えるときは spec を先に直す。 */
 
 const { launch, fileUrl, createRunner, eq } = require('./helpers');
@@ -196,6 +196,32 @@ const SAMPLE_MD = [
       && fn2.empty === '2026-09-24_無題.md'
       && fn2.dirty === '2026-09-24_A-B-C-D-E-F-G-H-I.md',
       JSON.stringify(fn2));
+
+    /* ========== IS-17/18: ウィザードの下書き → md ========== */
+    const w = await page.evaluate(() => {
+      const md = window.issue.buildMd({
+        milestone: '運営チームが本番を止められる状態', milestoneDue: '2026-10-02',
+        issue: '情報不足ではなく合意が無いからではないか', issueDue: '2026-09-30',
+        unknowns: [{ what: '粒度', way: '聞く', who: '柳葉さん', due: '2026-09-30' }],
+        risks: '日程が動く',
+        next: '粒度を確認する', nextDue: '2026-10-02',
+      });
+      const through = window.issue.toNote(
+        window.issue.parseSections('## 3. 不明点\n| a | 聞く | b | c |'),
+        { deadline: '', today: '2026-09-24', title: 'x' });
+      return { md: md, through: through };
+    });
+    r.check('IS-17（buildMd: 5見出し・マイルストーンの期限・不明点は表の行・次の一手はタスク記法）',
+      ['## 1. ゴール', '## 2. 論点', '## 3. 不明点', '## 4. リスク', '## 5. 次の一手']
+        .every(h => w.md.includes(h))
+      && w.md.includes('- 運営チームが本番を止められる状態（マイルストーン: 2026-10-02）')
+      && w.md.includes('| 粒度 | 聞く | 柳葉さん | 2026-09-30 |')
+      && w.md.includes('- [ ] 粒度を確認する \u{1F4C5} 2026-10-02'),
+      w.md);
+    r.check('IS-18（toNote は「|」始まりの不明点をそのまま通す — ウィザードの行を壊さない）',
+      w.through.includes('| a | 聞く | b | c |')
+      && (w.through.match(/\| a \|/g) || []).length === 1,
+      (w.through.split('## 3. 不明点')[1] || '').slice(0, 220));
   }
 
   /* ========== UI 経路 ========== */
@@ -349,6 +375,120 @@ const SAMPLE_MD = [
     u11.body === 'SENTINEL' && u11.count === 1
     && u11.kind.includes('banner-warn') && u11.banner.includes('既に'),
     JSON.stringify(u11));
+
+  /* IS-U19: モードセグメント */
+  const u19 = await page.evaluate(() => {
+    const links = Array.from(document.querySelectorAll('nav.modes a'));
+    return {
+      hrefs: links.map(a => a.getAttribute('href')),
+      labels: links.map(a => a.textContent.trim()),
+      current: links.filter(a => a.getAttribute('aria-current') === 'page')
+        .map(a => a.textContent.trim()),
+    };
+  });
+  r.check('IS-U19（モードセグメント: Plan Tasks へ行けて、自分側が aria-current="page"）',
+    u19.hrefs.includes('taskboard.html') && u19.labels.some(l => l.includes('タスク'))
+    && u19.current.length === 1 && u19.current[0].includes('イシュー'),
+    JSON.stringify(u19));
+
+  /* IS-U13: ウィザードが開く */
+  const u13 = await page.evaluate(() => {
+    document.getElementById('wizard-btn').click();
+    return {
+      open: !document.getElementById('wizard').hidden,
+      step: document.getElementById('wz-step').textContent,
+      dots: document.getElementById('wz-dots').textContent,
+      hasField: !!document.getElementById('wz-milestone'),
+      why: document.getElementById('wz-why').textContent,
+    };
+  });
+  r.check('IS-U13（［イシューを書く］で Step 1/5 が開く・進捗と「なぜ聞くか」が出る）',
+    u13.open && u13.step.includes('1') && u13.step.includes('5')
+    && u13.dots.startsWith('●') && u13.hasField && u13.why.length > 0,
+    JSON.stringify(u13));
+
+  /* IS-U14: Step 1 は必須（マイルストーンを飛ばせない） */
+  const u14 = await page.evaluate(() => {
+    document.getElementById('wz-next').click();
+    return {
+      step: document.getElementById('wz-step').textContent,
+      err: document.getElementById('wz-err').textContent,
+      errHidden: document.getElementById('wz-err').hidden,
+      stillStep1: !!document.getElementById('wz-milestone'),
+    };
+  });
+  r.check('IS-U14（Step 1 が空だと進まず、理由がその場に出る）',
+    u14.stillStep1 && !u14.errHidden && u14.err.length > 0 && u14.step.includes('1'),
+    JSON.stringify(u14));
+
+  /* IS-U15: Step 2 でその場判定 */
+  const setV = (sel, val) => page.evaluate(([s2, v]) => {
+    const el = document.querySelector(s2);
+    el.value = v;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  }, [sel, val]);
+
+  await setV('#wz-milestone', '運営チームが本番を止められる状態');
+  await setV('#wz-milestone-due', '2026-10-02');
+  await page.click('#wz-next');
+  await setV('#wz-issue', '現状を整理する');
+  await page.waitForTimeout(300);
+  const u15 = await page.evaluate(() => ({
+    ids: Array.from(document.querySelectorAll('#wz-judge li')).map(li => li.dataset.id),
+    text: document.getElementById('wz-judge').textContent,
+  }));
+  r.check('IS-U15（Step 2 で「現状を整理する」がその場で warn になる）',
+    u15.ids.includes('worktheme'), JSON.stringify(u15.ids));
+
+  /* IS-U17: Esc で閉じても下書きは残る（非破壊） */
+  const u17 = await page.evaluate(async () => {
+    document.dispatchEvent(new KeyboardEvent('keydown',
+      { key: 'Escape', bubbles: true, cancelable: true }));
+    const closed = document.getElementById('wizard').hidden;
+    document.getElementById('wizard-btn').click();
+    return { closed: closed, reopened: !document.getElementById('wizard').hidden,
+      kept: (document.getElementById('wz-issue') || {}).value };
+  });
+  r.check('IS-U17（Esc で閉じても下書きが残り、開き直すと同じ位置・同じ内容）',
+    u17.closed && u17.reopened && u17.kept === '現状を整理する', JSON.stringify(u17));
+
+  /* IS-U16: 最後まで進んで作成 */
+  await setV('#wz-issue', '手順書が書けないのは情報不足ではなく合意が無いからではないか');
+  await setV('#wz-issue-due', '2026-09-30');
+  await page.click('#wz-next');                       // → Step 3
+  await page.click('#wz-add-unknown');
+  await setV('.wz-u-what', 'どの粒度なら実行できるか');
+  await page.selectOption('.wz-u-way', '聞く');
+  await setV('.wz-u-who', '柳葉さん経由');
+  await setV('.wz-u-due', '2026-09-30');
+  await page.click('#wz-next');                       // → Step 4
+  await setV('#wz-risks', 'アクセス日程が動くと全部ずれる');
+  await page.click('#wz-next');                       // → Step 5
+  await setV('#wz-next-what', '粒度を確認する');
+  await setV('#wz-next-due', '2026-10-02');
+  await setV('#wz-note-title', 'ウィザード検証');
+  const u16 = await page.evaluate(async () => {
+    document.getElementById('wz-create').click();
+    await new Promise(d => setTimeout(d, 400));
+    const names = Object.keys(window.__fsa.files);
+    return {
+      closed: document.getElementById('wizard').hidden,
+      input: document.getElementById('input').value,
+      deadline: document.getElementById('deadline').value,
+      names: names,
+      body: names.map(n => window.__fsa.files[n]).join('\n'),
+    };
+  });
+  r.check('IS-U16（最後まで進んで作成: 入力欄に5ステップの md が入り、ノートが作られる）',
+    u16.closed
+    && ['## 1. ゴール', '## 2. 論点', '## 3. 不明点', '## 4. リスク', '## 5. 次の一手']
+      .every(h => u16.input.includes(h))
+    && u16.input.includes('（マイルストーン: 2026-10-02）')
+    && u16.deadline === '2026-09-30'
+    && u16.names.some(n => n.includes('ウィザード検証'))
+    && u16.body.includes('| どの粒度なら実行できるか | 聞く | 柳葉さん経由 | 2026-09-30 |'),
+    JSON.stringify({ closed: u16.closed, deadline: u16.deadline, names: u16.names,
+      head: u16.input.slice(0, 120) }));
 
   /* IS-U12: FSA 非対応では作成ボタンを無効にして理由を出す（Check Vault と同型） */
   const page2 = r.watch(await browser.newPage());

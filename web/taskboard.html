@@ -162,25 +162,13 @@
     font-size: 13px; white-space: nowrap; }
   #f-q { width: 180px; }
   #q-count { font-size: 12px; }
-  /* 追加・編集モーダル。中央固定なので画面端で切れない（TB-Q26） */
-  .modal-overlay { position: fixed; inset: 0; z-index: 200; display: flex;
-    align-items: center; justify-content: center; padding: 16px;
-    background: rgba(0,0,0,.35); }
-  .modal { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
-    box-shadow: 0 8px 32px rgba(0,0,0,.28); padding: 16px 18px;
-    width: min(620px, 94vw); max-height: 88vh; overflow: auto; font-size: 13px; }
-  .modal-title { margin: 0 0 12px; font-size: 15px; font-weight: 600; }
-  .mf { display: flex; gap: 10px; align-items: flex-start; margin: 0 0 10px; }
-  .mf > span:first-child { flex: 0 0 5.5em; padding-top: 5px; color: var(--muted); }
-  .mf > input, .mf > textarea, .mf-body { flex: 1 1 auto; min-width: 0; }
-  .mf-body { display: flex; flex-direction: column; gap: 6px; }
+  /* 追加・編集モーダル。**殻（.modal-overlay / .modal / .modal-title / .mf / .modal-actions）は
+     lib/ui.css へ移設**（Check Issue が2番目の利用者 — docs/specs/issue.md の IS-Q9）。
+     ここに残すのは taskboard 固有の規則だけ */
   #modal-memo { min-height: 84px; resize: vertical; }
   #modal-more { margin: 4px 0 12px; }
   #modal-more > summary { cursor: pointer; color: var(--accent); padding: 4px 0; }
   #modal-more[open] > summary { margin-bottom: 10px; }
-  .modal-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
-    border-top: 1px solid var(--border); padding-top: 12px; }
-  .modal-actions .muted { font-size: 12px; }
   .chip-del { font-size: 11px; padding: 0 6px; margin-left: 2px; }
   .offscreen { position: fixed; left: -9999px; top: 0; width: 10px; height: 10px; }
   .cell-edit-input { width: 100%; font: inherit; padding: 2px 6px; border: 1px solid var(--accent);
@@ -191,6 +179,10 @@
 <body>
 <main class="app-wide">
   <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">タスクはファイルへ明示保存 / 画面設定のみ自動保存</span></p>
+  <nav class="modes" aria-label="モード">
+    <a href="taskboard.html" aria-current="page">✅ タスク</a>
+    <a href="issue.html">🎯 イシュー</a>
+  </nav>
   <h1>Plan Tasks</h1>
   <p class="subtitle">vault の tasks.md（正本）を表形式で閲覧・編集 — 完了・開始日・期限・優先度、計画ビュー（タイムライン）、Excel用コピー</p>
 

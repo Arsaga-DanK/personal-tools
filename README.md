@@ -29,7 +29,7 @@ open index.html          # macOS。Windows は start index.html / Linux は xdg-
 | ツール | できること | カテゴリ |
 |---|---|---|
 | **Plan Tasks**（taskboard） | `tasks.md` を表形式で閲覧・編集。完了・開始日・期限・優先度、タイムライン表示、Excel 用コピー | タスク |
-| **Check Issue**（issue） | 論点（イシュー）の点検。貼った文章が「イシューか」を判定し、04_Issues 用の md とタスク1行を出す | タスク |
+| **Check Issue**（issue） | 論点（イシュー）を立ててノートにする。1問ずつのウィザードで マイルストーン→論点→不明点→次の一手 を埋め、判定を通して 04_Issues に作成 | タスク |
 | **Convert Table**（excel2md） | Excel のセル範囲（TSV）⇔ Markdown テーブルの双方向変換。結合セルの展開、列の揃え指定 | 変換・比較 |
 | **Convert Data**（devpad） | 開発ユーティリティ集。JSON・XML・SQL 整形／エスケープ／URL／Base64／正規表現／基数変換／Unix 時刻／UUID | 変換・比較 |
 | **Normalize Text**（norm） | 日本語表記の正規化（全角半角・ハイフン・波ダッシュ・空白・NFKC）。変更箇所をハイライト | 変換・比較 |
