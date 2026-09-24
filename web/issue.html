@@ -80,6 +80,22 @@
      2ペインの編集欄向けなので、ここだけ外して rows どおりの高さにする */
   #wz-body textarea { min-height: 0; font-family: inherit; font-size: 13px; }
   #wz-body input[type="text"], #wz-body input[type="date"] { font-size: 13px; }
+  #wz-source > summary { cursor: pointer; color: var(--accent); font-size: 12px; margin-top: 8px; }
+  #wz-source-text { max-height: 220px; overflow: auto; font-size: 11.5px; line-height: 1.5;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 10px; white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0 0; }
+  .ic-edit { margin: 0 0 10px; }
+  .ic-edit-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .ic-edit-line { flex: 1 1 320px; min-width: 0; }
+  .ic-frame { font-size: 12px; }
+  button.ic-issue {
+    display: block; width: 100%; text-align: left; font: inherit; font-size: 15px;
+    line-height: 1.55; margin: 8px 0 10px; padding: 4px 6px; border-radius: 8px;
+    border: 1px solid transparent; background: transparent; color: var(--text);
+    overflow-wrap: anywhere; cursor: text;
+  }
+  button.ic-issue:hover { border-color: var(--border); background: var(--bg); transform: none; box-shadow: none; color: var(--text); }
+  button.ic-issue.is-empty { color: var(--muted); font-size: 13px; }
 </style>
 </head>
 <body>
@@ -135,6 +151,10 @@
     <p class="wz-head"><span id="wz-step"></span><span id="wz-dots"></span></p>
     <p class="modal-title" id="wz-title"></p>
     <div id="wz-body"></div>
+    <details id="wz-source" hidden>
+      <summary>このノートの中身を見る（書き殴りは消しません）</summary>
+      <pre id="wz-source-text"></pre>
+    </details>
     <ul id="wz-judge"></ul>
     <p class="wz-why" id="wz-why"></p>
     <p class="summary wz-err" id="wz-err" hidden></p>
@@ -351,9 +371,9 @@ function subRows(lines) {
     if (/^\|/.test(l)) {
       const cells = l.replace(/^\|/, '').replace(/\|$/, '').split('|').map(function (c) { return c.trim(); });
       if (cells[0] === '' || cells[0] === '分からないこと') continue;
-      out.push({ what: cells[0], way: cells[1] || '' });
+      out.push({ what: cells[0], way: cells[1] || '', who: cells[2] || '', due: cells[3] || '' });
     } else {
-      out.push({ what: l, way: wayOf(l) });
+      out.push({ what: l, way: wayOf(l), who: '', due: '' });
     }
   }
   return out;
@@ -380,6 +400,7 @@ function summarize(text, fileName) {
   return {
     file: String(fileName || ''), name: name,
     title: (p.title || name),
+    goal: (p.goal || []).filter(function (x) { return nfc(x).trim() !== ''; })[0] || '',
     issue: issueLine,
     picture: pic[0] || '',
     subs: rows.length, ways: ways, rows: rows,
@@ -391,6 +412,78 @@ function summarize(text, fileName) {
     warn: verdicts.filter(function (v) { return v.level === 'warn'; }).length,
     verdicts: verdicts,
   };
+}
+
+/* ---------- 既存ノートへの書き込み（書き殴りを壊さない） ----------
+   実測（2026-09-24）: 利用者は**新しいノートを作らず、1本を育てている**
+   （04_Issues は2本のまま、9/24 のノートが同日中に 3.8KB → 7.2KB）。
+   ウィザードが必ず新規作成していると**育てているノートと分裂する**ので、
+   既存ノートの先頭に5段を差し込めるようにする。書き殴りは下にそのまま残す */
+
+// 既に5段が入っている範囲 [start, end)。「## 1. ゴール」から「## 5. 次の一手」の節の終わりまで
+function frameRange(lines) {
+  let start = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^#{1,6}\s*1[.．]?\s*ゴール\s*$/.test(lines[i])) { start = i; break; }
+  }
+  if (start === -1) return null;
+  let five = -1;
+  for (let i = start; i < lines.length; i++) {
+    if (/^#{1,6}\s*5[.．]?\s*次の一手\s*$/.test(lines[i])) { five = i; break; }
+  }
+  if (five === -1) return null;
+  let end = five + 1;
+  while (end < lines.length && !/^#{1,6}\s/.test(lines[end]) && lines[end].trim() !== '---') end++;
+  return [start, end];
+}
+
+// frontmatter と H1 の直後（＝本文の先頭）を返す
+function topOfBody(lines, text) {
+  let at = 0;
+  const fm = text.match(/^---\n[\s\S]*?\n---\n?/);
+  if (fm) at = fm[0].replace(/\n$/, '').split('\n').length;
+  for (let i = at; i < Math.min(at + 4, lines.length); i++) {
+    if (/^#\s+/.test(lines[i])) { at = i + 1; break; }
+  }
+  return at;
+}
+
+/* 5段のブロックを差し込む。既にあれば**その範囲だけ**差し替える。
+   書き殴り（掘ったログ・TODO）には一切触らない */
+function upsertFrame(text, md) {
+  const t = nfc(text).replace(/\r\n?/g, '\n');
+  const lines = t.split('\n');
+  const block = nfc(md).replace(/\s*$/, '').split('\n');
+  const r = frameRange(lines);
+  if (r) {
+    lines.splice(r[0], r[1] - r[0], ...block.concat(['']));
+    return lines.join('\n');
+  }
+  const at = topOfBody(lines, t);
+  lines.splice(at, 0, ...[''].concat(block, ['']));
+  return lines.join('\n');
+}
+
+/* 論点の一行だけを書く（軽い入口）。「## 2. 論点」があれば中身を差し替え、
+   無ければ本文の先頭に節を作る。**注記行（> 始まり）は残す** */
+function setIssueLine(text, line) {
+  const t = nfc(text).replace(/\r\n?/g, '\n');
+  const lines = t.split('\n');
+  let i = -1;
+  for (let k = 0; k < lines.length; k++) {
+    if (/^#{1,6}\s*(?:2[.．]?\s*)?(論点|イシュー)\s*$/.test(lines[k])) { i = k; break; }
+  }
+  const body = ['', '- ' + nfc(line).trim()];
+  if (i >= 0) {
+    let end = i + 1;
+    while (end < lines.length && !/^#{1,6}\s/.test(lines[end]) && lines[end].trim() !== '---') end++;
+    const keep = lines.slice(i + 1, end).filter(function (l) { return /^\s*>/.test(l); });
+    lines.splice(i + 1, end - (i + 1), ...body.concat(keep, ['']));
+    return lines.join('\n');
+  }
+  const at = topOfBody(lines, t);
+  lines.splice(at, 0, ...[''].concat(['## 2. 論点'], body, ['']));
+  return lines.join('\n');
 }
 
 function todayStr() {
@@ -547,11 +640,12 @@ const SAMPLE = [
 
 let lastParsed = parseSections('');
 
-function renderVerdict(list, into) {
+function renderVerdict(list, into, base) {
   const el = into || $id('verdict');
+  const baseClass = base !== undefined ? base : (el.id === 'verdict' ? 'verdict' : '');
   el.textContent = '';
   const warns = list.filter(v => v.level === 'warn');
-  el.className = (el.id === 'verdict' ? 'verdict' : '') + (warns.length === 0 ? ' verdict-ok' : '');
+  el.className = baseClass + (warns.length === 0 ? ' verdict-ok' : '');
   if (warns.length === 0) {
     const li = document.createElement('li');
     li.className = 'v-ok';
@@ -862,6 +956,79 @@ function meta(parent, text) {
   parent.appendChild(li);
 }
 
+/* 論点の一行だけをその場で書く。**判定はその場で出る**（本体と同じ純関数） */
+function openIssueEdit(art, btn, it) {
+  if (art.querySelector('.ic-edit')) return;
+  btn.hidden = true;
+  // 読み込み時の件数とライブ判定が並ぶと数が食い違って見える。編集中は古い方を隠す
+  const stale = art.querySelector('.ic-warn');
+  if (stale) stale.hidden = true;
+  const staleList = art.querySelector('.ic-verdicts');
+  if (staleList) staleList.hidden = true;
+  const box = document.createElement('div');
+  box.className = 'ic-edit';
+  const line = mkText('', it.issue, '論点を一行で（例: 〜は A ではなく B ではないか）');
+  line.className = 'ic-edit-line';
+  const due = mkDate('', it.deadline);
+  due.className = 'ic-edit-due';
+  due.title = 'いつまでに白黒つけるか';
+  const vl = document.createElement('ul');
+  vl.className = 'ic-verdicts';
+  const live = function () {
+    renderVerdict(judge([line.value], {
+      deadline: due.value,
+      unknowns: it.rows.map(function (x) { return x.what; }),
+      picture: it.picture,
+    }), vl, 'ic-verdicts');
+  };
+  line.addEventListener('input', live);
+  due.addEventListener('input', live);
+  due.addEventListener('change', live);
+  const row = document.createElement('div');
+  row.className = 'ic-edit-row';
+  const ok = document.createElement('button');
+  ok.type = 'button'; ok.className = 'primary ic-edit-save'; ok.textContent = '保存';
+  ok.addEventListener('click', function () { saveIssueLine(it, line.value, due.value); });
+  const no = document.createElement('button');
+  no.type = 'button'; no.textContent = 'やめる';
+  no.addEventListener('click', renderCards);
+  row.appendChild(line); row.appendChild(due); row.appendChild(ok); row.appendChild(no);
+  box.appendChild(row);
+  box.appendChild(vl);
+  art.insertBefore(box, btn.nextSibling);
+  live();
+  line.focus();
+}
+
+async function saveIssueLine(it, line, due) {
+  const text = nfc(line).trim();
+  if (text === '') { ToolUI.banner($id('banner'), 'warn', '論点が空です'); return; }
+  if (!dirHandle) return;
+  try {
+    const fh = await dirHandle.getFileHandle(it.file);
+    const cur = await (await fh.getFile()).text();
+    if (nfc(cur) !== nfc(it.text)) {        // 書き込む直前に再読して比較
+      ToolUI.banner($id('banner'), 'warn',
+        'Obsidian 側で変更されています。［再読込］してからもう一度お願いします（上書きは避けました）');
+      return;
+    }
+    let next = setIssueLine(cur, text);
+    if (it.hasFrontmatter) next = setFrontmatter(next, { deadline: due || '' });
+    const w = await fh.createWritable();
+    await w.write(next);
+    await w.close();
+    if (!it.hasFrontmatter && due) {
+      ToolUI.banner($id('banner'), 'info',
+        '論点は書きました。frontmatter が無いノートなので締切は保存していません');
+    } else {
+      ToolUI.banner($id('banner'), 'success', it.title + ' に論点を書きました');
+    }
+    await loadIssues(false);
+  } catch (e) {
+    ToolUI.banner($id('banner'), 'error', '書き込めませんでした: ' + errText(e));
+  }
+}
+
 function card(it) {
   const art = document.createElement('article');
   art.className = 'issue-card' + (it.status === 'closed' ? ' is-closed' : '');
@@ -882,10 +1049,14 @@ function card(it) {
   head.appendChild(due);
   art.appendChild(head);
 
-  const q = document.createElement('p');
-  q.className = 'ic-issue';
-  q.textContent = it.issue || '（論点が書かれていない）';
-  if (!it.issue) q.classList.add('is-empty');
+  /* **論点の一行はその場で書ける**（軽い入口 — IS-Q11）。
+     書き殴りノートに1行足すだけでカードが意味を持つ。5段フルはウィザードに任せる */
+  const q = document.createElement('button');
+  q.type = 'button';
+  q.className = 'ic-issue' + (it.issue ? '' : ' is-empty');
+  q.textContent = it.issue || '＋ 論点を一行で書く';
+  q.title = 'クリックして論点を書く／直す';
+  q.addEventListener('click', function () { openIssueEdit(art, q, it); });
   art.appendChild(q);
 
   const ul = document.createElement('ul');
@@ -942,6 +1113,12 @@ function card(it) {
     acts.appendChild(a);
   }
   if (it.status !== 'closed') {
+    const fb = document.createElement('button');
+    fb.type = 'button';
+    fb.className = 'ic-frame';
+    fb.textContent = 'このノートに問いを立てる…';
+    fb.addEventListener('click', function () { wzOpenFor(it); });
+    acts.appendChild(fb);
     const cb = document.createElement('button');
     cb.type = 'button';
     cb.className = 'ic-close';
@@ -1075,6 +1252,9 @@ const draft = {
   subs: [], next: '', nextDue: '', title: '',
 };
 let wzStep = 0;
+/* 書き込み先。null = 新規ノートを作る / it = **その既存ノートの先頭に5段を差し込む**
+   （実測: 利用者は新規を作らず1本を育てている。新規固定だと育てているノートと分裂する） */
+let wzTarget = null;
 
 function mkText(id, val, ph) {
   const e = document.createElement('input');
@@ -1198,6 +1378,9 @@ function wzRender() {
   $id('wz-prev').disabled = wzStep === 0;
   $id('wz-next').hidden = wzStep === WZ.length - 1;
   $id('wz-create').hidden = wzStep !== WZ.length - 1;
+  $id('wz-create').textContent = wzTarget ? 'このノートに書き込む' : '04_Issues に作成';
+  $id('wz-source').hidden = !wzTarget;
+  if (wzTarget) $id('wz-source-text').textContent = wzTarget.text || '';
 
   if (wzStep === 0) {
     const t = mkArea('wz-milestone', draft.milestone,
@@ -1258,9 +1441,11 @@ function wzRender() {
     const d = mkDate('wz-next-due', draft.nextDue);
     wzBind(d, 'nextDue');
     body.appendChild(wzField('期限', d));
-    const n = mkText('wz-note-title', draft.title, '例: 本番停止手順書');
-    wzBind(n, 'title');
-    body.appendChild(wzField('ノートの名前', n));
+    if (!wzTarget) {          // 既存ノートに書き込むときは名前を聞かない
+      const n = mkText('wz-note-title', draft.title, '例: 本番停止手順書');
+      wzBind(n, 'title');
+      body.appendChild(wzField('ノートの名前', n));
+    }
   }
 }
 
@@ -1281,6 +1466,51 @@ function wzError(msg) {
   $id('wz-err').hidden = false;
 }
 
+/* 既存ノートから開く。書き殴りを横に見ながら5段を埋められるよう、
+   既に書かれている分（ゴール・論点・絵コンテ・サブ・次の一手）を初期値に入れる */
+function wzOpenFor(it) {
+  wzTarget = it;
+  const kind = (String(it.picture).match(/^【([^】]*)】/) || [])[1] || '表';
+  draft.milestone = it.goal || '';
+  draft.milestoneDue = '';
+  draft.candidates = [{ text: it.issue || '', effect: '' }, { text: '', effect: '' }];
+  draft.chosen = 0;
+  draft.issueDue = it.deadline || '';
+  draft.pictureKind = kind;
+  draft.picture = String(it.picture).replace(/^【[^】]*】/, '');
+  draft.subs = (it.rows || []).map(function (x) {
+    return { what: x.what, way: x.way, who: x.who || '', due: x.due || '' };
+  });
+  const nx = String(it.next || '');
+  draft.next = nx.replace(/^-\s*\[[^\]]\]\s*/, '').replace(/\s*\u{1F4C5}.*$/u, '').trim();
+  draft.nextDue = (nx.match(/\u{1F4C5}\s*(\d{4}-\d{2}-\d{2})/u) || [])[1] || '';
+  draft.title = it.title;
+  wzStep = 0;
+  wzOpen();
+}
+
+async function wzWriteInto(it) {
+  if (!dirHandle) { wzError('先に［📂 04_Issues を開く］でフォルダを選んでください'); return; }
+  try {
+    const fh = await dirHandle.getFileHandle(it.file);
+    const cur = await (await fh.getFile()).text();
+    if (nfc(cur) !== nfc(it.text)) {
+      wzError('Obsidian 側で変更されています。［再読込］してからもう一度お願いします（上書きは避けました）');
+      return;
+    }
+    let next = upsertFrame(cur, buildMd(draft));
+    if (it.hasFrontmatter) next = setFrontmatter(next, { deadline: draft.issueDue || '' });
+    const w = await fh.createWritable();
+    await w.write(next);
+    await w.close();
+    wzClose();
+    ToolUI.banner($id('banner'), 'success', it.title + ' に問いを立てました（書き殴りはそのままです）');
+    await loadIssues(false);
+  } catch (e) {
+    wzError('書き込めませんでした: ' + errText(e));
+  }
+}
+
 function wzOpen() {
   $id('wizard').hidden = false;
   wzRender();
@@ -1289,7 +1519,7 @@ function wzOpen() {
 }
 function wzClose() { $id('wizard').hidden = true; }   // 下書きは残す（非破壊 = IME ガード不要）
 
-$id('wizard-btn').addEventListener('click', wzOpen);
+$id('wizard-btn').addEventListener('click', function () { wzTarget = null; wzOpen(); });
 $id('wz-close').addEventListener('click', wzClose);
 $id('wz-prev').addEventListener('click', () => { if (wzStep > 0) { wzStep--; wzRender(); } });
 $id('wz-next').addEventListener('click', () => {
@@ -1302,6 +1532,7 @@ $id('wz-create').addEventListener('click', async () => {
     const err = wzValidate(st);
     if (err) { wzStep = st; wzRender(); wzError(err); return; }
   }
+  if (wzTarget) { await wzWriteInto(wzTarget); return; }   // 既存ノートの先頭へ差し込む
   $id('input').value = buildMd(draft);
   $id('deadline').value = draft.issueDue || '';
   $id('title').value = draft.title || '';
@@ -1343,6 +1574,7 @@ window.issue = { parseSections: parseSections, judge: judge, toNote: toNote,
                  toTasks: toTasks, noteFileName: noteFileName, buildMd: buildMd,
                  parseFrontmatter: parseFrontmatter, setFrontmatter: setFrontmatter,
                  appendToSection: appendToSection, subRows: subRows, summarize: summarize,
+                 upsertFrame: upsertFrame, setIssueLine: setIssueLine,
                  load: () => loadIssues(false), list: () => issues };
 
 ToolLauncher.mount();   // ☰ ツール / Cmd+Ctrl+K で引き出しメニュー（lib/launcher.js）
