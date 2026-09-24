@@ -6,7 +6,7 @@
 
    照合するID: TB-01〜20・parse チェック / TB-S1〜S11（セクション移動）/
    TB-A1〜A7（事故防止）/ TB-I1〜I7（IME ガード）/ TB-U1〜U7（追加の取り消し）/
-   TB-P1〜P19（計画ビュー: 🛫 とタイムライン）/ TB-M1〜M2（モード切替と共通モーダル）
+   TB-P1〜P19（計画ビュー: 🛫 とタイムライン）/ TB-M1〜M2（モード切替と共通モーダル）/ TB-AS1〜AS4（自動保存）
    仕様の正本は docs/specs/taskboard.md。期待値を変えるときは spec を先に直す。 */
 
 const path = require('path');
@@ -3590,6 +3590,82 @@ const F5 = [
     && shell.bg !== 'rgba(0, 0, 0, 0)' && shell.zIndex === '200'
     && shell.panelWidth > 0 && shell.radius !== '0px',
     JSON.stringify(shell));
+
+  /* ---------- TB-AS1〜AS3: 自動保存（明示保存と同じ doSave を通す） ---------- */
+  await page.goto(fileUrl('web/taskboard.html'));
+
+  // AS1: ボタンを押さずに、デバウンス後に実際に保存される（時間で確かめる）
+  const as1 = await page.evaluate(async (f1) => {
+    const s = window.taskboard.test.newSession(f1);
+    s.applyOps([{ type: 'complete', line: 9 }]);
+    const before = s.getAdapterText();
+    await new Promise(d => setTimeout(d, 1500));          // AUTOSAVE_MS = 1200
+    const b = document.getElementById('banner');
+    return {
+      changed: s.getAdapterText() !== before,
+      saved: /- \[x\]/.test(s.getAdapterText().split('\n')[8]),
+      state: document.getElementById('save-state').textContent,
+      bannerKind: b.hidden ? '(hidden)' : b.className,
+    };
+  }, F1);
+  r.check('TB-AS1（ボタンを押さずに自動保存され、静かな表示だけが出る）',
+    as1.changed && as1.saved && as1.state.includes('自動保存しました')
+    && !as1.bannerKind.includes('banner-success'),
+    JSON.stringify(as1));
+
+  // AS2: 外部が触っていたら、自動保存でも**書かない**（目印で不変を見る）
+  const as2 = await page.evaluate(async (f1) => {
+    const s = window.taskboard.test.newSession(f1);
+    s.externalWrite('SENTINEL-EXTERNAL');                 // ディスク側が別内容になった
+    s.applyOps([{ type: 'complete', line: 9 }]);
+    s.autoSave();                                         // デバウンスを前倒しで発火
+    await new Promise(d => setTimeout(d, 200));
+    const b = document.getElementById('banner');
+    return { disk: s.getAdapterText(), kind: b.className, hidden: b.hidden, text: b.textContent };
+  }, F1);
+  r.check('TB-AS2（競合時は自動保存でも書き込まず warn — ディスクの内容が不変）',
+    as2.disk === 'SENTINEL-EXTERNAL' && !as2.hidden
+    && as2.kind.includes('banner-warn') && as2.text.includes('Obsidian'),
+    JSON.stringify(as2));
+
+  // AS3: 一括完了の確認が要るときは自動保存しない（確認ダイアログを出さない）
+  // 閾値は5件なので、未完了6件の専用フィクスチャを使う（F1 には3件しかない）
+  const BULK6 = ['# tasks', '', '## ITK',
+    '- [ ] a', '- [ ] b', '- [ ] c', '- [ ] d', '- [ ] e', '- [ ] f', ''].join('\n');
+  const as3 = await page.evaluate(async (txt) => {
+    let confirmed = 0;
+    const orig = window.confirm;
+    window.confirm = () => { confirmed++; return true; };
+    const s = window.taskboard.test.newSession(txt);
+    const ops = [4, 5, 6, 7, 8, 9].map(line => ({ type: 'complete', line: line }));
+    s.applyOps(ops);
+    const before = s.getAdapterText();
+    s.autoSave();
+    await new Promise(d => setTimeout(d, 200));
+    const b = document.getElementById('banner');
+    window.confirm = orig;
+    return {
+      confirmed: confirmed, unchanged: s.getAdapterText() === before,
+      hidden: b.hidden, kind: b.className, text: b.textContent,
+    };
+  }, BULK6);
+  r.check('TB-AS3（閾値以上の一括完了は自動保存せず、確認ダイアログも出さずに info で促す）',
+    as3.confirmed === 0 && as3.unchanged && !as3.hidden
+    && as3.kind.includes('banner-info') && as3.text.includes('今すぐ保存'),
+    JSON.stringify(as3));
+
+  // AS4: そのまま［今すぐ保存］を押せば（確認に OK すれば）保存できる — 逃げ道が生きている
+  const as4 = await page.evaluate(async () => {
+    const orig = window.confirm;
+    let asked = 0;
+    window.confirm = () => { asked++; return true; };
+    const res = await window.taskboard.test.lastSession.save();
+    window.confirm = orig;
+    return { asked: asked, ok: res && res.ok,
+      saved: /- \[x\] a/.test(window.taskboard.test.lastSession.getAdapterText()) };
+  });
+  r.check('TB-AS4（自動保存をスキップしても［今すぐ保存］なら確認のうえ保存できる）',
+    as4.asked === 1 && as4.ok === true && as4.saved === true, JSON.stringify(as4));
 
   await browser.close();
   r.report('taskboard（docs/specs/taskboard.md）');

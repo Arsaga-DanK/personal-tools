@@ -4,7 +4,7 @@
    出力: 合否一覧と終了コード（全 pass かつコンソールエラー0件で 0）
    例:   node test/issue.js  /  ./test/run issue
 
-   照合するID: IS-01〜18（純関数）＋ IS-U1〜U19（UI 経路・FSA 書き込み・入力ウィザード）＋ハブ導線
+   照合するID: IS-01〜21（純関数）＋ IS-U1〜U21（UI 経路・FSA 書き込み・入力ウィザード）＋ハブ導線
    仕様の正本は docs/specs/issue.md。期待値を変えるときは spec を先に直す。 */
 
 const { launch, fileUrl, createRunner, eq } = require('./helpers');
@@ -18,12 +18,12 @@ const SAMPLE_MD = [
   '## 2. 論点',
   '- 手順書が書けないのは情報不足ではなく、完成度の合意が無いからではないか',
   '',
-  '## 3. 不明点',
+  '## 3. 絵コンテ',
+  '- 【表】粒度ごとに実行できたかの表。右上に集まれば仮説どおり',
+  '',
+  '## 4. サブイシュー',
   '- どの粒度なら実行できるかを聞く',
   '- サービス一覧を調べる',
-  '',
-  '## 4. リスク',
-  '- アクセス日程が動くと全部ずれる',
   '',
   '## 5. 次の一手',
   '- 粒度を確認する',
@@ -76,7 +76,9 @@ const SAMPLE_MD = [
     const p = await page.evaluate(s => ({
       basic: window.issue.parseSections(s),
       loose: window.issue.parseSections(
-        '## ゴール\nG\n**2. 論点**\nR\n3. 不明点：\nF\n#### リスク\nK\n## 5. 次の一手\nN'),
+        '## ゴール\nG\n**2. 論点**\nR\n3. 絵コンテ：\nE\n#### サブイシュー\nF\n## 5. 次の一手\nN'),
+      legacy: window.issue.parseSections(
+        '## 3. 不明点\n旧ノートの行\n## 4. リスク\n旧リスク\n## 分かったこと\nW\n## 結論\nC'),
       alias: window.issue.parseSections('## 2. イシュー\n- これが論点'),
       none: window.issue.parseSections('なぜ？\n  └ なぜ？\n     └ だから'),
       titled: window.issue.parseSections('# タイトル行\n本文\n## 2. 論点\n- X'),
@@ -85,16 +87,22 @@ const SAMPLE_MD = [
     r.check('IS-01（5セクションに分解され行頭の "- " が落ちる）',
       eq(p.basic.goal, ['運営チームが自分たちだけで本番を停止できる手順書を出す'])
       && eq(p.basic.issue, ['手順書が書けないのは情報不足ではなく、完成度の合意が無いからではないか'])
-      && p.basic.unknowns.length === 2
-      && eq(p.basic.risks, ['アクセス日程が動くと全部ずれる'])
+      && eq(p.basic.picture, ['【表】粒度ごとに実行できたかの表。右上に集まれば仮説どおり'])
+      && p.basic.subs.length === 2
       && eq(p.basic.next, ['粒度を確認する']),
       JSON.stringify(p.basic));
 
     r.check('IS-02（見出しの揺れと別名「イシュー」を認識する）',
-      eq(p.loose.goal, ['G']) && eq(p.loose.issue, ['R']) && eq(p.loose.unknowns, ['F'])
-      && eq(p.loose.risks, ['K']) && eq(p.loose.next, ['N'])
+      eq(p.loose.goal, ['G']) && eq(p.loose.issue, ['R']) && eq(p.loose.picture, ['E'])
+      && eq(p.loose.subs, ['F']) && eq(p.loose.next, ['N'])
       && eq(p.alias.issue, ['これが論点']),
       JSON.stringify([p.loose, p.alias]));
+
+    /* ========== IS-20: 新しい見出しと旧ノートの互換 ========== */
+    r.check('IS-20（絵コンテ/サブイシュー/分かったこと/結論を認識・旧「不明点」も subs へ）',
+      eq(p.legacy.subs, ['旧ノートの行']) && eq(p.legacy.risks, ['旧リスク'])
+      && eq(p.legacy.found, ['W']) && eq(p.legacy.conclusion, ['C']),
+      JSON.stringify(p.legacy));
 
     r.check('IS-03（見出しが無ければ全行が rest・他は空）',
       p.none.rest.length === 3 && p.none.goal.length === 0 && p.none.issue.length === 0,
@@ -113,18 +121,30 @@ const SAMPLE_MD = [
       const why = window.issue.judge('なぜ手順書が書けないのか', {});
       const good = window.issue.judge(
         '手順書が書けないのは情報不足ではなく、完成度の合意が無いからではないか',
-        { deadline: '2026-09-30', unknowns: ['粒度を聞く'] });
+        { deadline: '2026-09-30', unknowns: ['粒度を聞く'], picture: '粒度ごとの表' });
       const empty = window.issue.judge('', {});
       const noDl = window.issue.judge('Aは B ではなく C ではないか', {});
       const multi = window.issue.judge(['一行目はこう', '二行目もある'],
+        { deadline: '2026-09-30', unknowns: ['x'], picture: 'p' });
+      const taigen = window.issue.judge('本番環境の調査',
+        { deadline: '2026-09-30', unknowns: ['x'], picture: 'p' });
+      const noPic = window.issue.judge('Aは B ではなく C ではないか',
         { deadline: '2026-09-30', unknowns: ['x'] });
-      const taigen = window.issue.judge('本番環境の調査', { deadline: '2026-09-30', unknowns: ['x'] });
+      const oneCand = window.issue.judge('Aは B ではなく C ではないか',
+        { deadline: '2026-09-30', unknowns: ['x'], picture: 'p', candidates: ['A', ''] });
+      const twoCand = window.issue.judge('Aは B ではなく C ではないか',
+        { deadline: '2026-09-30', unknowns: ['x'], picture: 'p', candidates: ['A', 'B'] });
+      const annot = window.issue.judge(
+        ['Aは B ではなく C ではないか', '> 答えが出たら: X', '（見送った候補）Y'],
+        { deadline: '2026-09-30', unknowns: ['x'], picture: 'p' });
       return {
         bad: ids(bad), why: ids(why), good: ids(good), goodWarn: good.filter(x => x.level === 'warn').length,
         empty: ids(empty), emptyLv: lv(empty, 'empty'),
         noDl: ids(noDl),
         multiLv: lv(multi, 'multiline'), subjLv: lv(taigen, 'subject'),
         taigen: ids(taigen),
+        noPic: ids(noPic), oneCand: ids(oneCand), twoCand: ids(twoCand),
+        oneCandLv: lv(oneCand, 'alternatives'), annot: ids(annot),
       };
     });
 
@@ -141,6 +161,13 @@ const SAMPLE_MD = [
       j.noDl.includes('deadline') && j.noDl.includes('evidence'), JSON.stringify(j.noDl));
     r.check('IS-10（multiline と subject は info であって warn にしない）',
       j.multiLv === 'info' && j.subjLv === 'info', JSON.stringify([j.multiLv, j.subjLv, j.taigen]));
+    r.check('IS-19（絵コンテ空で picture の warn・候補1件で alternatives の info・候補なしでは出ない）',
+      j.noPic.includes('picture') && !j.twoCand.includes('picture')
+      && j.oneCand.includes('alternatives') && j.oneCandLv === 'info'
+      && !j.twoCand.includes('alternatives') && !j.noPic.includes('alternatives'),
+      JSON.stringify({ noPic: j.noPic, oneCand: j.oneCand, twoCand: j.twoCand }));
+    r.check('IS-19b（「> 」「（」で始まる注記行は論点として数えない = multiline が出ない）',
+      !j.annot.includes('multiline'), JSON.stringify(j.annot));
 
     /* ========== IS-11〜13: toNote ========== */
     const n = await page.evaluate(s => {
@@ -158,11 +185,26 @@ const SAMPLE_MD = [
       n.note.startsWith('---\n') && n.note.includes('created: 2026-09-24')
       && n.note.includes('deadline: 2026-09-30') && n.note.includes('status: open')
       && n.note.includes('tags: [issue]') && n.note.includes('# 本番停止手順書')
-      && ['## 1. ゴール', '## 2. 論点', '## 3. 不明点', '## 4. リスク', '## 5. 次の一手']
+      && ['## 1. ゴール', '## 2. 論点', '## 3. 絵コンテ', '## 4. サブイシュー', '## 5. 次の一手']
         .every(h => n.note.includes(h))
-      && ['## 1. ゴール', '## 3. 不明点', '## 4. リスク', '## 5. 次の一手']
+      && ['## 1. ゴール', '## 3. 絵コンテ', '## 4. サブイシュー', '## 5. 次の一手']
         .every(h => n.bare.includes(h)),
       n.note.slice(0, 200));
+
+    /* ========== IS-21: 閉じるための欄と、旧ノートのリスク保持 ========== */
+    const cl = await page.evaluate(() => ({
+      fresh: window.issue.toNote(window.issue.parseSections('## 2. 論点\n- X'),
+        { deadline: '', today: '2026-09-24', title: 't' }),
+      legacy: window.issue.toNote(
+        window.issue.parseSections('## 4. リスク\n- 旧リスク\n## 結論\n- けつろん'),
+        { deadline: '', today: '2026-09-24', title: 't' }),
+    }));
+    r.check('IS-21（分かったこと・結論・verdict を必ず出す＝閉じられる／旧ノートのリスクは保持）',
+      cl.fresh.includes('## 分かったこと') && cl.fresh.includes('## 結論')
+      && cl.fresh.includes('verdict: ')
+      && cl.legacy.includes('## リスク') && cl.legacy.includes('旧リスク')
+      && cl.legacy.includes('けつろん'),
+      cl.fresh.slice(0, 160));
 
     r.check('IS-12（rest があれば末尾に「## 掘ったログ」として残す）',
       n.dug.includes('## 掘ったログ') && n.dug.includes('掘った内容だけ'),
@@ -171,7 +213,7 @@ const SAMPLE_MD = [
     r.check('IS-13（不明点は表の行になり「聞く/調べる」を2列目に検出）',
       /\|\s*どの粒度なら実行できるかを聞く\s*\|\s*聞く\s*\|/.test(n.note)
       && /\|\s*サービス一覧を調べる\s*\|\s*調べる\s*\|/.test(n.note),
-      (n.note.split('## 3. 不明点')[1] || '').slice(0, 300));
+      (n.note.split('## 4. サブイシュー')[1] || '').slice(0, 300));
 
     /* ========== IS-14〜15: toTasks ========== */
     const t = await page.evaluate(() => ({
@@ -201,27 +243,33 @@ const SAMPLE_MD = [
     const w = await page.evaluate(() => {
       const md = window.issue.buildMd({
         milestone: '運営チームが本番を止められる状態', milestoneDue: '2026-10-02',
-        issue: '情報不足ではなく合意が無いからではないか', issueDue: '2026-09-30',
-        unknowns: [{ what: '粒度', way: '聞く', who: '柳葉さん', due: '2026-09-30' }],
-        risks: '日程が動く',
+        candidates: [{ text: '情報不足ではなく合意が無いからではないか', effect: '依頼内容が変わる' },
+                     { text: '見送った方の問い', effect: '' }],
+        chosen: 0, issueDue: '2026-09-30',
+        pictureKind: '表', picture: '粒度ごとに実行できたかの表',
+        subs: [{ what: '粒度', way: '聞く', who: '柳葉さん', due: '2026-09-30' }],
         next: '粒度を確認する', nextDue: '2026-10-02',
       });
       const through = window.issue.toNote(
-        window.issue.parseSections('## 3. 不明点\n| a | 聞く | b | c |'),
+        window.issue.parseSections('## 4. サブイシュー\n| a | 聞く | b | c |'),
         { deadline: '', today: '2026-09-24', title: 'x' });
       return { md: md, through: through };
     });
     r.check('IS-17（buildMd: 5見出し・マイルストーンの期限・不明点は表の行・次の一手はタスク記法）',
-      ['## 1. ゴール', '## 2. 論点', '## 3. 不明点', '## 4. リスク', '## 5. 次の一手']
+      ['## 1. ゴール', '## 2. 論点', '## 3. 絵コンテ', '## 4. サブイシュー', '## 5. 次の一手']
         .every(h => w.md.includes(h))
       && w.md.includes('- 運営チームが本番を止められる状態（マイルストーン: 2026-10-02）')
+      && w.md.includes('- 情報不足ではなく合意が無いからではないか')
+      && w.md.includes('> 答えが出たら: 依頼内容が変わる')
+      && w.md.includes('> 見送った候補: 見送った方の問い')
+      && w.md.includes('- 【表】粒度ごとに実行できたかの表')
       && w.md.includes('| 粒度 | 聞く | 柳葉さん | 2026-09-30 |')
       && w.md.includes('- [ ] 粒度を確認する \u{1F4C5} 2026-10-02'),
       w.md);
     r.check('IS-18（toNote は「|」始まりの不明点をそのまま通す — ウィザードの行を壊さない）',
       w.through.includes('| a | 聞く | b | c |')
       && (w.through.match(/\| a \|/g) || []).length === 1,
-      (w.through.split('## 3. 不明点')[1] || '').slice(0, 220));
+      (w.through.split('## 4. サブイシュー')[1] || '').slice(0, 220));
   }
 
   /* ========== UI 経路 ========== */
@@ -421,7 +469,7 @@ const SAMPLE_MD = [
     u14.stillStep1 && !u14.errHidden && u14.err.length > 0 && u14.step.includes('1'),
     JSON.stringify(u14));
 
-  /* IS-U15: Step 2 でその場判定 */
+  /* IS-U15: Step 2（論点の候補）でその場判定 */
   const setV = (sel, val) => page.evaluate(([s2, v]) => {
     const el = document.querySelector(s2);
     el.value = v;
@@ -430,15 +478,15 @@ const SAMPLE_MD = [
 
   await setV('#wz-milestone', '運営チームが本番を止められる状態');
   await setV('#wz-milestone-due', '2026-10-02');
-  await page.click('#wz-next');
-  await setV('#wz-issue', '現状を整理する');
-  await page.waitForTimeout(300);
+  await page.click('#wz-next');                       // → Step 2
+  await setV('.wz-c-text', '現状を整理する');
+  await page.waitForTimeout(200);
   const u15 = await page.evaluate(() => ({
     ids: Array.from(document.querySelectorAll('#wz-judge li')).map(li => li.dataset.id),
-    text: document.getElementById('wz-judge').textContent,
   }));
-  r.check('IS-U15（Step 2 で「現状を整理する」がその場で warn になる）',
-    u15.ids.includes('worktheme'), JSON.stringify(u15.ids));
+  r.check('IS-U15（Step 2 の候補に「現状を整理する」でその場で worktheme の warn）',
+    u15.ids.includes('worktheme') && u15.ids.includes('alternatives'),
+    JSON.stringify(u15.ids));
 
   /* IS-U17: Esc で閉じても下書きは残る（非破壊） */
   const u17 = await page.evaluate(async () => {
@@ -447,22 +495,64 @@ const SAMPLE_MD = [
     const closed = document.getElementById('wizard').hidden;
     document.getElementById('wizard-btn').click();
     return { closed: closed, reopened: !document.getElementById('wizard').hidden,
-      kept: (document.getElementById('wz-issue') || {}).value };
+      kept: (document.querySelector('.wz-c-text') || {}).value };
   });
   r.check('IS-U17（Esc で閉じても下書きが残り、開き直すと同じ位置・同じ内容）',
     u17.closed && u17.reopened && u17.kept === '現状を整理する', JSON.stringify(u17));
 
-  /* IS-U16: 最後まで進んで作成 */
-  await setV('#wz-issue', '手順書が書けないのは情報不足ではなく合意が無いからではないか');
+  /* IS-U21: 候補を2つ書いて2つ目を選ぶと、それが論点になり alternatives が消える */
+  await setV('.wz-c-text', '手順書が書けないのは情報不足ではなく合意が無いからではないか');
+  await page.evaluate(() => {
+    const t = document.querySelectorAll('.wz-c-text')[1];
+    t.value = 'レビュー体制を増やすべきか';
+    t.dispatchEvent(new Event('input', { bubbles: true }));
+    const e = document.querySelectorAll('.wz-c-effect')[0];
+    e.value = '運営チームへの依頼内容が変わる';
+    e.dispatchEvent(new Event('input', { bubbles: true }));
+  });
   await setV('#wz-issue-due', '2026-09-30');
+  await page.waitForTimeout(200);
+  const u21a = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('#wz-judge li')).map(li => li.dataset.id));
+  const u21b = await page.evaluate(() => {
+    const radios = document.querySelectorAll('.wz-c-pick');
+    radios[1].checked = true;
+    radios[1].dispatchEvent(new Event('change', { bubbles: true }));
+    return Array.from(document.querySelectorAll('#wz-judge li')).map(li => li.dataset.id);
+  });
+  // 2つ目（「レビュー体制を増やすべきか」）は比較の形でないので compare の info が付く
+  r.check('IS-U21（候補が2つで alternatives が消える・選び直すと判定対象が変わる）',
+    !u21a.includes('alternatives') && !u21b.includes('alternatives')
+    && !u21a.includes('compare') && u21b.includes('compare'),
+    JSON.stringify([u21a, u21b]));
+  await page.evaluate(() => {
+    const radios = document.querySelectorAll('.wz-c-pick');
+    radios[0].checked = true;
+    radios[0].dispatchEvent(new Event('change', { bubbles: true }));
+  });
+
+  /* IS-U20: Step 3（絵コンテ）は空だと進めない */
   await page.click('#wz-next');                       // → Step 3
-  await page.click('#wz-add-unknown');
-  await setV('.wz-u-what', 'どの粒度なら実行できるか');
-  await page.selectOption('.wz-u-way', '聞く');
-  await setV('.wz-u-who', '柳葉さん経由');
-  await setV('.wz-u-due', '2026-09-30');
+  const u20 = await page.evaluate(() => {
+    document.getElementById('wz-next').click();
+    return {
+      stillStep3: !!document.getElementById('wz-picture'),
+      err: document.getElementById('wz-err').textContent,
+      errHidden: document.getElementById('wz-err').hidden,
+    };
+  });
+  r.check('IS-U20（絵コンテが空だと進めず、理由が出る＝描けない間はイシューが定まっていない）',
+    u20.stillStep3 && !u20.errHidden && u20.err.includes('絵'),
+    JSON.stringify(u20));
+
+  /* IS-U16: 最後まで進んで作成 */
+  await setV('#wz-picture', '粒度ごとに実行できたかの表。右上に集まれば仮説どおり');
   await page.click('#wz-next');                       // → Step 4
-  await setV('#wz-risks', 'アクセス日程が動くと全部ずれる');
+  await page.click('#wz-add-sub');
+  await setV('.wz-s-what', 'どの粒度なら実行できるか');
+  await page.selectOption('.wz-s-way', '聞く');
+  await setV('.wz-s-who', '柳葉さん経由');
+  await setV('.wz-s-due', '2026-09-30');
   await page.click('#wz-next');                       // → Step 5
   await setV('#wz-next-what', '粒度を確認する');
   await setV('#wz-next-due', '2026-10-02');
@@ -479,16 +569,18 @@ const SAMPLE_MD = [
       body: names.map(n => window.__fsa.files[n]).join('\n'),
     };
   });
-  r.check('IS-U16（最後まで進んで作成: 入力欄に5ステップの md が入り、ノートが作られる）',
+  r.check('IS-U16（最後まで進んで作成: 5段の md が入り、閉じられる器のノートが作られる）',
     u16.closed
-    && ['## 1. ゴール', '## 2. 論点', '## 3. 不明点', '## 4. リスク', '## 5. 次の一手']
+    && ['## 1. ゴール', '## 2. 論点', '## 3. 絵コンテ', '## 4. サブイシュー', '## 5. 次の一手']
       .every(h => u16.input.includes(h))
     && u16.input.includes('（マイルストーン: 2026-10-02）')
+    && u16.input.includes('> 見送った候補: レビュー体制を増やすべきか')
     && u16.deadline === '2026-09-30'
     && u16.names.some(n => n.includes('ウィザード検証'))
-    && u16.body.includes('| どの粒度なら実行できるか | 聞く | 柳葉さん経由 | 2026-09-30 |'),
+    && u16.body.includes('| どの粒度なら実行できるか | 聞く | 柳葉さん経由 | 2026-09-30 |')
+    && u16.body.includes('## 結論'),
     JSON.stringify({ closed: u16.closed, deadline: u16.deadline, names: u16.names,
-      head: u16.input.slice(0, 120) }));
+      head: u16.input.slice(0, 140) }));
 
   /* IS-U12: FSA 非対応では作成ボタンを無効にして理由を出す（Check Vault と同型） */
   const page2 = r.watch(await browser.newPage());

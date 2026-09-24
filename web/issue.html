@@ -36,8 +36,12 @@
   #wz-judge .v-info { color: var(--muted); }
   #wz-judge .v-ok { background: var(--success-bg); border-color: var(--success-border); }
   .wz-u { display: flex; gap: 6px; align-items: center; margin: 0 0 6px; flex-wrap: wrap; }
-  .wz-u-what { flex: 2 1 180px; min-width: 0; }
-  .wz-u-who { flex: 1 1 120px; min-width: 0; }
+  .wz-c { display: flex; gap: 6px; align-items: center; margin: 0 0 6px; flex-wrap: wrap; }
+  .wz-c-text { flex: 2 1 200px; min-width: 0; }
+  .wz-c-effect { flex: 2 1 200px; min-width: 0; }
+  .wz-c-pick { flex: 0 0 auto; }
+  .wz-s-what { flex: 2 1 180px; min-width: 0; }
+  .wz-s-who { flex: 1 1 120px; min-width: 0; }
   .modal-actions .spacer { flex: 1; }
   /* ウィザードの欄は「散文を1〜3行」。lib/ui.css の textarea 既定（min-height:220px・等幅）は
      2ペインの編集欄向けなので、ここだけ外して rows どおりの高さにする */
@@ -70,7 +74,7 @@
   <div class="panes">
     <div class="pane">
       <p class="pane-title">貼る（5ステップの md・定例メモ・掘削ログ）<button type="button" class="sample-btn" id="sample-btn">サンプルを入れる</button></p>
-      <textarea id="input" spellcheck="false" placeholder="## 1. ゴール&#10;- 全部終わったら誰に何を説明できればいい？&#10;&#10;## 2. 論点&#10;- 答えを出すべき問いを一行で&#10;&#10;## 3. 不明点&#10;- 聞く / 調べる / 試す のどれかを付ける"></textarea>
+      <textarea id="input" spellcheck="false" placeholder="## 1. ゴール&#10;- いつまでに何が達成されていればいい？&#10;&#10;## 2. 論点&#10;- 答えを出すべき問いを一行で&#10;&#10;## 3. 絵コンテ&#10;- 答えが出たとき最後に何を出す？&#10;&#10;## 4. サブイシュー&#10;- 聞く / 調べる / 試す を振る"></textarea>
     </div>
     <div class="pane">
       <p class="pane-title">04_Issues に貼る md</p>
@@ -109,10 +113,16 @@
 
 /* 5ステップの見出し。表記の揺れを許容する（docs/specs/issue.md「5ステップの見出し認識」）:
    "## 1. ゴール" / "## ゴール" / "**2. 論点**" / "3. 不明点：" / "#### リスク" */
-const HEAD_RE = /^\s*(?:#{1,6}\s*)?(?:\*\*)?\s*(?:[1-9][.．、)]?\s*)?(ゴール|論点|イシュー|不明点|リスク|次の一手|掘ったログ)\s*(?:\*\*)?\s*[:：]?\s*$/;
+const HEAD_RE = /^\s*(?:#{1,6}\s*)?(?:\*\*)?\s*(?:[1-9][.．、)]?\s*)?(ゴール|論点|イシュー|絵コンテ|サブイシュー|不明点|リスク|次の一手|分かったこと|結論|掘ったログ)\s*(?:\*\*)?\s*[:：]?\s*$/;
 const KEY_OF = {
   'ゴール': 'goal', '論点': 'issue', 'イシュー': 'issue',
-  '不明点': 'unknowns', 'リスク': 'risks', '次の一手': 'next', '掘ったログ': 'rest',
+  '絵コンテ': 'picture',
+  // 旧「不明点」は同じ枠へ（既存ノートを壊さない）
+  'サブイシュー': 'subs', '不明点': 'subs',
+  'リスク': 'risks',              // 旧枠。新規では作らないが内容は保持する
+  '次の一手': 'next',
+  '分かったこと': 'found', '結論': 'conclusion',
+  '掘ったログ': 'rest',
 };
 
 function nfc(s) { return String(s == null ? '' : s).normalize('NFC'); }
@@ -125,7 +135,8 @@ function stripBullet(raw) {
 }
 
 function parseSections(text) {
-  const out = { title: '', goal: [], issue: [], unknowns: [], risks: [], next: [], rest: [] };
+  const out = { title: '', goal: [], issue: [], picture: [], subs: [], risks: [],
+                next: [], found: [], conclusion: [], rest: [] };
   const lines = nfc(text).replace(/\r\n?/g, '\n').split('\n');
   let cur = null;                       // null = rest（どの見出しにも属さない部分）
   for (const raw of lines) {
@@ -151,7 +162,9 @@ function parseSections(text) {
 function judge(line, opts) {
   const o = opts || {};
   const arr = Array.isArray(line) ? line : (line == null ? [] : [line]);
-  const lines = arr.map(x => nfc(x).trim()).filter(x => x !== '');
+  // 「> 答えが出たら」「（見送った候補）」などの注記行は論点として数えない
+  const lines = arr.map(x => nfc(x).trim())
+    .filter(x => x !== '' && !/^[>（(]/.test(x));
   const first = lines[0] || '';
   const out = [];
   const add = (id, level, msg, fix) => out.push({ id: id, level: level, msg: msg, fix: fix });
@@ -182,7 +195,16 @@ function judge(line, opts) {
       '締切を入れる（よいイシューの条件③ 答えを出せる）');
   if (!(o.unknowns && o.unknowns.length))
     add('evidence', 'warn', '何を見れば白黒つくかが無い',
-      '不明点を1つ以上書き、聞く / 調べる / 試す を振る');
+      'サブイシューを1つ以上書き、聞く / 調べる / 試す を振る');
+  // 本で最も強い検算: 欲しい絵が描けないなら、まだイシューが定まっていない（第3章）
+  if (nfc(o.picture || '').trim() === '')
+    add('picture', 'warn', '答えが出たとき何を出すかが決まっていない',
+      '絵コンテを描く — 描けないなら、まだイシューが定まっていない');
+  // 候補を渡されたときだけ見る（貼った文章には候補の概念が無い）
+  if (Array.isArray(o.candidates)
+      && o.candidates.filter(c => nfc(c).trim() !== '').length < 2)
+    add('alternatives', 'info', '論点の候補が1つだけ',
+      '解ける問題の中から選ぶ。もう1つ立てて並べてみる（イシュー度）');
   return out;
 }
 
@@ -216,46 +238,48 @@ function toNote(parsed, opts) {
   const L = [];
   const bullets = arr => {
     if (!arr || arr.length === 0) { L.push('- '); } else {
-      for (const a of arr) L.push(/^\s*[-*+|]/.test(a) ? a : '- ' + a);
+      // 既に記号（箇条書き・表・引用）で始まる行はそのまま通す
+      for (const a of arr) L.push(/^\s*[-*+|>]/.test(a) ? a : '- ' + a);
     }
     L.push('');
   };
+  const sec = (head, arr) => { L.push(head); L.push(''); bullets(arr); };
   L.push('---');
   L.push('created: ' + (o.today || todayStr()));
   L.push('deadline: ' + (o.deadline || ''));
   L.push('status: open');
+  L.push('verdict: ');            // 閉じるとき「当たり / 外れ / 未決」を書く（振り返りの素材）
   L.push('tags: [issue]');
   L.push('---');
   L.push('# ' + ((o.title || p.title || '').trim() || '無題'));
   L.push('');
   L.push('→ [[IssueDriven]] ｜ [[イシューの書き方と記入例]]');
   L.push('');
-  L.push('## 1. ゴール');
-  L.push('');
-  bullets(p.goal);
-  L.push('## 2. 論点');
-  L.push('');
-  bullets(p.issue);
-  L.push('## 3. 不明点');
+  sec('## 1. ゴール', p.goal);
+  sec('## 2. 論点', p.issue);
+  sec('## 3. 絵コンテ', p.picture);
+  L.push('## 4. サブイシュー');
   L.push('');
   L.push('| 分からないこと | 聞く / 調べる / 試す | 誰に・どこで | いつまでに |');
   L.push('| --- | --- | --- | --- |');
-  const rows = (p.unknowns && p.unknowns.length) ? p.unknowns : [''];
+  const rows = (p.subs && p.subs.length) ? p.subs : [''];
   // ウィザードが組んだ表の行はそのまま通す（二重に表を組まない — IS-18）
   for (const u of rows) L.push(/^\s*\|/.test(u) ? u : '| ' + u + ' | ' + wayOf(u) + ' |  |  |');
   L.push('');
-  L.push('## 4. リスク');
-  L.push('');
-  bullets(p.risks);
   L.push('## 5. 次の一手');
   L.push('');
   if (!p.next || p.next.length === 0) { L.push('- [ ] '); } else {
     for (const n of p.next) L.push(/^\s*[-*+]\s+\[/.test(n) ? n : '- [ ] ' + n);
   }
   L.push('');
+  // 旧枠。既存ノートに書かれていた内容は落とさない（新規では空なので出ない）
+  if (p.risks && p.risks.length) sec('## リスク', p.risks);
+  L.push('---');
+  L.push('');
+  sec('## 分かったこと', p.found);
+  // **ここが無いとイシューを閉じられず、振り返りの素材が残らない**（A5）
+  sec('## 結論', p.conclusion);
   if (p.rest && p.rest.length) {
-    L.push('---');
-    L.push('');
     L.push('## 掘ったログ');
     L.push('');
     for (const x of p.rest) L.push(x);
@@ -267,8 +291,8 @@ function toNote(parsed, opts) {
 /* ウィザードの下書き → 5ステップの md。**ウィザードは md を作るだけ**で、
    判定・出力・書き込みは既存の経路（parseSections → judge / toNote）をそのまま通る。
    実装を二重に持たないための設計（IS-Q8） */
-function buildMd(draft) {
-  const d = draft || {};
+function buildMd(d0) {
+  const d = d0 || {};
   const one = v => nfc(v).trim().replace(/\s*\n+\s*/g, ' ');
   const L = [];
   const sec = (head, lines) => {
@@ -279,13 +303,25 @@ function buildMd(draft) {
   const ms = one(d.milestone);
   sec('## 1. ゴール', ms === '' ? []
     : ['- ' + ms + (d.milestoneDue ? '（マイルストーン: ' + d.milestoneDue + '）' : '')]);
-  const iss = one(d.issue);
-  sec('## 2. 論点', iss === '' ? [] : ['- ' + iss]);
-  const us = (d.unknowns || []).filter(u => u && one(u.what) !== '');
-  sec('## 3. 不明点', us.map(u =>
+
+  // 論点: 選んだ1行＋注記（注記は「> 」で始めるので judge の行数に数えられない）
+  const cands = (d.candidates || []).map(c => ({ text: one(c.text), effect: one(c.effect) }));
+  const pick = cands[d.chosen || 0] || { text: '', effect: '' };
+  const others = cands.filter((c, i) => i !== (d.chosen || 0) && c.text !== '').map(c => c.text);
+  const issueLines = [];
+  if (pick.text !== '') issueLines.push('- ' + pick.text);
+  if (pick.effect !== '') issueLines.push('> 答えが出たら: ' + pick.effect);
+  if (others.length) issueLines.push('> 見送った候補: ' + others.join(' ／ '));
+  sec('## 2. 論点', issueLines);
+
+  const pic = one(d.picture);
+  sec('## 3. 絵コンテ', pic === '' ? []
+    : ['- ' + (d.pictureKind ? '【' + d.pictureKind + '】' : '') + pic]);
+
+  const subs = (d.subs || []).filter(u => u && one(u.what) !== '');
+  sec('## 4. サブイシュー', subs.map(u =>
     '| ' + one(u.what) + ' | ' + one(u.way) + ' | ' + one(u.who) + ' | ' + one(u.due) + ' |'));
-  const rs = nfc(d.risks).split('\n').map(x => x.trim()).filter(x => x !== '');
-  sec('## 4. リスク', rs.map(x => '- ' + x));
+
   const nx = one(d.next);
   L.push('## 5. 次の一手'); L.push('');
   L.push(nx === '' ? '- [ ] '
@@ -367,7 +403,8 @@ function run() {
   const deadline = $id('deadline').value;
   $id('output').value = toNote(parsed,
     { deadline: deadline, today: todayStr(), title: $id('title').value });
-  renderVerdict(judge(parsed.issue, { deadline: deadline, unknowns: parsed.unknowns }));
+  renderVerdict(judge(parsed.issue, { deadline: deadline, unknowns: parsed.subs,
+                                      picture: (parsed.picture || []).join(' ') }));
 }
 
 let runTimer = null;
@@ -573,24 +610,30 @@ ToolEdit.mountTodayShortcut();                        // Ctrl/Cmd+; = 今日（�
 
 /* ---------- 入力ウィザード（IS-Q8） ----------
    **ただの md 入力欄では Obsidian と同じ**という利用者の指摘への対処。
-   1問ずつ・逆算の順に答えさせ、Step1（マイルストーン）を飛ばせなくする。
+   5段は本の順（マイルストーン → イシューの選別 → 絵コンテ → 分解 → 最初の一手）。
+   2026-09-24 に「リスク」を落として 選別・絵コンテ・分解 を入れた（本の3章分が欠けていたため）。
    ウィザードは **md を組み立てて既存の入力欄へ流すだけ** — 判定・出力・書き込みは
    parseSections → judge / toNote / createNote の既存経路をそのまま通る */
 const WZ = [
   { title: 'いつまでに、何が達成されていればいい？',
     why: 'ここが決まらないと、何を問うかも決まらない。まずマイルストーンを置いて、そこから降りる（本: 最終形からたどる）' },
-  { title: 'で、そこに着くために「いま答えを出すべき問い」は？',
-    why: '主語と動詞を入れる／「なぜ」で始めない（どこ・何を・どう）／「〜ではなく〜」でスタンスを取る' },
-  { title: 'その問いは、何を見れば白黒つく？',
-    why: '今の手段で答えが出ないものはイシューではない。分からないことに「聞く / 調べる / 試す」を振る' },
-  { title: 'どこで詰まりそう？ 詰まったらどうする？',
-    why: '手を動かす前に詰まりどころと回避策を想定する（本: いきなり飛び込まない）。ここは飛ばしてよい' },
+  { title: '答えを出すべき問いの候補を出して、1つ選ぶ',
+    why: '解ける問題の中から、最もインパクトのあるものを選ぶ（本: イシュー度）。1つしか思いつかないときは、まだ選んでいない' },
+  { title: '答えが出たとき、最後に何を出す？',
+    why: '分析を始める前に、出したい形を先に決める。欲しい絵が描けないなら、まだイシューが定まっていない（本: 絵コンテ）' },
+  { title: '答えが出る大きさまで割ると？',
+    why: '崩れたら全部やり直しになるものを上に。大きいイシューのままでは答えが出ない（本: イシューの分解）' },
   { title: '最初に潰すのはどれ？',
-    why: '崩れたら全部やり直しになるものから。決めた一手は tasks.md へ移す' },
+    why: '一つを100%にするより、60%で全体を何周も回す（本: 回転数 × スピード）' },
 ];
 
-const draft = { milestone: '', milestoneDue: '', issue: '', issueDue: '',
-                unknowns: [], risks: '', next: '', nextDue: '', title: '' };
+const draft = {
+  milestone: '', milestoneDue: '',
+  candidates: [{ text: '', effect: '' }, { text: '', effect: '' }],
+  chosen: 0, issueDue: '',
+  pictureKind: '表', picture: '',
+  subs: [], next: '', nextDue: '', title: '',
+};
 let wzStep = 0;
 
 function mkText(id, val, ph) {
@@ -620,26 +663,63 @@ function wzBind(el, key) {
   el.addEventListener('input', on);
   el.addEventListener('change', on);
 }
+function pickedText() {
+  const c = draft.candidates[draft.chosen];
+  return c ? c.text : '';
+}
 
 // Step 2 の判定は本体と同じ純関数を通す（二重実装しない）
 function wzLive() {
   if (wzStep !== 1) return;
-  renderVerdict(judge([draft.issue], {
+  renderVerdict(judge([pickedText()], {
     deadline: draft.issueDue,
-    unknowns: draft.unknowns.map(u => u.what).filter(x => nfc(x).trim() !== ''),
+    unknowns: draft.subs.map(u => u.what).filter(x => nfc(x).trim() !== ''),
+    picture: draft.picture,
+    candidates: draft.candidates.map(c => c.text),
   }), $id('wz-judge'));
 }
 
-function wzRows(list) {
+// --- Step 2: 論点の候補（選別） ---
+function wzCands(list) {
   list.textContent = '';
-  draft.unknowns.forEach((u, i) => {
+  draft.candidates.forEach((c, i) => {
+    const row = document.createElement('div');
+    row.className = 'wz-c';
+    const radio = document.createElement('input');
+    radio.type = 'radio'; radio.name = 'wz-cand'; radio.className = 'wz-c-pick';
+    radio.checked = draft.chosen === i;
+    radio.title = 'これを論点にする';
+    radio.addEventListener('change', () => { if (radio.checked) { draft.chosen = i; wzLive(); } });
+    const text = mkText('', c.text, '問いの候補（一行）');
+    text.className = 'wz-c-text';
+    text.addEventListener('input', () => { c.text = text.value; wzLive(); });
+    const effect = mkText('', c.effect, '答えが出たら、誰の何が変わる？');
+    effect.className = 'wz-c-effect';
+    effect.addEventListener('input', () => { c.effect = effect.value; });
+    const del = document.createElement('button');
+    del.type = 'button'; del.textContent = '×'; del.title = 'この候補を削除';
+    del.addEventListener('click', () => {
+      if (draft.candidates.length <= 1) return;
+      draft.candidates.splice(i, 1);
+      if (draft.chosen >= draft.candidates.length) draft.chosen = draft.candidates.length - 1;
+      wzCands(list); wzLive();
+    });
+    row.appendChild(radio); row.appendChild(text); row.appendChild(effect); row.appendChild(del);
+    list.appendChild(row);
+  });
+}
+
+// --- Step 4: サブイシュー ---
+function wzSubs(list) {
+  list.textContent = '';
+  draft.subs.forEach((u, i) => {
     const row = document.createElement('div');
     row.className = 'wz-u';
-    const what = mkText('', u.what, '分からないこと');
-    what.className = 'wz-u-what';
+    const what = mkText('', u.what, '答えが出る大きさまで割ったもの');
+    what.className = 'wz-s-what';
     what.addEventListener('input', () => { u.what = what.value; });
     const way = document.createElement('select');
-    way.className = 'wz-u-way';
+    way.className = 'wz-s-way';
     [['', '（未定）'], ['聞く', '聞く'], ['調べる', '調べる'], ['試す', '試す']].forEach(pair => {
       const o = document.createElement('option');
       o.value = pair[0]; o.textContent = pair[1];
@@ -648,16 +728,16 @@ function wzRows(list) {
     way.value = u.way || '';
     way.addEventListener('change', () => { u.way = way.value; });
     const who = mkText('', u.who, '誰に・どこで');
-    who.className = 'wz-u-who';
+    who.className = 'wz-s-who';
     who.addEventListener('input', () => { u.who = who.value; });
     const due = mkDate('', u.due);
-    due.className = 'wz-u-due';
+    due.className = 'wz-s-due';
     const setDue = () => { u.due = due.value; };
     due.addEventListener('input', setDue);
     due.addEventListener('change', setDue);
     const del = document.createElement('button');
     del.type = 'button'; del.textContent = '×'; del.title = 'この行を削除';
-    del.addEventListener('click', () => { draft.unknowns.splice(i, 1); wzRows(list); });
+    del.addEventListener('click', () => { draft.subs.splice(i, 1); wzSubs(list); });
     row.appendChild(what); row.appendChild(way); row.appendChild(who);
     row.appendChild(due); row.appendChild(del);
     list.appendChild(row);
@@ -688,32 +768,49 @@ function wzRender() {
     wzBind(d, 'milestoneDue');
     body.appendChild(wzField('いつまでに', d));
   } else if (wzStep === 1) {
-    const t = mkArea('wz-issue', draft.issue,
-      '例: 手順書が書けないのは情報が足りないからではなく、どこまで書けば運営チームが実行できるかの合意が無いからではないか', 2);
-    wzBind(t, 'issue');
-    body.appendChild(wzField('論点（一行）', t));
+    const list = document.createElement('div');
+    list.id = 'wz-cands';
+    body.appendChild(list);
+    wzCands(list);
+    const add = document.createElement('button');
+    add.type = 'button'; add.id = 'wz-add-cand'; add.textContent = '＋ 候補を追加';
+    add.addEventListener('click', () => {
+      draft.candidates.push({ text: '', effect: '' });
+      wzCands(list); wzLive();
+    });
+    body.appendChild(add);
     const d = mkDate('wz-issue-due', draft.issueDue);
     wzBind(d, 'issueDue');
     body.appendChild(wzField('決着させる期限', d));
     wzLive();
   } else if (wzStep === 2) {
+    const k = document.createElement('select');
+    k.id = 'wz-pic-kind';
+    ['表', 'グラフ', '一文', '画面'].forEach(v => {
+      const o = document.createElement('option');
+      o.value = v; o.textContent = v;
+      k.appendChild(o);
+    });
+    k.value = draft.pictureKind || '表';
+    wzBind(k, 'pictureKind');
+    body.appendChild(wzField('出す形', k));
+    const t = mkArea('wz-picture', draft.picture,
+      '例: 横軸＝手順書の粒度、縦軸＝運営チームが実行できたか の表。右上に集まれば仮説どおり。開発環境の実測で埋める', 3);
+    wzBind(t, 'picture');
+    body.appendChild(wzField('何を出す？', t));
+  } else if (wzStep === 3) {
     const list = document.createElement('div');
-    list.id = 'wz-unknowns';
+    list.id = 'wz-subs';
     body.appendChild(list);
-    if (draft.unknowns.length === 0) draft.unknowns.push({ what: '', way: '', who: '', due: '' });
-    wzRows(list);
+    if (draft.subs.length === 0) draft.subs.push({ what: '', way: '', who: '', due: '' });
+    wzSubs(list);
     const add = document.createElement('button');
-    add.type = 'button'; add.id = 'wz-add-unknown'; add.textContent = '＋ 行を追加';
+    add.type = 'button'; add.id = 'wz-add-sub'; add.textContent = '＋ 行を追加';
     add.addEventListener('click', () => {
-      draft.unknowns.push({ what: '', way: '', who: '', due: '' });
-      wzRows(list);
+      draft.subs.push({ what: '', way: '', who: '', due: '' });
+      wzSubs(list);
     });
     body.appendChild(add);
-  } else if (wzStep === 3) {
-    const t = mkArea('wz-risks', draft.risks,
-      '例: 本番環境へのアクセス日程が動くと全部ずれる → 先に開発環境で当たりを付ける（1行1件・空欄でも進めます）', 3);
-    wzBind(t, 'risks');
-    body.appendChild(wzField('リスク', t));
   } else {
     const t = mkText('wz-next-what', draft.next, '例: 運営チームに求める完成度（粒度）を確認する');
     wzBind(t, 'next');
@@ -727,12 +824,16 @@ function wzRender() {
   }
 }
 
-// 必須は Step1（マイルストーン）と Step2（論点）だけ。ここを飛ばせないのがウィザードの目的
+/* 必須は Step1（マイルストーン）・Step2（論点）・Step3（絵コンテ）。
+   絵コンテを必須にしたのは、本で最も強い検算がここだから
+   （描けない＝まだイシューが定まっていない）。候補が1つだけでも**進める**（info のみ） */
 function wzValidate(step) {
   if (step === 0 && (nfc(draft.milestone).trim() === '' || !draft.milestoneDue))
     return 'マイルストーン（達成されている状態）と期限の両方を埋めてください — ここを飛ばすと、何を問うかが決まりません';
-  if (step === 1 && (nfc(draft.issue).trim() === '' || !draft.issueDue))
-    return '論点（一行）と、その問いを決着させる期限を埋めてください — いつ白黒つくか書けないものは、まだイシューではありません';
+  if (step === 1 && (nfc(pickedText()).trim() === '' || !draft.issueDue))
+    return '論点（選んだ候補）と、その問いを決着させる期限を埋めてください — いつ白黒つくか書けないものは、まだイシューではありません';
+  if (step === 2 && nfc(draft.picture).trim() === '')
+    return '答えが出たとき最後に何を出すかを書いてください — 欲しい絵が描けないなら、まだイシューが定まっていません';
   return '';
 }
 function wzError(msg) {
@@ -757,7 +858,7 @@ $id('wz-next').addEventListener('click', () => {
   if (wzStep < WZ.length - 1) { wzStep++; wzRender(); }
 });
 $id('wz-create').addEventListener('click', async () => {
-  for (const st of [0, 1]) {
+  for (const st of [0, 1, 2]) {
     const err = wzValidate(st);
     if (err) { wzStep = st; wzRender(); wzError(err); return; }
   }

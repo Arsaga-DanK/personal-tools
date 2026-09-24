@@ -178,7 +178,7 @@
 </head>
 <body>
 <main class="app-wide">
-  <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">タスクはファイルへ明示保存 / 画面設定のみ自動保存</span></p>
+  <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">変更は tasks.md へ自動保存されます</span></p>
   <nav class="modes" aria-label="モード">
     <a href="taskboard.html" aria-current="page">✅ タスク</a>
     <a href="issue.html">🎯 イシュー</a>
@@ -189,6 +189,7 @@
   <div class="toolbar">
     <span id="file-actions"></span>
     <span id="file-name" class="muted mono"></span>
+    <span id="save-state" class="muted" style="font-size:12px"></span>
     <span class="spacer"></span>
     <label class="opts" title="Obsidian の vault 名。関連ノートを obsidian:// で開くリンクに使います（空ならリンクを作らず名前だけ表示します）">
       vault 名 <input type="text" id="cfg-vault" size="10" placeholder="未設定">
@@ -248,7 +249,7 @@
     <button id="btn-copy-all" hidden>全文コピー</button>
     <button id="btn-archive" disabled>完了をアーカイブ</button>
     <button id="btn-reload">再読込</button>
-    <button id="btn-save" class="primary" disabled title="Cmd/Ctrl+S">保存</button>
+    <button id="btn-save" class="primary" disabled title="今すぐ保存 (Cmd/Ctrl+S)">今すぐ保存</button>
   </div>
 
 
@@ -1373,17 +1374,28 @@ function countNewlyFinished(lines) {
 }
 const BULK_COMPLETE_THRESHOLD = 5; // これ以上の一括完了は保存時に確認する（AR-3）
 
-async function doSave() {
+async function doSave(opts) {
+  const auto = !!(opts && opts.auto);
   if (!state.loaded || !state.adapter) return { ok: false, reason: 'notloaded' };
-  if (state.demo) { showBanner('info', 'デモ中は保存できません'); return { ok: false, reason: 'demo' }; }
+  if (state.demo) {
+    if (!auto) showBanner('info', 'デモ中は保存できません');
+    return { ok: false, reason: 'demo' };
+  }
   // 一括完了チェックの事故防止: 5件以上の完了・中止を含む保存は確認する。
   // 全部が完了なら文言は従来どおり（中止が混ざったときだけ「完了/中止」にする）
   const fin = countNewlyFinished(state.lines);
   const completing = fin.total;
-  if (completing >= BULK_COMPLETE_THRESHOLD &&
-      !confirm(completing + '件を' + (fin.cancelled ? '完了/中止' : '完了') + 'にします。よろしいですか？')) {
-    showBanner('info', '保存を中止しました');
-    return { ok: false, reason: 'cancel' };
+  if (completing >= BULK_COMPLETE_THRESHOLD) {
+    // **自動保存は確認ダイアログを出さない**（勝手にモーダルが出るのは筋が悪い）。
+    // 明示保存に委ね、その旨をバナーで伝える（spec「自動保存しない条件」）
+    if (auto) {
+      showBanner('info', completing + '件の完了を含むため自動保存しません。［今すぐ保存］を押してください');
+      return { ok: false, reason: 'bulk-auto' };
+    }
+    if (!confirm(completing + '件を' + (fin.cancelled ? '完了/中止' : '完了') + 'にします。よろしいですか？')) {
+      showBanner('info', '保存を中止しました');
+      return { ok: false, reason: 'cancel' };
+    }
   }
   const text = joinLines(state.lines);
   const counts = diffCounts(state.lines);
@@ -1418,11 +1430,41 @@ async function doSave() {
   const msg = (counts.changed + counts.added > 0)
     ? '（変更' + counts.changed + '行・追加' + counts.added + '行）'
     : (removed > 0 ? '（' + removed + '行を削除）' : '（行の移動）');
-  showBanner('success', state.adapter.mode === 'fallback'
-    ? 'ダウンロードしました' + msg + '。vault の tasks.md と差し替えてください'
-    : '保存しました' + msg);
+  if (auto) {
+    // 1.2秒ごとに success バナーが出るとうるさいので、静かな表示に留める（spec）
+    const d = new Date();
+    el('save-state').textContent = '自動保存しました '
+      + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  } else {
+    showBanner('success', state.adapter.mode === 'fallback'
+      ? 'ダウンロードしました' + msg + '。vault の tasks.md と差し替えてください'
+      : '保存しました' + msg);
+  }
   return { ok: true, changed: counts.changed, added: counts.added };
 }
+
+/* 自動保存（spec「保存仕様」）。**明示保存と同じ doSave を通す**ので鮮度チェックは落ちない。
+   fallback（ダウンロード）とデモは対象外 */
+const AUTOSAVE_MS = 1200;
+let autoSaveTimer = null;
+function scheduleAutoSave() {
+  if (!state.loaded || !state.adapter || state.demo) return;
+  if (state.adapter.mode === 'fallback') return;   // 毎回ファイルが降ってしまう
+  clearTimeout(autoSaveTimer);
+  autoSaveTimer = setTimeout(() => {
+    autoSaveTimer = null;
+    if (isDirty()) doSave({ auto: true });
+  }, AUTOSAVE_MS);
+}
+function flushAutoSave() {
+  if (autoSaveTimer === null) return;
+  clearTimeout(autoSaveTimer);
+  autoSaveTimer = null;
+  if (isDirty()) doSave({ auto: true });
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') flushAutoSave();
+});
 
 async function reloadFromAdapter(skipConfirm) {
   if (!state.adapter || !state.adapter.canCheck) return;
@@ -1613,6 +1655,7 @@ function applyUiOps(ops) {
     }
     hideBanner();
     render();
+    scheduleAutoSave();        // 変更の中心はここ1箇所（spec「自動保存」）
     return true;
   } catch (e) {
     showBanner('error', '操作に失敗しました: ' + (e && e.message));
@@ -3946,15 +3989,17 @@ window.taskboard = {
         })),
       };
     },
+    lastSession: null,
     newSession: (text) => {
       const adapter = makeMemoryAdapter(text);
       state.archiveAdapter = makeMemoryAdapter(''); // アーカイブ検証用（メモリ）
       loadText(text, adapter);
       updateFileBar();
-      return {
+      const sess = {
         externalWrite: (t) => adapter._external(t),
         applyOps: (ops) => { for (const op of ops) applyUiOp(op); },
         save: () => doSave(),
+        autoSave: () => { flushAutoSave(); },
         archive: () => doArchive(),
         getText: () => joinLines(state.lines),
         getAdapterText: () => adapter._get(),
@@ -3968,6 +4013,8 @@ window.taskboard = {
         getArchiveText: () => state.archiveAdapter._get(),
         setArchiveText: (t) => state.archiveAdapter._external(t),
       };
+      window.taskboard.test.lastSession = sess;   // 直前のセッションへの参照（TB-AS4）
+      return sess;
     },
     setToday: (ymd) => { state.todayOverride = ymd; if (state.loaded) render(); },
     forceFallback: () => { state.fsaOff = true; state.loaded = false; state.resumeHandle = null; enterFallbackUi(); render(); },
