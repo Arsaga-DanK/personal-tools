@@ -1858,6 +1858,21 @@ parse 表示チェック（`window.taskboard.test.parse(F1)`）:
 links=['2026-07-14_TODO','2026-07-21']・due='2026-08-05'・priority='high' /
 17行目 tags=['UL業務']・priority='low' / 12行目の親=10行目 / セクション=['PEW','UL','その他']。
 
+## Check Issue からの受け取り（TB-H2/H3 — 2026-09-24。R8「タスクは論点の下に生まれる」）
+
+- 起動時に `ToolHandoff.take('taskboard')`（`kind === 'task'`・text は JSON）を1回取り出す。
+  **tasks.md を読み込めた瞬間**（`loadText` の末尾）に追加モーダルを開く —
+  未読込ではセクションが無いため。未読込のまま起動したら info バナーで伝える
+- prefill: 内容 / メモ（`論点: …`）/ 期限 / 関連ノート `[[…]]`。詳細は自動で開く
+- モーダルの「内容」の下に **`#modal-why`**: 受け取りがあれば「🎯 論点: …」（強調）、
+  無くても「💡 この一手はどの論点のため？ 論点から作るなら 🎯 Check Issue（Cmd/Ctrl+Shift+E）」。
+  **答えは強制しない** — 問いが毎回見えることが訓練
+
+| ID | 操作 | 期待 |
+|---|---|---|
+| TB-H2 | `tools:handoff` に task を置いて開く → tasks.md 読込 | 起動時に消費され、読込後に追加モーダルが 内容・論点メモ・期限・関連ノート つきで開く |
+| TB-H3 | ふつうに［＋タスク追加］ | `#modal-why` に「どの論点のため？」と Check Issue への導線が出る（強調なし） |
+
 ## モード切替（`Check Issue` と対）
 
 `.tool-header` の下に `<nav class="modes">` を置き、［✅ タスク］［🎯 イシュー］で

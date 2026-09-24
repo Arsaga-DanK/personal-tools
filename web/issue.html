@@ -73,6 +73,11 @@
   .ic-verdicts .v-warn { background: var(--warn-bg); border-color: var(--warn-border); }
   .ic-verdicts .v-info { color: var(--muted); }
   .ic-empty { font-size: 13px; color: var(--muted); padding: 18px 4px; }
+  .howto { margin: 4px 0 12px; font-size: 13px; }
+  .howto > summary { cursor: pointer; color: var(--accent); }
+  .howto ol { margin: 8px 0 4px; padding-left: 1.4em; line-height: 1.7; }
+  .howto p { margin: 4px 0 0; color: var(--muted); font-size: 12.5px; }
+  .howto code { font-size: 12px; background: var(--bg); padding: 0 4px; border-radius: 4px; }
   /* ノート見出し（1ノート : N論点 — IS-Q12）。「＋ 論点を足す」の置き場を兼ねる */
   .note-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
     margin: 14px 0 -2px; padding: 0 2px; font-size: 12px; color: var(--muted); }
@@ -99,6 +104,7 @@
   .ic-edit-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
   .ic-edit-line { flex: 1 1 320px; min-width: 0; }
   .ic-frame { font-size: 12px; }
+  .ic-task { font-size: 12px; }
   button.ic-issue {
     display: block; width: 100%; text-align: left; font: inherit; font-size: 15px;
     line-height: 1.55; margin: 8px 0 10px; padding: 4px 6px; border-radius: 8px;
@@ -117,10 +123,10 @@
     <a href="issue.html" aria-current="page">🎯 イシュー</a>
   </nav>
   <h1>Check Issue</h1>
-  <p class="subtitle">04_Issues のイシューを一覧する — ［イシューを書く］で新しく立て、カードから閉じて振り返る</p>
+  <p class="subtitle">論点（イシュー）を一覧して育てる — 書き殴りは Obsidian、1行足す・切り出す・閉じるはここ</p>
 
   <div class="toolbar">
-    <button class="primary" id="wizard-btn">🎯 イシューを書く</button>
+    <button id="wizard-btn" title="論点が最初から見えているときだけ。ふだんは Obsidian で書き殴って、カードから足す">🎯 新しく立てる（5段）</button>
     <button id="pick-btn">📂 04_Issues を開く</button>
     <button id="reload-btn" hidden>再読込</button>
     <label class="opts">表示 <select id="f-status">
@@ -137,6 +143,16 @@
 
   <p class="summary" id="env-note" hidden></p>
   <div class="banner" id="banner" hidden></div>
+
+  <details id="howto" class="howto">
+    <summary>使い方（3つだけ）</summary>
+    <ol>
+      <li><strong>書き殴る</strong> — Obsidian で QuickAdd の <code>Issue</code> を作り、<code>## 掘る</code> に何でも書く。整えない。論点は書いているうちに見えてくる</li>
+      <li><strong>1行足す</strong> — 「これ論点かも」と思ったら <code>## 論点</code> に1行（ここの［＋ 論点を足す］でも。その場で判定が出る）</li>
+      <li><strong>育てる・閉じる</strong> — 本命は［ちゃんと立てる…］で5段に切り出す。決着したら［閉じる…］で 当たり／外れ を残す</li>
+    </ol>
+    <p>タスクは論点の下に生まれる — カードの［タスクにする…］で Plan Tasks が論点つきで開く（Cmd/Ctrl+Shift+E で往復）</p>
+  </details>
 
   <div id="cards"></div>
 
@@ -205,6 +221,7 @@
 <script src="../lib/tools.js"></script>
 <script src="../lib/launcher.js"></script>
 <script src="../lib/edit.js"></script>
+<script src="../lib/handoff.js"></script>
 <script>
 'use strict';
 
@@ -298,16 +315,16 @@ function judge(line, opts) {
   /* 行（候補）の段階では絵コンテ・サブイシューをまだ問わない。
      書き殴りから切り出したばかりの1行に「絵コンテが無い」と毎回出すのは雑音で、
      **切り出して5段を立てる段階**で初めて意味を持つ（IS-Q12） */
+  // 候補の数は段階に関係なく見る（Step 2 の選別で使う）
+  if (Array.isArray(o.candidates)
+      && o.candidates.filter(function (c) { return nfc(c).trim() !== ''; }).length < 2)
+    add('alternatives', 'info', '論点の候補が1つだけ',
+      '解ける問題の中から選ぶ。もう1つ立てて並べてみる（イシュー度）');
   if (o.stage === 'line') return out;
   // 本で最も強い検算: 欲しい絵が描けないなら、まだイシューが定まっていない（第3章）
   if (nfc(o.picture || '').trim() === '')
     add('picture', 'warn', '答えが出たとき何を出すかが決まっていない',
       '絵コンテを描く — 描けないなら、まだイシューが定まっていない');
-  // 候補を渡されたときだけ見る（貼った文章には候補の概念が無い）
-  if (Array.isArray(o.candidates)
-      && o.candidates.filter(c => nfc(c).trim() !== '').length < 2)
-    add('alternatives', 'info', '論点の候補が1つだけ',
-      '解ける問題の中から選ぶ。もう1つ立てて並べてみる（イシュー度）');
   return out;
 }
 
@@ -418,6 +435,8 @@ function summarize(text, fileName) {
     goal: (p.goal || []).filter(function (x) { return nfc(x).trim() !== ''; })[0] || '',
     issue: issueLine,
     picture: pic[0] || '',
+    conclusion: (p.conclusion || []).map(function (x) { return nfc(x).trim(); })
+      .filter(function (x) { return x !== ''; })[0] || '',
     subs: rows.length, ways: ways, rows: rows,
     next: (p.next || [])[0] || '',
     deadline: fm.data.deadline || '',
@@ -532,9 +551,17 @@ function issueLines(text) {
     const m = lines[k].match(ISSUE_ITEM_RE);
     if (!m) continue;
     const rest = m[2];
+    // 直後のインデントされた箇条書きは「分かったこと」（閉じるときに子行として置く）
+    const notes = [];
+    for (let j = k + 1; j < r[1]; j++) {
+      const c = lines[j].match(/^(?:\t| {2,})[-*+]\s+(.*)$/);
+      if (!c) break;
+      notes.push(c[1].trim());
+    }
     out.push({
       lineNo: k,
       raw: lines[k],
+      note: notes.join(' / '),
       done: m[1].toLowerCase() === 'x',
       due: (rest.match(DUE_RE) || [])[1] || '',
       doneDate: (rest.match(DONE_RE) || [])[1] || '',
@@ -1020,7 +1047,7 @@ function noteOf(text, fileName) {
       kind: 'line', note: note,
       file: base.file, name: base.name, title: base.title,
       lineNo: L.lineNo, raw: L.raw, link: L.link,
-      issue: L.text, deadline: L.due,
+      issue: L.text, deadline: L.due, doneDate: L.doneDate, conclusion: L.note || '',
       status: L.done ? 'closed' : 'open', verdict: L.verdict,
       picture: '', subs: 0, ways: { '聞く': 0, '調べる': 0, '試す': 0 }, rows: [],
       next: '', goal: '', hasFrontmatter: base.hasFrontmatter, text: text,
@@ -1170,6 +1197,22 @@ async function saveIssueLine(it, line, due) {
   }
 }
 
+/* Plan Tasks へ渡す（lib/handoff.js）。正本は tasks.md のまま。
+   内容は「次の一手」があればそれ、無ければ空（その場で書く）。**論点はメモに、ノートは関連ノートに**入る */
+function sendToTasks(it) {
+  if (!window.ToolHandoff) return;
+  const nx = String(it.next || '').replace(/^-\s*\[[^\]]\]\s*/, '');
+  const nextDue = (nx.match(/\u{1F4C5}\s*(\d{4}-\d{2}-\d{2})/u) || [])[1] || '';
+  const payload = {
+    content: nx.replace(/\s*\u{1F4C5}.*$/u, '').trim(),
+    issue: it.issue || '',
+    memo: it.issue ? '論点: ' + it.issue : '',
+    due: nextDue || it.deadline || '',
+    link: it.name || '',
+  };
+  ToolHandoff.send('taskboard', 'task', JSON.stringify(payload), 'taskboard.html');
+}
+
 function card(it) {
   const art = document.createElement('article');
   art.className = 'issue-card' + (it.status === 'closed' ? ' is-closed' : '');
@@ -1185,10 +1228,16 @@ function card(it) {
   }
   const due = document.createElement('span');
   const d = dayDiff(it.deadline);
-  due.className = 'ic-due' + (d !== null && d < 0 ? ' is-over' : '');
-  due.textContent = it.deadline
-    ? '📅 ' + it.deadline + (d === null ? '' : (d < 0 ? '（' + (-d) + '日超過）' : d === 0 ? '（今日）' : '（あと' + d + '日）'))
-    : '📅 締切なし';
+  const closed = it.status === 'closed';
+  due.className = 'ic-due' + (!closed && d !== null && d < 0 ? ' is-over' : '');
+  if (closed) {
+    // 閉じたものに「超過」を出さない（もう追う締切ではない）。閉じた日を出す
+    due.textContent = it.doneDate ? '✅ ' + it.doneDate + ' に閉じた' : '✅ 閉じた';
+  } else {
+    due.textContent = it.deadline
+      ? '📅 ' + it.deadline + (d === null ? '' : (d < 0 ? '（' + (-d) + '日超過）' : d === 0 ? '（今日）' : '（あと' + d + '日）'))
+      : '📅 締切なし';
+  }
   head.appendChild(due);
   art.appendChild(head);
 
@@ -1212,7 +1261,11 @@ function card(it) {
       .map(function (k) { return k + w[k]; }).join('・');
     meta(ul, '🧩 サブイシュー ' + it.subs + '件' + (inner ? '（' + inner + '）' : ''));
   }
-  if (it.status === 'closed') meta(ul, '✔ 閉じた' + (it.verdict ? '（' + it.verdict + '）' : ''));
+  if (it.status === 'closed') {
+    // **振り返りの中身**（R6）。判定だけでなく「何が分かったか」を見せないと、見返す価値が無い
+    meta(ul, (it.verdict ? '判定: ' + it.verdict : '判定: 未記入')
+      + (it.conclusion ? '　—　' + it.conclusion : '　—　（分かったことが書かれていない）'));
+  }
   art.appendChild(ul);
 
   const acts = document.createElement('div');
@@ -1263,6 +1316,18 @@ function card(it) {
     la.title = 'この論点から切り出したノート';
     if (lh) la.href = lh;
     acts.appendChild(la);
+  }
+  if (it.status !== 'closed') {
+    /* **タスクは論点の下に生まれる**（R8）。Plan Tasks の追加モーダルを
+       論点・関連ノート・期限を入れた状態で開く。「この一手はどの論点のため？」を
+       タスクを作る瞬間に問うための経路 */
+    const tb = document.createElement('button');
+    tb.type = 'button';
+    tb.className = 'ic-task';
+    tb.textContent = 'タスクにする…';
+    tb.title = 'Plan Tasks の追加画面を、この論点を添えて開く';
+    tb.addEventListener('click', function () { sendToTasks(it); });
+    acts.appendChild(tb);
   }
   if (it.status !== 'closed' && !(it.kind === 'line' && it.link)) {
     const fb = document.createElement('button');
@@ -1366,7 +1431,16 @@ function renderCards() {
     .filter(function (g) { return g.cards.length > 0; });
   let total = 0;
   for (let i = 0; i < groups.length; i++) total += groups[i].cards.length;
-  $id('summary').textContent = notes.length === 0 ? '' : total + '件（' + label + '）';
+  let tally = '';
+  if ($id('f-status').value !== 'open') {
+    // 訓練の成績表（R6）: 立てた問いがどれだけ当たったか
+    const closed = [];
+    notes.forEach(function (n) { n.cards.forEach(function (c) { if (c.status === 'closed') closed.push(c); }); });
+    const cnt = function (v) { return closed.filter(function (c) { return c.verdict === v; }).length; };
+    if (closed.length) tally = '　閉じた ' + closed.length + '：当たり ' + cnt('当たり') + '・外れ ' + cnt('外れ') + '・未決 ' + cnt('未決');
+  }
+  $id('summary').textContent = notes.length === 0 ? '' : total + '件（' + label + '）' + tally;
+  if (notes.length === 0) $id('howto').open = true;   // 初見は使い方を開いておく（R10）
   if (groups.length === 0) {
     const p = document.createElement('p');
     p.className = 'ic-empty';
@@ -1539,10 +1613,10 @@ function pickedText() {
 // Step 2 の判定は本体と同じ純関数を通す（二重実装しない）
 function wzLive() {
   if (wzStep !== 1) return;
+  // Step 2 は論点を選ぶ段。絵コンテ・サブイシューは Step 3・4 で問うので、ここでは出さない（R7 のノイズ対策）
   renderVerdict(judge([pickedText()], {
+    stage: 'line',
     deadline: draft.issueDue,
-    unknowns: draft.subs.map(u => u.what).filter(x => nfc(x).trim() !== ''),
-    picture: draft.picture,
     candidates: draft.candidates.map(c => c.text),
   }), $id('wz-judge'));
 }
@@ -1722,7 +1796,14 @@ function wzOpenFor(it) {
   if (it.kind === 'line') {                    // 切り出し: 新しいノートを作って元の行にリンクを残す
     draft.milestone = '';
     draft.milestoneDue = '';
-    draft.candidates = [{ text: it.issue || '', effect: '' }, { text: '', effect: '' }];
+    /* **同じノートに書いてある他の論点を候補に並べる**（R1: 選別を実質にする）。
+       書き殴りの段階で見えた論点が複数あるなら、それが本物の候補。空欄を足して「もう1つ」も促す */
+    const others = (it.note && it.note.cards ? it.note.cards : [])
+      .filter(function (c) { return c.kind === 'line' && c.status !== 'closed' && c !== it && c.issue; })
+      .slice(0, 3)
+      .map(function (c) { return { text: c.issue, effect: '' }; });
+    draft.candidates = [{ text: it.issue || '', effect: '' }].concat(others);
+    if (draft.candidates.length < 2) draft.candidates.push({ text: '', effect: '' });
     draft.chosen = 0;
     draft.issueDue = it.deadline || '';
     draft.pictureKind = '表';

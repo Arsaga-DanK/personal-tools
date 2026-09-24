@@ -6,7 +6,7 @@
 
    照合するID: TB-01〜20・parse チェック / TB-S1〜S11（セクション移動）/
    TB-A1〜A7（事故防止）/ TB-I1〜I7（IME ガード）/ TB-U1〜U7（追加の取り消し）/
-   TB-P1〜P19（計画ビュー: 🛫 とタイムライン）/ TB-M1〜M2（モード切替と共通モーダル）/ TB-AS1〜AS4（自動保存）/ TB-T1〜T3（ツールバー整理・モード切替）
+   TB-P1〜P19（計画ビュー: 🛫 とタイムライン）/ TB-M1〜M2（モード切替と共通モーダル）/ TB-AS1〜AS4（自動保存）/ TB-T1〜T3（ツールバー整理・モード切替）/ TB-H2〜H3（Check Issue からの受け取り）
    仕様の正本は docs/specs/taskboard.md。期待値を変えるときは spec を先に直す。 */
 
 const path = require('path');
@@ -3698,6 +3698,51 @@ const F5 = [
   });
   r.check('TB-AS4（自動保存をスキップしても［今すぐ保存］なら確認のうえ保存できる）',
     as4.asked === 1 && as4.ok === true && as4.saved === true, JSON.stringify(as4));
+
+  /* ---------- TB-H2/H3: Check Issue からの受け取り（R8: タスクは論点の下に生まれる） ---------- */
+  await page.goto(fileUrl('web/taskboard.html'));
+  const h3 = await page.evaluate((f1) => {
+    window.taskboard.test.newSession(f1);
+    document.getElementById('btn-add-form').click();
+    const why = document.getElementById('modal-why');
+    const out = { text: why.textContent, hidden: why.hidden, isIssue: why.className.includes('is-issue') };
+    document.getElementById('modal').hidden = true;
+    return out;
+  }, F1);
+  r.check('TB-H3（ふつうの追加でも「この一手はどの論点のため？」が一言出る・答えは強制しない）',
+    !h3.hidden && h3.text.includes('どの論点のため') && h3.text.includes('Check Issue') && !h3.isIssue,
+    JSON.stringify(h3));
+
+  // Check Issue が置いた handoff を持って開く → tasks.md 読込後に追加画面が論点つきで開く
+  await page.evaluate(() => sessionStorage.setItem('tools:handoff', JSON.stringify({
+    to: 'taskboard', kind: 'task', at: Date.now(),
+    text: JSON.stringify({ content: '粒度を確認する', issue: '手順書が書けないのは粒度の合意が無いからではないか',
+      memo: '論点: 手順書が書けないのは粒度の合意が無いからではないか', due: '2026-09-30', link: '20260924_現状整理' }),
+  })));
+  await page.goto(fileUrl('web/taskboard.html'));
+  const h2 = await page.evaluate((f1) => {
+    const consumed = sessionStorage.getItem('tools:handoff') === null;   // 起動時に取り出して消している
+    const beforeLoad = document.getElementById('modal').hidden;            // 未読込のうちは開かない
+    window.taskboard.test.newSession(f1);                                  // 読み込めた瞬間に開く
+    return {
+      consumed, beforeLoad,
+      open: !document.getElementById('modal').hidden,
+      content: document.getElementById('modal-content').value,
+      memo: document.getElementById('modal-memo').value,
+      due: document.getElementById('modal-due').value,
+      why: document.getElementById('modal-why').textContent,
+      isIssue: document.getElementById('modal-why').className.includes('is-issue'),
+      link: Array.from(document.querySelectorAll('#modal-link-list *')).map(e => e.textContent).join(' '),
+      moreOpen: document.getElementById('modal-more').open,
+    };
+  }, F1);
+  r.check('TB-H2（Check Issue からの受け取り: 読込後に追加画面が 内容・論点メモ・期限・関連ノート つきで開く）',
+    h2.consumed && h2.beforeLoad && h2.open
+    && h2.content === '粒度を確認する' && h2.memo.startsWith('論点: ')
+    && h2.due === '2026-09-30' && h2.why.includes('論点:') && h2.isIssue
+    && h2.link.includes('20260924_現状整理') && h2.moreOpen,
+    JSON.stringify(h2));
+  await page.evaluate(() => { document.getElementById('modal').hidden = true; });
 
   /* ---------- TB-T3: Cmd/Ctrl+Shift+E でモード切替（最後にやる — 遷移するため） ---------- */
   await page.goto(fileUrl('web/taskboard.html'));

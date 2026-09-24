@@ -166,6 +166,8 @@
      lib/ui.css へ移設**（Check Issue が2番目の利用者 — docs/specs/issue.md の IS-Q9）。
      ここに残すのは taskboard 固有の規則だけ */
   #modal-memo { min-height: 84px; resize: vertical; }
+  .modal-why { font-size: 12px; margin: -4px 0 10px 5.5em; padding-left: 10px; overflow-wrap: anywhere; }
+  .modal-why.is-issue { color: var(--text); border-left: 3px solid var(--accent); }
   #modal-more { margin: 4px 0 12px; }
   #modal-more > summary { cursor: pointer; color: var(--accent); padding: 4px 0; }
   #modal-more[open] > summary { margin-bottom: 10px; }
@@ -307,6 +309,7 @@
     <p class="modal-title" id="modal-title">タスクを追加</p>
     <label class="mf"><span>内容</span>
       <input type="text" id="modal-content" placeholder="タスクの内容（必須）" spellcheck="false"></label>
+    <p class="muted modal-why" id="modal-why"></p>
     <label class="mf"><span>メモ</span>
       <textarea id="modal-memo" spellcheck="false" placeholder="任意。複数行可（tasks.md ではタスクの下の箇条書きになります）"></textarea></label>
     <details id="modal-more">
@@ -1374,7 +1377,24 @@ function loadText(text, adapter) {
   }
   render();
   updateFileBar();
+  applyPendingTask();       // Check Issue から来ていれば、読み込めた今この場で追加画面を開く
   return true;
+}
+
+/* Check Issue からの受け取り（lib/handoff.js・kind='task'・text は JSON）。
+   tasks.md が読めていないうちはモーダルにセクションが無いので、**読み込み完了時**に開く。
+   取り出しは起動時に1回（consume）。読まれずに終わったら banner で伝える */
+let pendingTask = (function () {
+  if (!window.ToolHandoff) return null;
+  const h = ToolHandoff.take('taskboard');
+  if (!h || h.kind !== 'task') return null;
+  try { return JSON.parse(h.text); } catch (_) { return null; }
+})();
+function applyPendingTask() {
+  if (!pendingTask || !state.loaded || state.demo) return;
+  const pf = pendingTask;
+  pendingTask = null;
+  openTaskModal('new', null, { prefill: pf });
 }
 
 function isDirty() {
@@ -3539,6 +3559,25 @@ function openTaskModal(mode, t, opts) {
   refreshModalLinks();
   el('modal-tag-input').value = '';
   el('modal-link-input').value = '';
+  /* Check Issue から来た場合は論点・関連ノート・期限を入れて開く（R8: タスクは論点の下に生まれる）。
+     来ていない場合も「この一手はどの論点のため？」を一言だけ置く — 答えなくてよいが、問いは毎回見える */
+  const pf = mode === 'new' ? (o.prefill || null) : null;
+  const why = el('modal-why');
+  if (pf) {
+    if (pf.content) el('modal-content').value = pf.content;
+    if (pf.memo) el('modal-memo').value = pf.memo;
+    if (pf.due) el('modal-due').value = pf.due;
+    if (pf.link && !modalState.links.includes(pf.link)) modalState.links.push(pf.link);
+    refreshModalLinks();
+    why.textContent = pf.issue ? '🎯 論点: ' + pf.issue : '🎯 Check Issue から';
+    why.className = 'muted modal-why is-issue';
+  } else {
+    why.textContent = mode === 'new'
+      ? '💡 この一手はどの論点のため？ 論点から作るなら 🎯 Check Issue（Cmd/Ctrl+Shift+E）'
+      : '';
+    why.className = 'muted modal-why';
+  }
+  why.hidden = why.textContent === '';
   // 値が入っている項目が1つでもあれば詳細を開く（隠れた値に気づかないのを防ぐ）
   const v = readModal();
   el('modal-more').open = !!(v.tags.length || v.deps.length || v.links.length || v.start || v.due || v.priority);
@@ -4063,6 +4102,9 @@ ToolEdit.mountTodayShortcut();   // Cmd/Ctrl+; = 今日（lib/edit.js — TB-Q59
 ToolUI.mountModeSwitch();        // Cmd/Ctrl+Shift+E でタスク ⇔ イシュー
 render();
 initFile();
+if (pendingTask && !state.loaded) {
+  showBanner('info', 'Check Issue からタスクを受け取りました。tasks.md を開くと追加画面が出ます');
+}
 
 ToolLauncher.mount();   // ☰ ツール / Cmd+Ctrl+K で引き出しメニュー（lib/launcher.js）
 </script>

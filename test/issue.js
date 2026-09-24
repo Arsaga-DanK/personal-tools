@@ -4,7 +4,7 @@
    出力: 合否一覧と終了コード（全 pass かつコンソールエラー0件で 0）
    例:   node test/issue.js  /  ./test/run issue
 
-   照合するID: IS-01〜21・IS-L1〜L9（純関数）＋ IS-U1〜U23・IS-UL1〜UL11（UI 経路・FSA 読み書き・ウィザード・一覧・振り返り・論点の行・切り出し）＋ハブ導線
+   照合するID: IS-01〜21・IS-L1〜L9（純関数）＋ IS-U1〜U23・IS-UL1〜UL14・IS-U24〜U25（UI 経路・FSA 読み書き・ウィザード・一覧・振り返り・論点の行・切り出し・タスク接続）＋ハブ導線
    仕様の正本は docs/specs/issue.md。期待値を変えるときは spec を先に直す。 */
 
 const { launch, fileUrl, createRunner, eq } = require('./helpers');
@@ -839,6 +839,98 @@ const SAMPLE_MD = [
     ul11.label === '切り出して作成' && ul11.cand.includes('V13')
     && !!ul11.made && ul11.linked && ul11.backLink && ul11.hasFive && ul11.spunBtn,
     JSON.stringify(ul11));
+
+  /* ========== IS-UL12〜UL14 / IS-U24〜U25: 監査（R1/R6/R7/R8/R10）で足したもの ========== */
+  const AUD = [
+    '---', 'created: 2026-09-24', 'status: open', 'tags: [issue]', '---',
+    '# 20260924_現状整理', '',
+    '## 論点', '',
+    '- [ ] 手順書が書けないのは粒度の合意が無いからではないか \u{1F4C5} 2026-09-30',
+    '- [ ] V13 は再受領の可否が未確認だからではないか \u{1F4C5} 2026-10-02',
+    '- [x] 検証は OS のみでよいのではないか \u{1F4C5} 2026-09-20 \u{2705} 2026-09-22 外れ',
+    '\t- Interstage も一緒に上げないと比較できなかった',
+    '- [x] 本番停止は運営チームに任せられるのではないか \u{2705} 2026-09-19 当たり', '',
+    '## 掘る', '- TODO', '',
+  ].join('\n');
+
+  // IS-UL12: ［タスクにする…］→ Plan Tasks へ論点つきで渡す（遷移は send をスタブして止める）
+  const ul12 = await page.evaluate(async (seed) => {
+    for (const k of Object.keys(window.__fsa.files)) delete window.__fsa.files[k];
+    window.__fsa.files['aud.md'] = seed;
+    await window.issue.load();
+    const sent = [];
+    const orig = window.ToolHandoff.send;
+    window.ToolHandoff.send = (to, kind, text, path) => { sent.push({ to, kind, text: JSON.parse(text), path }); };
+    const card = Array.from(document.querySelectorAll('.issue-card'))
+      .find(c => c.querySelector('.ic-issue').textContent.includes('粒度の合意'));
+    card.querySelector('.ic-task').click();
+    window.ToolHandoff.send = orig;
+    return sent[0] || null;
+  }, AUD);
+  r.check('IS-UL12（タスクにする: Plan Tasks へ 論点・関連ノート・期限 を添えて渡す）',
+    !!ul12 && ul12.to === 'taskboard' && ul12.kind === 'task' && ul12.path === 'taskboard.html'
+    && ul12.text.issue.includes('粒度の合意') && ul12.text.memo.startsWith('論点: ')
+    && ul12.text.link === 'aud' && ul12.text.due === '2026-09-30' && ul12.text.content === '',
+    JSON.stringify(ul12));
+
+  // IS-UL13: 切り出しのウィザードに、同じノートの他の開いている論点が候補として入る
+  const ul13 = await page.evaluate(() => {
+    const card = Array.from(document.querSelectorAll ? [] : document.querySelectorAll('.issue-card'))
+      .find(c => c.querySelector('.ic-issue').textContent.includes('粒度の合意'));
+    card.querySelector('.ic-frame').click();
+    const set = (sel, v) => { const el = document.querySelector(sel); el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); };
+    set('#wz-milestone', 'M'); set('#wz-milestone-due', '2026-10-02');
+    document.getElementById('wz-next').click();
+    const cands = Array.from(document.querySelectorAll('.wz-c-text')).map(i => i.value);
+    const ids = Array.from(document.querySelectorAll('#wz-judge li')).map(li => li.dataset.id);
+    document.getElementById('wz-close').click();
+    return { cands, ids };
+  });
+  r.check('IS-UL13（切り出し時、同じノートの他の開いている論点が候補に並ぶ・閉じた行は入らない）',
+    ul13.cands.length === 2 && ul13.cands[0].includes('粒度の合意') && ul13.cands[1].includes('V13')
+    && !ul13.cands.some(c => c.includes('OS のみ')) && !ul13.ids.includes('alternatives'),
+    JSON.stringify(ul13));
+  r.check('IS-U24（Step 2 の判定は論点の段階だけ — 絵コンテ・サブイシューの警告を出さない）',
+    !ul13.ids.includes('picture') && !ul13.ids.includes('evidence'),
+    JSON.stringify(ul13.ids));
+
+  // IS-UL14: 閉じたカードに 判定＋分かったこと・集計・超過を出さない
+  const ul14 = await page.evaluate(() => {
+    const f = document.getElementById('f-status');
+    f.value = 'closed'; f.dispatchEvent(new Event('change', { bubbles: true }));
+    const cards = Array.from(document.querySelectorAll('.issue-card'));
+    const os = cards.find(c => c.querySelector('.ic-issue').textContent.includes('OS のみ'));
+    const out = {
+      summary: document.getElementById('summary').textContent,
+      metaOS: Array.from(os.querySelectorAll('.ic-meta li')).map(li => li.textContent).join(' | '),
+      dueOS: os.querySelector('.ic-due').textContent,
+      overClass: os.querySelector('.ic-due').className,
+      closeBtn: !!os.querySelector('.ic-close'),
+    };
+    f.value = 'open'; f.dispatchEvent(new Event('change', { bubbles: true }));
+    return out;
+  });
+  r.check('IS-UL14（閉じたカード: 判定と分かったことが出る・集計「当たり1・外れ1」・超過を赤で出さない）',
+    ul14.metaOS.includes('判定: 外れ') && ul14.metaOS.includes('Interstage も一緒に上げないと比較できなかった')
+    && ul14.summary.includes('当たり 1') && ul14.summary.includes('外れ 1')
+    && ul14.dueOS.includes('2026-09-22') && !ul14.overClass.includes('is-over')
+    && ul14.closeBtn === false,
+    JSON.stringify(ul14));
+
+  // IS-U25: 初見（ノート0）は使い方が開いている・ノートがあれば強制しない
+  const u25 = await page.evaluate(async () => {
+    const withNotes = document.getElementById('howto').open;
+    for (const k of Object.keys(window.__fsa.files)) delete window.__fsa.files[k];
+    document.getElementById('howto').open = false;
+    await window.issue.load();
+    const empty = document.getElementById('howto').open;
+    const steps = document.querySelectorAll('#howto ol li').length;
+    return { withNotes, empty, steps, label: document.getElementById('wizard-btn').textContent,
+      notPrimary: !document.getElementById('wizard-btn').classList.contains('primary') };
+  });
+  r.check('IS-U25（初見: ノート0なら使い方が開く・3手順・「新しく立てる」は主役ではない）',
+    u25.empty === true && u25.steps === 3 && u25.label.includes('新しく立てる') && u25.notPrimary,
+    JSON.stringify(u25));
 
   /* IS-U4: tasks.md 用の行をコピー（md のコピーは FSA 非対応時のみなので IS-U12 で見る） */
   const u4 = await page.evaluate(async () => {
