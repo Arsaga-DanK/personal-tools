@@ -169,16 +169,6 @@ function lint(files, today) {
     });
   }
 
-  // dupBasenames: 同名 .md（パス修飾なしリンクが曖昧になる）
-  for (const paths of mdByBase.values()) {
-    if (paths.length > 1) {
-      issues.dupBasenames.push({
-        base: basenameOf(paths[0]).replace(/\.md$/i, ''),
-        paths: paths.slice(),
-      });
-    }
-  }
-
   const resolveNote = target => {
     const t = nfcLower(target.replace(/\.md$/i, ''));
     return target.includes('/') ? mdByPath.has(t) : mdByBase.has(t);
@@ -188,6 +178,8 @@ function lint(files, today) {
 
   // リンク走査（wiki リンクと md 画像/添付リンク）
   let links = 0;
+  // **パス修飾なしで指されたノート名**を集める（重複ベース名の実害判定に使う — VL-Q12）
+  const linkedBare = new Set();
   const WIKI_RE = /(!?)\[\[([^\[\]]+)\]\]/g;
   const MDLINK_RE = /!\[[^\]]*\]\(([^)\s]+)\)/g;
   for (const f of files) {
@@ -211,8 +203,9 @@ function lint(files, today) {
         const isAttachment = embed && /\.[A-Za-z0-9]{1,8}$/.test(target) && !/\.md$/i.test(target);
         if (isAttachment) {
           if (!resolveAttachment(target)) issues.missingAttachments.push({ file: f.path, line: li + 1, target });
-        } else if (!resolveNote(target)) {
-          issues.brokenLinks.push({ file: f.path, line: li + 1, target });
+        } else {
+          if (!target.includes('/')) linkedBare.add(nfcLower(target.replace(/\.md$/i, '')));
+          if (!resolveNote(target)) issues.brokenLinks.push({ file: f.path, line: li + 1, target });
         }
       }
       MDLINK_RE.lastIndex = 0;
@@ -225,6 +218,19 @@ function lint(files, today) {
         if (!resolveAttachment(target)) issues.missingAttachments.push({ file: f.path, line: li + 1, target: raw });
       }
     });
+  }
+
+  /* dupBasenames（VL-Q12 で判定を変更・2026-09-24）:
+     **同名であること自体は問題ではない。**問題は「パス修飾なしのリンクがその名前を指していて、
+     どれに解決されるか決まらない」こと。旧実装は同名を全部出していたため、
+     `.claude/commands` のミラーや 1on1 の人別フォルダなど**直してはいけないもの**が並び、
+     実測では18件すべてが実害ゼロだった（パス無しリンク0件）。報告が読まれなくなる。
+     → **実際に曖昧なリンクが存在するものだけ**を出す */
+  for (const paths of mdByBase.values()) {
+    if (paths.length < 2) continue;
+    const base = basenameOf(paths[0]).replace(/\.md$/i, '');
+    if (!linkedBare.has(nfcLower(base))) continue;
+    issues.dupBasenames.push({ base: base, paths: paths.slice() });
   }
 
   // Inbox 棚卸し（VL-14）: 設定した Inbox フォルダ**直下**の純デイリーだけ。7日より古いものを候補に出す

@@ -97,13 +97,34 @@ const IDEO_SPACE = '\u3000';
     && eq(reasons, ['NBSP', '先頭・末尾スペース', '先頭・末尾スペース', '全角スペース', '空ベース名', '連続半角スペース']),
     JSON.stringify(v08.bad));
 
-  /* ========== VL-09: 重複ベース名 ========== */
+  /* ========== VL-09: 重複ベース名は「実害があるときだけ」報告する（VL-Q12） ========== */
+  // パス修飾なしの [[メモ]] があるので、どちらに解決されるか決まらない = 実害あり
   const v09 = await lint([
     { path: 'x/メモ.md', text: '' },
     { path: 'y/メモ.md', text: '' },
+    { path: 'z/参照元.md', text: '[[メモ]] を見る' },
   ]);
-  r.check('VL-09（同名 md の重複をパス一覧つきで報告）',
+  r.check('VL-09（曖昧なリンクがある重複をパス一覧つきで報告）',
     eq(v09.dup, [['メモ', ['x/メモ.md', 'y/メモ.md']]]), JSON.stringify(v09.dup));
+
+  // 同名でも**パス修飾なしリンクが無ければ報告しない**（.claude/commands のミラーや
+  // 1on1 の人別フォルダを毎回出さない — 実測で18件すべてが実害ゼロだった）
+  const v09b = await lint([
+    { path: 'x/メモ.md', text: '' },
+    { path: 'y/メモ.md', text: '' },
+    { path: 'z/参照元.md', text: '[[x/メモ]] を見る' },   // パス修飾済み = 曖昧でない
+  ]);
+  // 曖昧なリンクが1つでもあれば、その名前は報告される（別名の重複は巻き込まない）
+  const v09c = await lint([
+    { path: 'x/メモ.md', text: '' },
+    { path: 'y/メモ.md', text: '' },
+    { path: 'x/他.md', text: '' },
+    { path: 'y/他.md', text: '' },
+    { path: 'z/参照元.md', text: '[[他]] だけ曖昧' },
+  ]);
+  r.check('VL-09b（パス修飾なしリンクが無い重複は報告しない・曖昧な名前だけ出す）',
+    eq(v09b.dup, []) && eq(v09c.dup, [['他', ['x/他.md', 'y/他.md']]]),
+    JSON.stringify([v09b.dup, v09c.dup]));
 
   /* ========== VL-11: 性能ガード ========== */
   const v11 = await page.evaluate(() => {
