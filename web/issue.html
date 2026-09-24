@@ -27,15 +27,17 @@
 <main class="app-wide">
   <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">入力は自動保存されます</span></p>
   <h1>Check Issue</h1>
-  <p class="subtitle">論点を点検して形にする — 貼った文章が「イシューか」を判定し、04_Issues 用の md と tasks.md 用の行を出す</p>
+  <p class="subtitle">論点を点検して形にする — 貼った文章が「イシューか」を判定し、04_Issues にノートを作る（tasks.md 用の行も出す）</p>
 
   <div class="toolbar">
-    <button class="primary" id="copy-btn" title="Cmd/Ctrl+Enter">ノートをコピー</button>
+    <button class="primary" id="create-btn">04_Issues にノートを作成</button>
+    <button id="copy-btn" title="Cmd/Ctrl+Enter">md をコピー</button>
     <button id="copy-tasks-btn">tasks.md 用の行をコピー</button>
     <label class="field">締切<input type="date" id="deadline"></label>
     <label class="field">タイトル<input type="text" id="title" placeholder="本番停止手順書"></label>
   </div>
 
+  <p class="summary" id="env-note" hidden></p>
   <div class="banner" id="banner" hidden></div>
 
   <div class="panes">
@@ -152,6 +154,13 @@ function todayStr() {
   const d = new Date();
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0')
     + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+/* ノートのファイル名（vault-rules の命名規則 `YYYY-MM-DD_トピック.md`）。
+   Obsidian / ファイルシステムで使えない文字は `-` に置換する */
+function noteFileName(title, today) {
+  const t = nfc(title).replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, ' ').trim();
+  return (today || todayStr()) + '_' + (t === '' ? '無題' : t) + '.md';
 }
 
 /* 04_Issues 用の md。**空のセクションも見出しは残す**（後でノート側で埋めるため）。
@@ -363,6 +372,108 @@ document.addEventListener('keydown', e => {
   }
 });
 
+/* ---------- 04_Issues への書き込み（File System Access・Chrome 系） ----------
+   **フォルダ名をコードに書かない**（coding-rules「vault 連携」）— 利用者にピッカーで選ばせ、
+   ハンドルを IndexedDB に覚える。既存ノートは書き換えない（同名なら止める — IS-Q2 改訂） */
+const IDB_NAME = 'tools-issue';
+const IDB_STORE = 'handles';
+const IDB_KEY = 'issueDir';
+
+function idbOpen() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open(IDB_NAME, 1);
+    r.onupgradeneeded = () => r.result.createObjectStore(IDB_STORE);
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+async function idbGet(key) {
+  const db = await idbOpen();
+  try {
+    return await new Promise((res, rej) => {
+      const g = db.transaction(IDB_STORE, 'readonly').objectStore(IDB_STORE).get(key);
+      g.onsuccess = () => res(g.result);
+      g.onerror = () => rej(g.error);
+    });
+  } finally { db.close(); }
+}
+async function idbSet(key, val) {
+  const db = await idbOpen();
+  try {
+    await new Promise((res, rej) => {
+      const tx = db.transaction(IDB_STORE, 'readwrite');
+      tx.objectStore(IDB_STORE).put(val, key);
+      tx.oncomplete = res;
+      tx.onerror = () => rej(tx.error);
+    });
+  } finally { db.close(); }
+}
+
+let dirHandle = null;
+
+function fsaAvailable() { return typeof window.showDirectoryPicker === 'function'; }
+
+// FSA 非対応（Safari / Firefox）では作成を無効にして理由を出す（Check Vault と同型）
+function updateEnvNote() {
+  const no = !fsaAvailable();
+  $id('create-btn').disabled = no;
+  const msg = no
+    ? 'このブラウザでは直接作成できません（showDirectoryPicker が必要 — Chrome 系で開いてください）。［md をコピー］は使えます'
+    : '';
+  $id('env-note').textContent = msg;
+  $id('env-note').hidden = msg === '';
+}
+
+const errText = e => (e && e.message ? e.message : String(e));
+
+async function ensureDir() {
+  if (dirHandle) {
+    const q = await dirHandle.queryPermission({ mode: 'readwrite' });
+    if (q === 'granted') return dirHandle;
+    if ((await dirHandle.requestPermission({ mode: 'readwrite' })) === 'granted') return dirHandle;
+    dirHandle = null;   // 拒否された: 選び直させる
+  }
+  dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+  // ハンドルの保存は **best-effort**（できなくても毎回選べば動く — IS-Q7）
+  try { await idbSet(IDB_KEY, dirHandle); } catch (_) { /* 構造化複製できない環境 */ }
+  return dirHandle;
+}
+
+$id('create-btn').addEventListener('click', async () => {
+  settle();                                   // デバウンス中の古い md を書かない
+  const name = noteFileName($id('title').value, todayStr());
+  let dir;
+  try {
+    dir = await ensureDir();
+  } catch (e) {
+    if (e && e.name === 'AbortError') return;   // キャンセルは無言
+    ToolUI.banner($id('banner'), 'error', 'フォルダを開けませんでした: ' + errText(e));
+    return;
+  }
+  try {
+    // **同名があれば上書きしない**（既存ノートは書き換えない — vault-rules の掟②）
+    let exists = true;
+    try {
+      await dir.getFileHandle(name);
+    } catch (e) {
+      if (e && e.name === 'NotFoundError') exists = false;
+      else throw e;
+    }
+    if (exists) {
+      ToolUI.banner($id('banner'), 'warn',
+        name + ' は既にあります — タイトルを変えてください（上書きはしません）');
+      return;
+    }
+    const fh = await dir.getFileHandle(name, { create: true });
+    const w = await fh.createWritable();
+    await w.write($id('output').value);
+    await w.close();
+    ToolUI.banner($id('banner'), 'success', name + ' を作成しました');
+  } catch (e) {
+    ToolUI.banner($id('banner'), 'error', '作成できませんでした: ' + errText(e));
+  }
+});
+
 $id('sample-btn').addEventListener('click', () => {
   $id('input').value = SAMPLE;
   $id('title').value = '本番停止手順書';
@@ -374,13 +485,17 @@ $id('sample-btn').addEventListener('click', () => {
 restore();
 run();
 updateSampleBtn();
+updateEnvNote();
+// 前回選んだフォルダを思い出す（失敗しても機能は動く）
+idbGet(IDB_KEY).then(h => { if (h) dirHandle = h; }).catch(() => {});
 ToolStorage.mountWarning();
 
 ToolEdit.tabIndent($id('input'), { mdList: true });   // md を書く欄（coding-rules）
 ToolEdit.mountTodayShortcut();                        // Ctrl/Cmd+; = 今日（締切）
 
 // テスト用フック（docs/specs/issue.md）
-window.issue = { parseSections: parseSections, judge: judge, toNote: toNote, toTasks: toTasks };
+window.issue = { parseSections: parseSections, judge: judge, toNote: toNote,
+                 toTasks: toTasks, noteFileName: noteFileName };
 </script>
 </body>
 </html>

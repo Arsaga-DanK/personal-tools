@@ -4,7 +4,7 @@
    出力: 合否一覧と終了コード（全 pass かつコンソールエラー0件で 0）
    例:   node test/issue.js  /  ./test/run issue
 
-   照合するID: IS-01〜15（純関数）＋ IS-U1〜U9（UI 経路）＋ハブ導線
+   照合するID: IS-01〜16（純関数）＋ IS-U1〜U12（UI 経路・FSA 書き込み）＋ハブ導線
    仕様の正本は docs/specs/issue.md。期待値を変えるときは spec を先に直す。 */
 
 const { launch, fileUrl, createRunner, eq } = require('./helpers');
@@ -33,6 +33,35 @@ const SAMPLE_MD = [
   const r = createRunner();
   const browser = await launch();
   const page = r.watch(await browser.newPage());
+  // FSA はヘッドレスに存在しないので**書き込み先のダミー**を仕込む（IS-U10/U11 の経路を実際に通す）。
+  // ハンドルは関数を持つので structuredClone できない = IndexedDB 保存は必ず失敗する。
+  // 「保存に失敗しても機能は動く」（IS-Q7）ことをこのダミーがそのまま検証している
+  await page.addInitScript(() => {
+    const files = {};
+    window.__fsa = { files: files, picked: 0 };
+    window.showDirectoryPicker = async () => {
+      window.__fsa.picked++;
+      return {
+        name: '04_Issues', kind: 'directory',
+        queryPermission: async () => 'granted',
+        requestPermission: async () => 'granted',
+        getFileHandle: async (name, opts) => {
+          const exists = Object.prototype.hasOwnProperty.call(files, name);
+          if (!(opts && opts.create) && !exists) {
+            const e = new Error('not found'); e.name = 'NotFoundError'; throw e;
+          }
+          return {
+            name: name,
+            getFile: async () => ({ text: async () => files[name] }),
+            createWritable: async () => ({
+              write: async t => { files[name] = t; },
+              close: async () => {},
+            }),
+          };
+        },
+      };
+    };
+  });
   await page.goto(fileUrl('web/issue.html'));
   await page.evaluate(() => localStorage.clear());
   await page.reload();
@@ -155,6 +184,18 @@ const SAMPLE_MD = [
     r.check('IS-15（既に "- [ ]" なら二重に付けない）',
       t.already.trim() === '- [ ] 既にタスク記法' && t.noDl.trim() === '- [ ] 素の行',
       JSON.stringify([t.already, t.noDl]));
+
+    /* ========== IS-16: ファイル名（vault-rules の命名規則 YYYY-MM-DD_トピック.md） ========== */
+    const fn2 = await page.evaluate(() => ({
+      normal: window.issue.noteFileName('本番停止手順書', '2026-09-24'),
+      empty: window.issue.noteFileName('', '2026-09-24'),
+      dirty: window.issue.noteFileName('A/B:C*D?E"F<G>H|I', '2026-09-24'),
+    }));
+    r.check('IS-16（YYYY-MM-DD_<タイトル>.md・空は無題・禁止文字は - に置換）',
+      fn2.normal === '2026-09-24_本番停止手順書.md'
+      && fn2.empty === '2026-09-24_無題.md'
+      && fn2.dirty === '2026-09-24_A-B-C-D-E-F-G-H-I.md',
+      JSON.stringify(fn2));
   }
 
   /* ========== UI 経路 ========== */
@@ -272,6 +313,58 @@ const SAMPLE_MD = [
     u7.hiddenWhenFilled && u7.visibleWhenEmpty && u7.hiddenAfter && u7.hasOutput,
     JSON.stringify(u7));
 
+  /* IS-U10: ノートを直接作る */
+  const u10 = await page.evaluate(async () => {
+    document.getElementById('create-btn').click();
+    await new Promise(d => setTimeout(d, 300));
+    const names = Object.keys(window.__fsa.files);
+    const b = document.getElementById('banner');
+    return {
+      picked: window.__fsa.picked, names: names,
+      body: names.length ? window.__fsa.files[names[0]] : '',
+      banner: b.textContent, kind: b.className, hidden: b.hidden,
+      expected: window.issue.noteFileName(document.getElementById('title').value,
+        new Date().toISOString().slice(0, 10)),
+    };
+  });
+  r.check('IS-U10（04_Issues にノートを作成: ピッカー→規約どおりのファイル名→右ペインと同じ md→success）',
+    u10.picked >= 1 && u10.names.length === 1 && u10.names[0] === u10.expected
+    && u10.body.includes('status: open') && u10.body.includes('## 2. 論点')
+    && !u10.hidden && u10.kind.includes('banner-success') && u10.banner.includes(u10.expected),
+    JSON.stringify({ picked: u10.picked, names: u10.names, banner: u10.banner, kind: u10.kind }));
+
+  /* IS-U11: 同名は上書きしない */
+  const u11 = await page.evaluate(async () => {
+    const name = Object.keys(window.__fsa.files)[0];
+    window.__fsa.files[name] = 'SENTINEL';      // 触られないことを目印で見る
+    document.getElementById('create-btn').click();
+    await new Promise(d => setTimeout(d, 300));
+    const b = document.getElementById('banner');
+    return {
+      body: window.__fsa.files[name], count: Object.keys(window.__fsa.files).length,
+      banner: b.textContent, kind: b.className,
+    };
+  });
+  r.check('IS-U11（同名のノートがあれば上書きせず warn で止まる）',
+    u11.body === 'SENTINEL' && u11.count === 1
+    && u11.kind.includes('banner-warn') && u11.banner.includes('既に'),
+    JSON.stringify(u11));
+
+  /* IS-U12: FSA 非対応では作成ボタンを無効にして理由を出す（Check Vault と同型） */
+  const page2 = r.watch(await browser.newPage());
+  await page2.addInitScript(() => { delete window.showDirectoryPicker; });
+  await page2.goto(fileUrl('web/issue.html'));
+  const u12 = await page2.evaluate(() => ({
+    disabled: document.getElementById('create-btn').disabled,
+    note: document.getElementById('env-note').textContent,
+    noteHidden: document.getElementById('env-note').hidden,
+    copyEnabled: !document.getElementById('copy-btn').disabled,
+  }));
+  await page2.close();
+  r.check('IS-U12（FSA 非対応: 作成ボタンが無効＋理由を表示・コピーは使える）',
+    u12.disabled === true && !u12.noteHidden && u12.note.includes('Chrome') && u12.copyEnabled,
+    JSON.stringify(u12));
+
   /* IS-U8: 幅390px */
   await page.setViewportSize({ width: 390, height: 800 });
   const u8 = await page.evaluate(() =>
@@ -284,7 +377,7 @@ const SAMPLE_MD = [
   await page.click('ul.tool-list .tool-name:text-is("Check Issue")');
   await page.waitForLoadState('load');
   const hubTitle = await page.title();
-  r.check('ハブの「発想」から遷移でき title が命名規約どおり',
+  r.check('ハブの「タスク」から遷移でき title が命名規約どおり',
     hubTitle === 'Check Issue (issue)', hubTitle);
 
   await browser.close();

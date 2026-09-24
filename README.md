@@ -29,6 +29,7 @@ open index.html          # macOS。Windows は start index.html / Linux は xdg-
 | ツール | できること | カテゴリ |
 |---|---|---|
 | **Plan Tasks**（taskboard） | `tasks.md` を表形式で閲覧・編集。完了・開始日・期限・優先度、タイムライン表示、Excel 用コピー | タスク |
+| **Check Issue**（issue） | 論点（イシュー）の点検。貼った文章が「イシューか」を判定し、04_Issues 用の md とタスク1行を出す | タスク |
 | **Convert Table**（excel2md） | Excel のセル範囲（TSV）⇔ Markdown テーブルの双方向変換。結合セルの展開、列の揃え指定 | 変換・比較 |
 | **Convert Data**（devpad） | 開発ユーティリティ集。JSON・XML・SQL 整形／エスケープ／URL／Base64／正規表現／基数変換／Unix 時刻／UUID | 変換・比較 |
 | **Normalize Text**（norm） | 日本語表記の正規化（全角半角・ハイフン・波ダッシュ・空白・NFKC）。変更箇所をハイライト | 変換・比較 |
@@ -40,7 +41,6 @@ open index.html          # macOS。Windows は start index.html / Linux は xdg-
 | **Draw Diagram**（diagram） | テキストからフローチャート・シーケンス図 → PNG コピー / SVG 保存 | 設計 |
 | **Draw Mindmap**（mindmap） | 箇条書き → マインドマップ。1行目が中心テーマ、タブで階層 | 発想 |
 | **Sort Ideas**（board） | 付箋ボード。付箋を置いて・並べて・色分け・結線 → md アウトライン書き出し / PNG コピー | 発想 |
-| **Check Issue**（issue） | 論点（イシュー）の点検。貼った文章が「イシューか」を判定し、04_Issues 用の md とタスク1行を出す | 発想 |
 | **Mask Image**（mask） | スクショのマスキングと注釈。モザイク・黒塗り・枠・矢印・テキスト・番号スタンプ・切り抜き → PNG コピー | 画像 |
 | **Check Vault**（vaultlint） | Obsidian vault の健全性チェック。リンク切れ・添付消失・ファイル名の罠を検出し、承認した修復を実行 | 整理 |
 | **Calc Dates**（dates） | 日付・営業日・工数の計算。N 営業日後、期限の逆算、和暦/年度、人日⇄時間⇄人月換算 | PM |

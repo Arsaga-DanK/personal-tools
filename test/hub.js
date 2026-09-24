@@ -67,7 +67,7 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
   // 前半は**意図的な固定ピン**（ツール追加・改名を意識的な仕様変更にする関門）。
   // 後半は導出値との照合（描画順が TOOLS × CATEGORY_ORDER に従っているか）
   r.check('HUB-3（グリッドは1枚・並びは CATEGORY_ORDER → TOOLS 配列順）',
-    eq(order.toolsArray, ['Plan Tasks', 'Convert Table', 'Convert Data', 'Normalize Text', 'Compare Text', 'Unify Terms', 'Fill Template', 'Document Schema', 'Export Outline', 'Draw Diagram', 'Draw Mindmap', 'Sort Ideas', 'Check Issue', 'Mask Image', 'Check Vault', 'Calc Dates', 'Draw Gantt'])
+    eq(order.toolsArray, ['Plan Tasks', 'Check Issue', 'Convert Table', 'Convert Data', 'Normalize Text', 'Compare Text', 'Unify Terms', 'Fill Template', 'Document Schema', 'Export Outline', 'Draw Diagram', 'Draw Mindmap', 'Sort Ideas', 'Mask Image', 'Check Vault', 'Calc Dates', 'Draw Gantt'])
     && order.grids === 1 && eq(order.rendered, order.expected),
     JSON.stringify([order.grids, order.rendered, order.expected]));
 
@@ -122,7 +122,7 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     };
   });
   r.check('HUB-5（検索: 空・表示名・説明・用途・大文字小文字・部分一致）',
-    eq(search.empty, ['Plan Tasks', 'Convert Table', 'Convert Data', 'Normalize Text', 'Compare Text', 'Unify Terms', 'Fill Template', 'Document Schema', 'Export Outline', 'Draw Diagram', 'Draw Mindmap', 'Sort Ideas', 'Check Issue', 'Mask Image', 'Check Vault', 'Calc Dates', 'Draw Gantt'])
+    eq(search.empty, ['Plan Tasks', 'Check Issue', 'Convert Table', 'Convert Data', 'Normalize Text', 'Compare Text', 'Unify Terms', 'Fill Template', 'Document Schema', 'Export Outline', 'Draw Diagram', 'Draw Mindmap', 'Sort Ideas', 'Mask Image', 'Check Vault', 'Calc Dates', 'Draw Gantt'])
     && eq(search.byName, ['Plan Tasks']) && eq(search.byDesc, ['Plan Tasks', 'Check Vault'])   // 'vault' は両ツールの desc にある
     && eq(search.byWhen, ['Plan Tasks']) && eq(search.caseInsensitive, ['Convert Data'])
     && eq(search.none, []),
@@ -216,7 +216,7 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
   r.check('HUB-6（UI 検索: 絞り込み・該当なし・クリアで復帰）',
     eq(s1.names, ['Normalize Text'])
     && eq(s2.names, []) && s2.empty === '該当なし'
-    && eq(s3.names, ['Plan Tasks', 'Convert Table', 'Convert Data', 'Normalize Text', 'Compare Text', 'Unify Terms', 'Fill Template', 'Document Schema', 'Export Outline', 'Draw Diagram', 'Draw Mindmap', 'Sort Ideas', 'Check Issue', 'Mask Image', 'Check Vault', 'Calc Dates', 'Draw Gantt']),
+    && eq(s3.names, ['Plan Tasks', 'Check Issue', 'Convert Table', 'Convert Data', 'Normalize Text', 'Compare Text', 'Unify Terms', 'Fill Template', 'Document Schema', 'Export Outline', 'Draw Diagram', 'Draw Mindmap', 'Sort Ideas', 'Mask Image', 'Check Vault', 'Calc Dates', 'Draw Gantt']),
     JSON.stringify([s1, s2, s3]));
 
   /* ---------- HUB-21: チップの絞り込み（検索と合成・もう一度押すと解除） ---------- */
@@ -241,7 +241,7 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     return { only, combined, released };
   });
   r.check('HUB-21（チップで絞る・検索と合成・再押下で解除・aria-pressed が追随）',
-    eq(chipFilter.only.names, ['Draw Mindmap', 'Sort Ideas', 'Check Issue'])
+    eq(chipFilter.only.names, ['Draw Mindmap', 'Sort Ideas'])
     && chipFilter.only.pressed === 'true' && chipFilter.only.all === 'false'
     && eq(chipFilter.combined, ['Draw Mindmap'])
     && chipFilter.released.names.length === 17 && chipFilter.released.pressed === 'false',
