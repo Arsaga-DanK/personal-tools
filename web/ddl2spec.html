@@ -45,6 +45,8 @@
 <script src="../lib/sql.js"></script>
 <script src="../lib/excel.js"></script>
 <script src="../lib/storage.js"></script>
+<script src="../lib/tools.js"></script>
+<script src="../lib/launcher.js"></script>
 <script src="../lib/handoff.js"></script>
 <script src="../lib/edit.js"></script>
 <script>
@@ -869,6 +871,8 @@ ToolStorage.mountWarning();
   }
 }
 ToolEdit.tabIndent(el('input'));   // Tab=インデント（DDL の字下げ。Esc→Tab で脱出 — lib/edit.js）
+
+ToolLauncher.mount();   // ☰ ツール / Cmd+Ctrl+K で引き出しメニュー（lib/launcher.js）
 </script>
 </body>
 </html>

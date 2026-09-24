@@ -372,6 +372,8 @@
 
 <script src="../lib/ui.js"></script>
 <script src="../lib/storage.js"></script>
+<script src="../lib/tools.js"></script>
+<script src="../lib/launcher.js"></script>
 <script src="../lib/config.js"></script>
 <script src="../lib/edit.js"></script>
 <script src="../lib/handoff.js"></script>
@@ -4061,6 +4063,8 @@ ToolEdit.mountTodayShortcut();   // Cmd/Ctrl+; = 今日（lib/edit.js — TB-Q59
 ToolUI.mountModeSwitch();        // Cmd/Ctrl+Shift+E でタスク ⇔ イシュー
 render();
 initFile();
+
+ToolLauncher.mount();   // ☰ ツール / Cmd+Ctrl+K で引き出しメニュー（lib/launcher.js）
 </script>
 </body>
 </html>

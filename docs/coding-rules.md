@@ -22,6 +22,8 @@ CLAUDE.md（作業原則）と `docs/specs/`（ツール別契約）の間を埋
 | excel.js | `copy(html, text)` / `cellStyle(value, {header, align})` / `MANGLE_RES` | Excel 向けコピーは**必ず二重フレーバー**（execCommand 先行 — async clipboard は mso- 系をサニタイズする）。文字列化ガードの正本はここ。**表の組み立て（th/td・rowspan）は各ツールに書く** |
 | sql.js | `SqlLex.tokenize` | 字句解析のみ共有。整形・キーワードは devpad 側 |
 | mmd.js | `ToolMmd.render(host, dsl)` / `toPngBlob(svg, scale)` | 同梱 mermaid のラッパ（diagram/gantt/mindmap）。**テーマ固定と `htmlLabels:false`（トップレベルと flowchart の両方）が正本** — foreignObject が残ると canvas での PNG 化が壊れる（実測） |
+| tools.js | `ToolsList.TOOLS` / `CATEGORY_ORDER` / `filter(q)` / `recent()` / `recordUse(alias)` / `hrefFor(path)` / `hubHref()` / `currentAlias()` | **ツール登録簿の正本**（2026-09-24 に index.html から移設）。追加はここ1箇所。`path` は index.html 基準で書き、`web/` 配下からは `hrefFor` が剥がす。**絶対パスを書かない** |
+| launcher.js | `ToolLauncher.mount()` | `.tool-header` に［☰ ツール］を置く引き出し式メニュー（Cmd/Ctrl+K）。**ハブには載せない**。`lib/tools.js` の後に読む。契約は `docs/specs/launcher.md` |
 | handoff.js | `ToolHandoff.send(to, kind, text, path)` / `take(me)` / `peek(me)` | ツール間の受け渡し。**sessionStorage の一時バッファで正本ではない**。詳細は下の「ツール間の受け渡し」 |
 | edit.js | `ToolEdit.tabIndent(el, opts)` / `mountTodayShortcut()` / `today()` / `listItem` / `renumber` | 適用範囲の線引きは下の「UI の標準形」。**構造テキストの欄だけ**に入れる。`{mdList:true}` は**md を書く欄だけ**（下記） |
 
@@ -115,7 +117,10 @@ CLAUDE.md（作業原則）と `docs/specs/`（ツール別契約）の間を埋
 
 1. `docs/specs/<英名>.md`（決定事項は Q 番号で記録）→ `test/<英名>.js` → **RED を見る**
 2. `web/<英名>.html` を実装 → `./test/run <英名>` GREEN
-3. index.html の TOOLS に登録。新カテゴリなら CATEGORY_ORDER にも追加
+3. **`lib/tools.js` の TOOLS に登録**（2026-09-24 に index.html から移設。ここに足すと
+   **ハブと全ツールの引き出しメニューの両方**に載る）。新カテゴリなら CATEGORY_ORDER にも追加
+3b. `web/<英名>.html` に `lib/tools.js` → `lib/launcher.js` を読み込み、末尾で `ToolLauncher.mount()`。
+   `test/launcher.js` の LA-01 が**17本すべてに載っていること**を数えるので、忘れると落ちる
 4. **test/hub.js の「固定ピン」を更新**（HUB-2/3前半/4/5/6/8。カテゴリ追加時は HUB-1）。
    HUB-3後半・HUB-5b・HUB-7・HUB-9・HUB-10 は TOOLS から導出するので**触らなくてよい**
 5. **CLAUDE.md を4箇所＋命名対応**（web/ 本数×2・specs 本数・ハーネス本数・「現在の対応」行）

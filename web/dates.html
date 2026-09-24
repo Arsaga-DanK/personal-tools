@@ -73,6 +73,8 @@
 
 <script src="../lib/ui.js"></script>
 <script src="../lib/storage.js"></script>
+<script src="../lib/tools.js"></script>
+<script src="../lib/launcher.js"></script>
 <script src="../lib/edit.js"></script>
 <script>
 'use strict';
@@ -367,6 +369,8 @@ window.dates = {
   addBusinessDays, businessDaysBetween, isHoliday, holidayName, inRange,
   toWareki, toFiscal, convertEffort, HOLIDAYS, RANGE,
 };
+
+ToolLauncher.mount();   // ☰ ツール / Cmd+Ctrl+K で引き出しメニュー（lib/launcher.js）
 </script>
 </body>
 </html>

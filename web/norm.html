@@ -98,6 +98,8 @@
 
 <script src="../lib/ui.js"></script>
 <script src="../lib/storage.js"></script>
+<script src="../lib/tools.js"></script>
+<script src="../lib/launcher.js"></script>
 <script>
 'use strict';
 
@@ -549,6 +551,8 @@ el.importFile.addEventListener('change', () => {
   updateSampleBtn();
   run();
 })();
+
+ToolLauncher.mount();   // ☰ ツール / Cmd+Ctrl+K で引き出しメニュー（lib/launcher.js）
 </script>
 </body>
 </html>

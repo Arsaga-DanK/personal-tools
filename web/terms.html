@@ -42,6 +42,8 @@
 
 <script src="../lib/ui.js"></script>
 <script src="../lib/storage.js"></script>
+<script src="../lib/tools.js"></script>
+<script src="../lib/launcher.js"></script>
 <script src="../lib/edit.js"></script>
 <script>
 'use strict';
@@ -229,6 +231,8 @@ updateSampleBtn();
 run();
 // ルール欄だけ Tab=タブ文字（区切りを打てる）。原稿欄は散文なので奪わない — lib/edit.js
 ToolEdit.tabIndent(el('rules'));
+
+ToolLauncher.mount();   // ☰ ツール / Cmd+Ctrl+K で引き出しメニュー（lib/launcher.js）
 </script>
 </body>
 </html>

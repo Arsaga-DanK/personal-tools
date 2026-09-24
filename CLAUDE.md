@@ -22,13 +22,14 @@ CLI（`bin/`）は形態として認めているが、まだ1本も無い（→�
 ```
 README.md    公開リポジトリの入口。ツール表と本数は test/hub.js（HUB-15/16）が TOOLS と照合する
 LICENSE      MIT
-index.html   ハブ。web/ツール一覧（内部のTOOLS配列に1行足すと追加される）
+index.html   ハブ。ツール一覧の正本は lib/tools.js の TOOLS（1行足すとハブにも引き出しメニューにも載る）
 web/         ブラウザツール17本。1ツール=1HTML完結
-lib/         web ツールの共通コード。ui.css / ui.js / storage.js / config.js / sql.js / excel.js / mmd.js / edit.js / handoff.js
+lib/         web ツールの共通コード。ui.css / ui.js / storage.js / config.js / sql.js / excel.js / mmd.js / edit.js / handoff.js /
+             tools.js（ツール登録簿の正本）/ launcher.js（引き出し式のツールメニュー）
              同梱ライブラリは lib/vendor/（現在 mermaid のみ。作法は coding-rules.md）
 docs/        coding-rules.md（実装規約の正本）/ verification-notes.md（検証の罠）/
              ux-backlog.md / tool-backlog.md
-docs/specs/  ツールごとの仕様書兼テストケース（17本＋ taskboard-decisions.md の計18ファイル）
+docs/specs/  ツールごとの仕様書兼テストケース（17本＋ launcher.md（共通コンポーネント）＋ taskboard-decisions.md の計19ファイル）
 test/        検証ハーネス（`./test/run [ツール名]`。書き方は test/README.md）
 ```
 
@@ -130,7 +131,7 @@ test/        検証ハーネス（`./test/run [ツール名]`。書き方は tes
 
 - 検証時は `docs/verification-notes.md`（環境・道具・既知の罠）を必ず参照する
 - **合否の正本は `./test/run <tool>` が全 pass（コンソールエラー0件を含む）**。
-  17ツールすべてにハーネスがある。手順は `test/README.md`
+  17ツール＋ハブ＋launcher の19ハーネスがある。手順は `test/README.md`
 - `docs/specs/<tool>.md` のテストケースが全て一致すること（ハーネスがそれを照合している）。
   ブラウザツールも、変換ロジックを node 等で単体実行するのではなく、
   HTML から関数を切り出さずに済む範囲で、入力→期待出力の照合結果を提示する

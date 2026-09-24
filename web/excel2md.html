@@ -82,6 +82,8 @@
 <script src="../lib/ui.js"></script>
 <script src="../lib/excel.js"></script>
 <script src="../lib/storage.js"></script>
+<script src="../lib/tools.js"></script>
+<script src="../lib/launcher.js"></script>
 <script src="../lib/handoff.js"></script>
 <script src="../lib/edit.js"></script>
 <script>
@@ -886,6 +888,8 @@ el.copyBtn.addEventListener('click', () => {
   // Tab = タブ文字（列区切りをキーボードで足せる。Esc→Tab で脱出 — lib/edit.js）
   ToolEdit.tabIndent(el.input);
 })();
+
+ToolLauncher.mount();   // ☰ ツール / Cmd+Ctrl+K で引き出しメニュー（lib/launcher.js）
 </script>
 </body>
 </html>

@@ -514,12 +514,22 @@ const shotPath = name => path.join(REPO, '.playwright-mcp', name); // .gitignore
 
   /* ========== ハブ導線 ========== */
   await page.goto(fileUrl('index.html'));
-  const hub = await page.evaluate(() => ({
-    link: !!Array.from(document.querySelectorAll('a')).find(a => a.href.includes('web/excel2md.html')),
-    desc: document.body.textContent.includes('表プレビュー'),
-    oldEntry: document.body.textContent.includes('md2excel'),
-  }));
-  r.check('検証手順7（ハブ導線）', hub.link && hub.desc && !hub.oldEntry, JSON.stringify(hub));
+  /* desc は 2026-08-18 に画面から外れて title 属性へ移った。
+     旧版は body.textContent で見ていたが、それは **<script> のソース文字列**を拾っていただけで、
+     TOOLS を lib/tools.js へ移した 2026-09-24 に落ちて発覚した（偽の緑）。
+     いまは登録データと実際の title を直接照合する */
+  const hub = await page.evaluate(() => {
+    const t = window.hub.TOOLS.find(x => x.alias === 'excel2md');
+    const a = Array.from(document.querySelectorAll('a')).find(x => x.href.includes('web/excel2md.html'));
+    return {
+      link: !!a,
+      desc: !!t && t.desc.includes('表プレビュー'),
+      titleShown: !!a && (a.title || '').includes('表プレビュー'),
+      oldEntry: window.hub.TOOLS.some(x => JSON.stringify(x).includes('md2excel')),
+    };
+  });
+  r.check('検証手順7（ハブ導線: リンク・desc が登録にあり title にも出る・旧名が残っていない）',
+    hub.link && hub.desc && hub.titleShown && !hub.oldEntry, JSON.stringify(hub));
 
   /* ========== 揃え操作行の sticky とダークモード ========== */
   const dark = r.watch(await browser.newPage({ colorScheme: 'dark', viewport: { width: 1280, height: 700 } }));

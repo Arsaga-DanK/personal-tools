@@ -117,6 +117,8 @@
 
 <script src="../lib/ui.js"></script>
 <script src="../lib/storage.js"></script>
+<script src="../lib/tools.js"></script>
+<script src="../lib/launcher.js"></script>
 <script src="../lib/edit.js"></script>
 <script src="../lib/handoff.js"></script>
 <script src="../lib/vendor/mermaid.min.js"></script>
@@ -1085,6 +1087,8 @@ window.gantt = {
     return { present: !!svg, nodes: svg ? svg.querySelectorAll('g, rect, text').length : 0 };
   },
 };
+
+ToolLauncher.mount();   // ☰ ツール / Cmd+Ctrl+K で引き出しメニュー（lib/launcher.js）
 </script>
 </body>
 </html>

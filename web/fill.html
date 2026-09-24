@@ -47,6 +47,8 @@
 
 <script src="../lib/ui.js"></script>
 <script src="../lib/storage.js"></script>
+<script src="../lib/tools.js"></script>
+<script src="../lib/launcher.js"></script>
 <script src="../lib/edit.js"></script>
 <script>
 'use strict';
@@ -228,6 +230,8 @@ ToolEdit.mountTodayShortcut();   // Ctrl/Cmd+; = 今日（日報の日付 — li
 
 // テスト用フック（docs/specs/fill.md）
 window.fill = { parseVars, render };
+
+ToolLauncher.mount();   // ☰ ツール / Cmd+Ctrl+K で引き出しメニュー（lib/launcher.js）
 </script>
 </body>
 </html>
