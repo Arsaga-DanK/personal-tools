@@ -38,8 +38,11 @@
   .wz-u { display: flex; gap: 6px; align-items: center; margin: 0 0 6px; flex-wrap: wrap; }
   .wz-u-what { flex: 2 1 180px; min-width: 0; }
   .wz-u-who { flex: 1 1 120px; min-width: 0; }
-  .wz-u textarea { min-height: 72px; }
   .modal-actions .spacer { flex: 1; }
+  /* ウィザードの欄は「散文を1〜3行」。lib/ui.css の textarea 既定（min-height:220px・等幅）は
+     2ペインの編集欄向けなので、ここだけ外して rows どおりの高さにする */
+  #wz-body textarea { min-height: 0; font-family: inherit; font-size: 13px; }
+  #wz-body input[type="text"], #wz-body input[type="date"] { font-size: 13px; }
 </style>
 </head>
 <body>
@@ -50,7 +53,7 @@
     <a href="issue.html" aria-current="page">🎯 イシュー</a>
   </nav>
   <h1>Check Issue</h1>
-  <p class="subtitle">論点を点検して形にする — 貼った文章が「イシューか」を判定し、04_Issues にノートを作る（tasks.md 用の行も出す）</p>
+  <p class="subtitle">論点（イシュー）を立ててノートにする — ［イシューを書く］で1問ずつ答えると、マイルストーンから逆算して 04_Issues にノートができる</p>
 
   <div class="toolbar">
     <button class="primary" id="wizard-btn">🎯 イシューを書く</button>
