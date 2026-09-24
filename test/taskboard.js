@@ -6,7 +6,7 @@
 
    照合するID: TB-01〜20・parse チェック / TB-S1〜S11（セクション移動）/
    TB-A1〜A7（事故防止）/ TB-I1〜I7（IME ガード）/ TB-U1〜U7（追加の取り消し）/
-   TB-P1〜P19（計画ビュー: 🛫 とタイムライン）/ TB-M1〜M2（モード切替と共通モーダル）/ TB-AS1〜AS4（自動保存）/ TB-T1〜T3（ツールバー整理・モード切替）/ TB-H2〜H3（Check Issue からの受け取り）
+   TB-P1〜P19（計画ビュー: 🛫 とタイムライン）/ TB-M1〜M2（モード切替と共通モーダル）/ TB-AS1〜AS4（自動保存）/ TB-T1〜T3（ツールバー整理・モード切替）/ TB-H2〜H3（Check Issue からの受け取り）/ TB-D4〜D5・W2（日付の既定と チップ・モーダル幅）
    仕様の正本は docs/specs/taskboard.md。期待値を変えるときは spec を先に直す。 */
 
 const path = require('path');
@@ -3743,6 +3743,86 @@ const F5 = [
     && h2.link.includes('20260924_現状整理') && h2.moreOpen,
     JSON.stringify(h2));
   await page.evaluate(() => { document.getElementById('modal').hidden = true; });
+
+  /* ---------- TB-D4/D5/W2: 日付は今日が既定・チップ・モーダルが横にはみ出さない ---------- */
+  await page.goto(fileUrl('web/taskboard.html'));
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  const d4 = await page.evaluate(async (f1) => {
+    const s = window.taskboard.test.newSession(f1);
+    const today = window.ToolEdit.today();
+    document.getElementById('btn-add-form').click();
+    const first = { start: document.getElementById('modal-start').value, due: document.getElementById('modal-due').value };
+    // 期限をクリアして保存 → 「クリアした」記憶（''）が残り、次の追加は空のまま（TB-D2 を壊さない）
+    document.getElementById('modal-content').value = 'D4 テスト';
+    document.getElementById('modal-due').value = '';
+    document.getElementById('modal-due').dispatchEvent(new Event('change', { bubbles: true }));
+    document.querySelector('#modal .modal-actions .primary').click();
+    await new Promise(r => setTimeout(r, 200));
+    document.getElementById('btn-add-form').click();
+    const second = { start: document.getElementById('modal-start').value, due: document.getElementById('modal-due').value };
+    document.getElementById('modal').hidden = true;
+    return { today, first, second };
+  }, F1);
+  r.check('TB-D4（記憶が無ければ開始日・期限は今日／期限をクリアして保存したら次は空のまま）',
+    d4.first.start === d4.today && d4.first.due === d4.today
+    && d4.second.start === d4.today && d4.second.due === '',
+    JSON.stringify(d4));
+
+  const d5 = await page.evaluate(() => {
+    const today = window.ToolEdit.today(), add = window.ToolEdit.addDays;
+    document.getElementById('btn-add-form').click();
+    const due = document.getElementById('modal-due');
+    let changes = 0; due.addEventListener('change', () => changes++);
+    const chips = Array.from(due.parentElement.querelectorAll ? [] : due.nextElementSibling.querySelectorAll('.date-chip'));
+    const byLabel = l => chips.find(c => c.textContent === l);
+    due.value = today; byLabel('+1').click(); const p1 = due.value;
+    byLabel('+7').click(); const p8 = due.value;             // 欄の値からずらす（今日+1 → +8）
+    byLabel('今日').click(); const t = due.value;
+    const startChips = document.getElementById('modal-start').nextElementSibling;
+    document.getElementById('modal').hidden = true;
+    return { labels: chips.map(c => c.textContent), p1, p8, t, changes,
+      exp1: add(today, 1), exp8: add(today, 8), today,
+      startHasChips: !!startChips && startChips.classList.contains('date-chips') };
+  });
+  r.check('TB-D5（日付チップは 今日/+1/+7 の3つ・欄の値からずらす・change が発火する）',
+    JSON.stringify(d5.labels) === JSON.stringify(['今日', '+1', '+7'])
+    && d5.p1 === d5.exp1 && d5.p8 === d5.exp8 && d5.t === d5.today && d5.changes === 3
+    && d5.startHasChips,
+    JSON.stringify(d5));
+
+  // W2: 本文が長いタスクがあると依存セレクトがモーダルを押し広げていた（利用者のスクショ）
+  await page.setViewportSize({ width: 700, height: 760 });
+  const LONG = ['# tasks', '', '## ITK',
+    '- [ ] 先方に確認：検証環境構築の認識合わせ(ITKインフラ担当者)（IPアドレス・ホスト名・ファイアウォールの穴あけ依頼・切替日程の合意を含む） 🛫 2026-09-16 📅 2026-10-02',
+    '- [ ] ゴールの仮決め 🛫 2026-09-24 📅 2026-09-25', '', '## その他', ''].join('\n');
+  const w2m = await page.evaluate(async (txt) => {
+    window.taskboard.test.newSession(txt);
+    // 行の［編集］ボタンで編集モーダルを開く（__h.openEdit と同じ経路。ここではヘルパ未導入なので直接）
+    const tr = Array.from(document.querySelectorAll('#task-table tbody tr'))
+      .find(x => x.children[1] && x.children[1].textContent.includes('ゴールの仮決め'));
+    Array.from(tr.querySelectorAll('.btn-child')).find(x => x.textContent === '編集').click();
+    await new Promise(r => setTimeout(r, 150));
+    document.getElementById('modal-more').open = true;
+    await new Promise(r => setTimeout(r, 50));
+    const m = document.querySelector('#modal .modal');
+    const opts = Array.from(document.querySelectorAll('#modal-dep-select option'));
+    const longOpt = opts.find(o => (o.title || '').includes('ファイアウォール'));
+    const out = {
+      open: !document.getElementById('modal').hidden,
+      docNoScroll: document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+      modalNoScroll: m.scrollWidth <= m.clientWidth,
+      selectFits: document.getElementById('modal-dep-select').getBoundingClientRect().right <= m.getBoundingClientRect().right + 1,
+      shortLabel: !!longOpt && longOpt.textContent.length <= 40 && longOpt.textContent.endsWith('…'),
+      fullTitle: !!longOpt && longOpt.title.includes('切替日程の合意'),
+    };
+    document.getElementById('modal').hidden = true;
+    return out;
+  }, LONG);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  r.check('TB-W2（長い本文の依存セレクトがあっても 700px でモーダルが横にはみ出さない・選択肢は40字＋title に全文）',
+    w2m.open && w2m.docNoScroll && w2m.modalNoScroll && w2m.selectFits && w2m.shortLabel && w2m.fullTitle,
+    JSON.stringify(w2m));
 
   /* ---------- TB-T3: Cmd/Ctrl+Shift+E でモード切替（最後にやる — 遷移するため） ---------- */
   await page.goto(fileUrl('web/taskboard.html'));

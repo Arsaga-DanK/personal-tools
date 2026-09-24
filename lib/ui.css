@@ -334,3 +334,19 @@ nav.modes a[aria-current="page"] { background: var(--accent); color: #fff; font-
   border-top: 1px solid var(--border); padding-top: 10px;
 }
 .launcher-hub:hover { color: var(--accent); }
+
+/* ---------- 日付チップ（lib/edit.js dateChips）。date input の直後に置く ---------- */
+.date-chips { display: inline-flex; gap: 3px; margin-left: 4px; vertical-align: middle; }
+.date-chip { font-size: 11px; padding: 1px 7px; border-radius: 999px; line-height: 1.5; color: var(--muted); }
+.date-chip:hover { color: var(--accent); transform: none; box-shadow: none; }
+
+/* ---------- モーダルの中で横にはみ出さないための共通ガード（2026-09-24 実測: 依存セレクトの
+   長い選択肢がモーダル幅を押し広げて横スクロールが出た） ---------- */
+.modal .row-btns { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.modal .row-btns:not(.mf-body) { align-items: center; }
+/* .mf-body は縦並び（column）なので align-items:center を当てると子が中央に寄る（2026-09-24 実測）。
+   row-btns を兼ねる .mf-body だけ横並びにして、左寄せのまま折り返す */
+.modal .mf-body.row-btns { flex-direction: row; align-items: center; justify-content: flex-start; }
+.modal select { max-width: 100%; min-width: 0; text-overflow: ellipsis; }
+.modal input[type="text"], .modal input[type="search"] { max-width: 100%; min-width: 0; }
+.modal label { max-width: 100%; min-width: 0; }

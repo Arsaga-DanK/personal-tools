@@ -25,7 +25,7 @@ CLAUDE.md（作業原則）と `docs/specs/`（ツール別契約）の間を埋
 | tools.js | `ToolsList.TOOLS` / `CATEGORY_ORDER` / `filter(q)` / `recent()` / `recordUse(alias)` / `hrefFor(path)` / `hubHref()` / `currentAlias()` | **ツール登録簿の正本**（2026-09-24 に index.html から移設）。追加はここ1箇所。`path` は index.html 基準で書き、`web/` 配下からは `hrefFor` が剥がす。**絶対パスを書かない** |
 | launcher.js | `ToolLauncher.mount()` | `.tool-header` に［☰ ツール］を置く引き出し式メニュー（Cmd/Ctrl+K）。**ハブには載せない**。`lib/tools.js` の後に読む。契約は `docs/specs/launcher.md` |
 | handoff.js | `ToolHandoff.send(to, kind, text, path)` / `take(me)` / `peek(me)` | ツール間の受け渡し。**sessionStorage の一時バッファで正本ではない**。詳細は下の「ツール間の受け渡し」 |
-| edit.js | `ToolEdit.tabIndent(el, opts)` / `mountTodayShortcut()` / `today()` / `listItem` / `renumber` | 適用範囲の線引きは下の「UI の標準形」。**構造テキストの欄だけ**に入れる。`{mdList:true}` は**md を書く欄だけ**（下記） |
+| edit.js | `ToolEdit.tabIndent(el, opts)` / `mountTodayShortcut()` / `today()` / `addDays(ymd, n)` / **`dateChips(input)`** / `listItem` / `renumber` | 適用範囲の線引きは下の「UI の標準形」。**構造テキストの欄だけ**に入れる。`{mdList:true}` は**md を書く欄だけ**（下記） |
 
 - **共通化の条件**: 「同じ変更に N 箇所の編集が必要だった実測」または「2番目の利用者が生まれた瞬間」。
   美観・予感では抽出しない（見送り判断も tool-backlog / ux-backlog に記録する）
@@ -109,6 +109,8 @@ CLAUDE.md（作業原則）と `docs/specs/`（ツール別契約）の間を埋
   CodeMirror 等は数百KB とキーバインドの二重管理を持ち込む — 2026-08-18 の判断）
   （**Tab = インデント**・Shift+Tab = 戻す・**Esc 直後の Tab はフォーカス移動** = 脱出経路・IME 中は奪わない
   — ブラウザの Tab がフォーカス移動に奪われて書けない、という利用者指摘 2026-08-17 への構造対処）。
+  **date input には `ToolEdit.dateChips(input)` を付け、既定値は今日にする**（2026-09-24。利用者「日付を入力しにくすぎる」。
+  チップは 今日/+1/+7 の3つだけ — 明日・明後日…とボタンを増やさない。+N は欄の値からずらす）。
   日付を書くページは `ToolEdit.mountTodayShortcut`（**Ctrl/Cmd+; = 今日** — Excel の慣習。
   date input は値セット・テキスト系はキャレット挿入。input/change を発火して再計算に乗せる）
 - 完成したら index.html の TOOLS 配列に登録（`{name, alias, path, desc, category, when}`）

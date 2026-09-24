@@ -1169,6 +1169,7 @@ function openIssueEdit(art, btn, it) {
   box.appendChild(row);
   box.appendChild(vl);
   art.insertBefore(box, btn.nextSibling);
+  chipsAfter(due);
   live();
   line.focus();
 }
@@ -1412,6 +1413,7 @@ function openAddIssue(row, n) {
   box.appendChild(r2);
   box.appendChild(vl);
   row.parentNode.insertBefore(box, row.nextSibling);
+  chipsAfter(due);
   live();
   line.focus();
 }
@@ -1583,10 +1585,14 @@ function mkText(id, val, ph) {
   e.type = 'text'; if (id) e.id = id; e.value = val || ''; e.placeholder = ph || '';
   e.spellcheck = false; return e;
 }
+/* 日付欄は**今日が既定**（利用者「日付を入力しにくすぎる。まず今日をデフォルトで」）。
+   チップ（今日 / +1 / +7）は要素が DOM に入った後でないと付けられないので、
+   付ける側が `withChips(mkDate(...))` を親に追加した直後に呼ぶ */
 function mkDate(id, val) {
   const e = document.createElement('input');
-  e.type = 'date'; if (id) e.id = id; e.value = val || ''; return e;
+  e.type = 'date'; if (id) e.id = id; e.value = val || todayStr(); return e;
 }
+function chipsAfter(input) { if (window.ToolEdit && ToolEdit.dateChips) ToolEdit.dateChips(input); return input; }
 function mkArea(id, val, ph, rows) {
   const e = document.createElement('textarea');
   if (id) e.id = id; e.value = val || ''; e.placeholder = ph || '';
@@ -1713,6 +1719,8 @@ function wzRender() {
     const d = mkDate('wz-milestone-due', draft.milestoneDue);
     wzBind(d, 'milestoneDue');
     body.appendChild(wzField('いつまでに', d));
+    chipsAfter(d);
+    draft.milestoneDue = d.value;          // 既定（今日）を下書きにも反映
   } else if (wzStep === 1) {
     const list = document.createElement('div');
     list.id = 'wz-cands';
@@ -1728,6 +1736,8 @@ function wzRender() {
     const d = mkDate('wz-issue-due', draft.issueDue);
     wzBind(d, 'issueDue');
     body.appendChild(wzField('決着させる期限', d));
+    chipsAfter(d);
+    draft.issueDue = d.value;
     wzLive();
   } else if (wzStep === 2) {
     const k = document.createElement('select');
@@ -1764,6 +1774,8 @@ function wzRender() {
     const d = mkDate('wz-next-due', draft.nextDue);
     wzBind(d, 'nextDue');
     body.appendChild(wzField('期限', d));
+    chipsAfter(d);
+    draft.nextDue = d.value;
     if (!wzTarget || wzTarget.kind === 'line') {   // 新規ノートを作るときだけ名前を聞く
       const n = mkText('wz-note-title', draft.title, '例: 本番停止手順書');
       wzBind(n, 'title');
@@ -1942,6 +1954,8 @@ ToolStorage.mountWarning();
 
 ToolEdit.tabIndent($id('input'), { mdList: true });   // md を書く欄（coding-rules）
 ToolEdit.mountTodayShortcut();                        // Ctrl/Cmd+; = 今日（締切）
+if (!$id('deadline').value) { $id('deadline').value = todayStr(); run(); }   // 締切の既定は今日
+ToolEdit.dateChips($id('deadline'));
 ToolUI.mountModeSwitch();        // Cmd/Ctrl+Shift+E でタスク ⇔ イシュー
 
 // テスト用フック（docs/specs/issue.md）

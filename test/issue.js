@@ -461,6 +461,31 @@ const SAMPLE_MD = [
     el.dispatchEvent(new Event('input', { bubbles: true }));
   }, [sel, val]);
 
+  /* IS-U26: 日付欄は今日が既定・チップ 今日/+1/+7 */
+  const u26 = await page.evaluate(() => {
+    const today = window.ToolEdit.today(), add = window.ToolEdit.addDays;
+    const dl = document.getElementById('deadline');
+    const dlChips = dl.nextElementSibling;
+    document.getElementById('wizard-btn').click();
+    const ms = document.getElementById('wz-milestone-due');
+    const msChips = ms.nextElementSibling;
+    const plus1 = Array.from(msChips.querySelectorAll('.date-chip')).find(c => c.textContent === '+1');
+    plus1.click();
+    const out = {
+      today, deadlineDefault: dl.value,
+      dlChips: dlChips && dlChips.classList.contains('date-chips'),
+      msDefault: null, msAfter: ms.value, exp1: add(today, 1),
+      msChipLabels: Array.from(msChips.querySelectorAll('.date-chip')).map(c => c.textContent),
+    };
+    document.getElementById('wz-close').click();
+    return out;
+  });
+  r.check('IS-U26（締切もウィザードの日付も今日が既定・チップ 今日/+1/+7 で +1 が翌日になる）',
+    u26.deadlineDefault === u26.today && u26.dlChips
+    && JSON.stringify(u26.msChipLabels) === JSON.stringify(['今日', '+1', '+7'])
+    && u26.msAfter === u26.exp1,
+    JSON.stringify(u26));
+
   /* IS-U1: 貼る → 判定と md が出る */
   await setValue('#input', SAMPLE_MD);
   await page.waitForTimeout(400);
