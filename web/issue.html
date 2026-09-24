@@ -43,6 +43,39 @@
   .wz-s-what { flex: 2 1 180px; min-width: 0; }
   .wz-s-who { flex: 1 1 120px; min-width: 0; }
   .modal-actions .spacer { flex: 1; }
+  /* 一覧カード（IS-Q10）。**論点の一行を一番大きく**する — 眺めるだけで頭に入るのが狙い */
+  #cards { display: flex; flex-direction: column; gap: 10px; margin: 4px 0 18px; }
+  .issue-card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 12px 16px; box-shadow: var(--shadow);
+  }
+  .issue-card.is-closed { opacity: .72; }
+  .ic-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .ic-title { font-size: 14px; font-weight: 700; margin: 0; }
+  .ic-due { margin-left: auto; font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .ic-due.is-over { color: var(--error); font-weight: 600; }
+  .ic-issue { font-size: 15px; line-height: 1.55; margin: 8px 0 10px; overflow-wrap: anywhere; }
+  .ic-issue.is-empty { color: var(--muted); font-size: 13px; font-style: italic; }
+  .ic-meta { list-style: none; margin: 0 0 10px; padding: 0; display: flex;
+    flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
+  .ic-meta li { overflow-wrap: anywhere; }
+  .ic-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .ic-warn { font-size: 12px; color: var(--error); border-color: var(--warn-border); background: var(--warn-bg); }
+  .ic-ok { font-size: 12px; color: var(--success); }
+  .ic-obsidian { font-size: 12px; color: var(--accent); text-decoration: none;
+    border: 1px solid var(--border); border-radius: 8px; padding: 4px 10px; }
+  .ic-obsidian:hover { border-color: var(--accent); }
+  .ic-close { font-size: 12px; margin-left: auto; }
+  .ic-verdicts { list-style: none; margin: 10px 0 0; padding: 0;
+    display: flex; flex-direction: column; gap: 4px; }
+  .ic-verdicts li { font-size: 12px; padding: 4px 8px; border-radius: 6px;
+    border: 1px solid transparent; overflow-wrap: anywhere; }
+  .ic-verdicts .v-warn { background: var(--warn-bg); border-color: var(--warn-border); }
+  .ic-verdicts .v-info { color: var(--muted); }
+  .ic-empty { font-size: 13px; color: var(--muted); padding: 18px 4px; }
+  #paste-box > summary { cursor: pointer; color: var(--accent); font-size: 13px; padding: 4px 0; }
+  .paste-inner { padding-top: 6px; }
+  .paste-inner textarea { min-height: 180px; }
   /* ウィザードの欄は「散文を1〜3行」。lib/ui.css の textarea 既定（min-height:220px・等幅）は
      2ペインの編集欄向けなので、ここだけ外して rows どおりの高さにする */
   #wz-body textarea { min-height: 0; font-family: inherit; font-size: 13px; }
@@ -57,32 +90,44 @@
     <a href="issue.html" aria-current="page">🎯 イシュー</a>
   </nav>
   <h1>Check Issue</h1>
-  <p class="subtitle">論点（イシュー）を立ててノートにする — ［イシューを書く］で1問ずつ答えると、マイルストーンから逆算して 04_Issues にノートができる</p>
+  <p class="subtitle">04_Issues のイシューを一覧する — ［イシューを書く］で新しく立て、カードから閉じて振り返る</p>
 
   <div class="toolbar">
     <button class="primary" id="wizard-btn">🎯 イシューを書く</button>
-    <button id="create-btn">04_Issues にノートを作成</button>
-    <button id="copy-btn" hidden>md をコピー</button>
-    <button id="copy-tasks-btn">tasks.md 用の行をコピー</button>
-    <label class="field">締切<input type="date" id="deadline"></label>
-    <label class="field">タイトル<input type="text" id="title" placeholder="本番停止手順書"></label>
+    <button id="pick-btn">📂 04_Issues を開く</button>
+    <button id="reload-btn" hidden>再読込</button>
+    <label class="opts">表示 <select id="f-status">
+      <option value="open" selected>開いているもの</option>
+      <option value="all">すべて</option>
+      <option value="closed">閉じたもの</option>
+    </select></label>
+    <span class="spacer"></span>
+    <label class="opts" title="Obsidian の vault 名。カードの［Obsidian で開く］に使います（空ならリンクを作りません）">
+      vault 名 <input type="text" id="cfg-vault" size="10" placeholder="未設定">
+    </label>
+    <span class="summary" id="summary"></span>
   </div>
 
   <p class="summary" id="env-note" hidden></p>
   <div class="banner" id="banner" hidden></div>
 
-  <div class="panes">
-    <div class="pane">
-      <p class="pane-title">貼る（5ステップの md・定例メモ・掘削ログ）<button type="button" class="sample-btn" id="sample-btn">サンプルを入れる</button></p>
-      <textarea id="input" spellcheck="false" placeholder="## 1. ゴール&#10;- いつまでに何が達成されていればいい？&#10;&#10;## 2. 論点&#10;- 答えを出すべき問いを一行で&#10;&#10;## 3. 絵コンテ&#10;- 答えが出たとき最後に何を出す？&#10;&#10;## 4. サブイシュー&#10;- 聞く / 調べる / 試す を振る"></textarea>
-    </div>
-    <div class="pane">
-      <p class="pane-title">作られるノート（プレビュー）</p>
-      <textarea id="output" readonly spellcheck="false"></textarea>
-    </div>
-  </div>
+  <div id="cards"></div>
 
-  <ul id="verdict" class="verdict"></ul>
+  <details id="paste-box">
+    <summary>書いたものを貼って点検する</summary>
+    <div class="paste-inner">
+      <div class="toolbar">
+        <button class="primary" id="create-btn" title="Cmd/Ctrl+Enter">04_Issues にノートを作成</button>
+        <button id="copy-btn" hidden>md をコピー</button>
+        <button id="copy-tasks-btn">tasks.md 用の行をコピー</button>
+        <label class="field">締切<input type="date" id="deadline"></label>
+        <label class="field">タイトル<input type="text" id="title" placeholder="本番停止手順書"></label>
+        <button type="button" class="sample-btn" id="sample-btn">サンプルを入れる</button>
+      </div>
+      <textarea id="input" spellcheck="false" placeholder="## 1. ゴール&#10;- いつまでに何が達成されていればいい？&#10;&#10;## 2. 論点&#10;- 答えを出すべき問いを一行で&#10;&#10;## 3. 絵コンテ&#10;- 答えが出たとき最後に何を出す？&#10;&#10;## 4. サブイシュー&#10;- 聞く / 調べる / 試す を振る"></textarea>
+      <ul id="verdict" class="verdict"></ul>
+    </div>
+  </details>
 </main>
 
 <div id="wizard" class="modal-overlay" hidden>
@@ -103,8 +148,29 @@
   </div>
 </div>
 
+<div id="close-modal" class="modal-overlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="cm-title">
+    <p class="modal-title" id="cm-title">このイシューを閉じる</p>
+    <p class="summary" id="cm-target"></p>
+    <div class="mf"><span>判定</span><span class="mf-body" id="cm-verdicts">
+      <label class="toggle"><input type="radio" name="cm-v" value="当たり" checked> 当たり</label>
+      <label class="toggle"><input type="radio" name="cm-v" value="外れ"> 外れ</label>
+      <label class="toggle"><input type="radio" name="cm-v" value="未決"> 未決</label>
+    </span></div>
+    <label class="mf"><span>分かったこと</span><textarea id="cm-note" rows="2" spellcheck="false" placeholder="例: 情報不足ではなく粒度未合意が原因だった"></textarea></label>
+    <p class="wz-why">💡 立てた問い → 実際どうだったか → 次はどう立て直すか。ここが訓練のフィードバックになる</p>
+    <p class="summary wz-err" id="cm-err" hidden></p>
+    <div class="modal-actions">
+      <button class="primary" id="cm-ok">閉じる</button>
+      <span class="spacer"></span>
+      <button id="cm-cancel">やめる</button>
+    </div>
+  </div>
+</div>
+
 <script src="../lib/ui.js"></script>
 <script src="../lib/storage.js"></script>
+<script src="../lib/config.js"></script>
 <script src="../lib/tools.js"></script>
 <script src="../lib/launcher.js"></script>
 <script src="../lib/edit.js"></script>
@@ -217,6 +283,114 @@ function wayOf(s) {
   if (/調べ|洗い出|一覧|確認する/.test(t)) return '調べる';
   if (/試す|検証|流して|再現/.test(t)) return '試す';
   return '';
+}
+
+/* ---------- 一覧のための解析（04_Issues のノートを読む） ---------- */
+
+/* frontmatter は「先頭の --- で挟まれた単純な key: value」だけを読む。
+   Obsidian の配列記法（tags:\n  - issue）は値が空になるが、一覧で使うのは
+   deadline / status / verdict のスカラーだけなので足りる */
+function parseFrontmatter(text) {
+  const t = nfc(text).replace(/\r\n?/g, '\n');
+  const m = t.match(/^---\n([\s\S]*?)\n---\n?/);
+  const data = {};
+  if (!m) return { data: data, body: t, has: false };
+  const ls = m[1].split('\n');
+  for (let i = 0; i < ls.length; i++) {
+    const kv = ls[i].match(/^([A-Za-z_][\w-]*):\s*(.*)$/);
+    if (kv) data[kv[1]] = kv[2].trim();
+  }
+  return { data: data, body: t.slice(m[0].length), has: true };
+}
+
+/* frontmatter のキーだけを差し替える（無ければ frontmatter の末尾に足す）。
+   **本文は1文字も変えない。** frontmatter が無いノート（手書き）には何もしない */
+function setFrontmatter(text, patch) {
+  const t = nfc(text).replace(/\r\n?/g, '\n');
+  const m = t.match(/^---\n([\s\S]*?)\n---\n?/);
+  if (!m) return t;
+  let ls = m[1].split('\n');
+  const keys = Object.keys(patch || {});
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    const re = new RegExp('^' + key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ':');
+    let found = false;
+    ls = ls.map(function (l) {
+      if (!re.test(l)) return l;
+      found = true;
+      return key + ': ' + patch[key];
+    });
+    if (!found) ls.push(key + ': ' + patch[key]);
+  }
+  return '---\n' + ls.join('\n') + '\n---\n' + t.slice(m[0].length);
+}
+
+// 指定の見出しの節の末尾に1行足す。節が無ければノートの末尾に作る
+function appendToSection(text, heading, line) {
+  const t = nfc(text).replace(/\r\n?/g, '\n');
+  const ls = t.split('\n');
+  let idx = -1;
+  for (let i = 0; i < ls.length; i++) { if (ls[i].trim() === heading) { idx = i; break; } }
+  if (idx === -1) return t.replace(/\s*$/, '') + '\n\n' + heading + '\n\n' + line + '\n';
+  let end = idx + 1;
+  while (end < ls.length && !/^#{1,6}\s/.test(ls[end])) end++;
+  let ins = end;
+  while (ins > idx + 1 && ls[ins - 1].trim() === '') ins--;
+  ls.splice(ins, 0, line);
+  return ls.join('\n');
+}
+
+/* サブイシューの行 → { what, way }。**表の見出し行と区切り行は落とす**
+   （toNote が組む表をそのまま読み返すため） */
+function subRows(lines) {
+  const out = [];
+  for (let i = 0; i < (lines || []).length; i++) {
+    const l = nfc(lines[i]).trim();
+    if (l === '') continue;
+    if (/^\|\s*-{2,}/.test(l)) continue;
+    if (/^\|/.test(l)) {
+      const cells = l.replace(/^\|/, '').replace(/\|$/, '').split('|').map(function (c) { return c.trim(); });
+      if (cells[0] === '' || cells[0] === '分からないこと') continue;
+      out.push({ what: cells[0], way: cells[1] || '' });
+    } else {
+      out.push({ what: l, way: wayOf(l) });
+    }
+  }
+  return out;
+}
+
+// カード1枚分の要約。**判定（judge）も同じ純関数を通す**ので、一覧と入力で基準がずれない
+function summarize(text, fileName) {
+  const fm = parseFrontmatter(text);
+  const p = parseSections(fm.body);
+  const name = String(fileName || '').replace(/\.md$/i, '');
+  const rows = subRows(p.subs);
+  const ways = { '聞く': 0, '調べる': 0, '試す': 0 };
+  for (let i = 0; i < rows.length; i++) {
+    if (Object.prototype.hasOwnProperty.call(ways, rows[i].way)) ways[rows[i].way]++;
+  }
+  const pic = (p.picture || []).filter(function (x) { return nfc(x).trim() !== ''; });
+  const verdicts = judge(p.issue, {
+    deadline: fm.data.deadline || '',
+    unknowns: rows.map(function (x) { return x.what; }),
+    picture: pic.join(' '),
+  });
+  const issueLine = (p.issue || []).map(function (x) { return nfc(x).trim(); })
+    .filter(function (x) { return x !== '' && !/^[>（(]/.test(x); })[0] || '';
+  return {
+    file: String(fileName || ''), name: name,
+    title: (p.title || name),
+    issue: issueLine,
+    picture: pic[0] || '',
+    subs: rows.length, ways: ways, rows: rows,
+    next: (p.next || [])[0] || '',
+    deadline: fm.data.deadline || '',
+    status: fm.data.status || 'open',
+    verdict: fm.data.verdict || '',
+    hasFrontmatter: fm.has,
+    warn: verdicts.filter(function (v) { return v.level === 'warn'; }).length,
+    verdicts: verdicts,
+  };
 }
 
 function todayStr() {
@@ -399,14 +573,20 @@ function renderVerdict(list, into) {
   }
 }
 
+// 貼った内容から作るノートの md。**プレビューは持たない**（必要なときに組む — IS-Q10）
+function noteMd() {
+  return toNote(lastParsed, {
+    deadline: $id('deadline').value, today: todayStr(), title: $id('title').value,
+  });
+}
+
 function run() {
   const parsed = parseSections($id('input').value);
   lastParsed = parsed;
-  const deadline = $id('deadline').value;
-  $id('output').value = toNote(parsed,
-    { deadline: deadline, today: todayStr(), title: $id('title').value });
-  renderVerdict(judge(parsed.issue, { deadline: deadline, unknowns: parsed.subs,
-                                      picture: (parsed.picture || []).join(' ') }));
+  renderVerdict(judge(parsed.issue, {
+    deadline: $id('deadline').value, unknowns: parsed.subs,
+    picture: (parsed.picture || []).join(' '),
+  }));
 }
 
 let runTimer = null;
@@ -467,7 +647,7 @@ $id('deadline').addEventListener('change', () => { scheduleRun(); scheduleSave()
 
 $id('copy-btn').addEventListener('click', () => {
   settle();
-  ToolUI.copy($id('output').value).then(ok =>
+  ToolUI.copy(noteMd()).then(ok =>
     ToolUI.feedback($id('copy-btn'), ok ? '✓ コピーしました' : 'コピーできませんでした'));
 });
 $id('copy-tasks-btn').addEventListener('click', () => {
@@ -533,6 +713,7 @@ function fsaAvailable() { return typeof window.showDirectoryPicker === 'function
 function updateEnvNote() {
   const no = !fsaAvailable();
   $id('create-btn').disabled = no;
+  $id('pick-btn').disabled = no;
   // **直接保存できるならコピーは要らない**（利用者「コピー用は必要ない。そのまま保存できるんだよね？」）。
   // 保存できない Safari / Firefox のときだけ、唯一の経路として出す
   $id('copy-btn').hidden = !no;
@@ -585,9 +766,10 @@ async function createNote() {
     }
     const fh = await dir.getFileHandle(name, { create: true });
     const w = await fh.createWritable();
-    await w.write($id('output').value);
+    await w.write(noteMd());
     await w.close();
     ToolUI.banner($id('banner'), 'success', name + ' を作成しました');
+    await loadIssues(false);          // 作った直後に一覧へ出す
   } catch (e) {
     ToolUI.banner($id('banner'), 'error', '作成できませんでした: ' + errText(e));
   }
@@ -602,18 +784,269 @@ $id('sample-btn').addEventListener('click', () => {
   scheduleSave();
 });
 
-restore();
-run();
-updateSampleBtn();
-updateEnvNote();
-// 前回選んだフォルダを思い出す（失敗しても機能は動く）
-idbGet(IDB_KEY).then(h => { if (h) dirHandle = h; }).catch(() => {});
-ToolStorage.mountWarning();
 
-ToolEdit.tabIndent($id('input'), { mdList: true });   // md を書く欄（coding-rules）
-ToolEdit.mountTodayShortcut();                        // Ctrl/Cmd+; = 今日（締切）
-ToolUI.mountModeSwitch();        // Cmd/Ctrl+Shift+E でタスク ⇔ イシュー
 
+/* ---------- 一覧（IS-Q10。ここが画面の主） ----------
+   `Plan Tasks` は開いた瞬間にタスクが並ぶので毎日開かれる。`Check Issue` は作るときにしか
+   用が無く、それ以外の日は開く理由がゼロだった（利用者「今のままだと使わない」）。
+   **04_Issues を読んでカードで並べる**ことで「見るために開く」道具にする */
+const MAX_ISSUES = 200;
+let issues = [];
+
+function dayDiff(ymd) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd || '')) return null;
+  const a = new Date(todayStr() + 'T00:00:00');
+  const b = new Date(ymd + 'T00:00:00');
+  return Math.round((b - a) / 86400000);
+}
+
+function obsidianHref(name) {
+  const v = (window.ToolConfig ? ToolConfig.get('vaultName') : '') || '';
+  // vault 名が未設定なら**リンクを作らない**（押しても開かないリンクを作らない — coding-rules）
+  if (!v) return '';
+  return 'obsidian://open?vault=' + encodeURIComponent(v) + '&file=' + encodeURIComponent(name);
+}
+
+async function readDirIssues(dir) {
+  const list = [];
+  for await (const entry of dir.values()) {
+    if (entry.kind !== 'file' || !/\.md$/i.test(entry.name)) continue;
+    if (list.length >= MAX_ISSUES) return { over: true, list: list };
+    const f = await entry.getFile();
+    list.push({ name: entry.name, text: await f.text() });
+  }
+  return { over: false, list: list };
+}
+
+async function loadIssues(interactive) {
+  if (!fsaAvailable()) return;
+  let dir = dirHandle;
+  if (interactive || !dir) {
+    try { dir = await ensureDir(); } catch (e) {
+      if (e && e.name === 'AbortError') return;
+      ToolUI.banner($id('banner'), 'error', 'フォルダを開けませんでした: ' + errText(e));
+      return;
+    }
+  }
+  if (!dir) return;
+  try {
+    const res = await readDirIssues(dir);
+    if (res.over) {
+      ToolUI.banner($id('banner'), 'warn',
+        'ノートが ' + MAX_ISSUES + ' 件を超えています。04_Issues 以外のフォルダを選んでいないか確認してください');
+      return;
+    }
+    issues = res.list.map(function (f) {
+      const sum = summarize(f.text, f.name);
+      sum.text = f.text;
+      return sum;
+    });
+    // 締切の早い順。締切なしは最後（決まっていないものを上に出しても行動が変わらない）
+    issues.sort(function (a, b) {
+      if (!a.deadline && !b.deadline) return a.name < b.name ? -1 : 1;
+      if (!a.deadline) return 1;
+      if (!b.deadline) return -1;
+      return a.deadline < b.deadline ? -1 : (a.deadline > b.deadline ? 1 : 0);
+    });
+    $id('reload-btn').hidden = false;
+    renderCards();
+  } catch (e) {
+    ToolUI.banner($id('banner'), 'error', '読み込みに失敗しました: ' + errText(e));
+  }
+}
+
+function meta(parent, text) {
+  if (!text) return;
+  const li = document.createElement('li');
+  li.textContent = text;
+  parent.appendChild(li);
+}
+
+function card(it) {
+  const art = document.createElement('article');
+  art.className = 'issue-card' + (it.status === 'closed' ? ' is-closed' : '');
+  art.dataset.file = it.file;
+
+  const head = document.createElement('header');
+  head.className = 'ic-head';
+  const h = document.createElement('h2');
+  h.className = 'ic-title';
+  h.textContent = it.title;
+  head.appendChild(h);
+  const due = document.createElement('span');
+  const d = dayDiff(it.deadline);
+  due.className = 'ic-due' + (d !== null && d < 0 ? ' is-over' : '');
+  due.textContent = it.deadline
+    ? '📅 ' + it.deadline + (d === null ? '' : (d < 0 ? '（' + (-d) + '日超過）' : d === 0 ? '（今日）' : '（あと' + d + '日）'))
+    : '📅 締切なし';
+  head.appendChild(due);
+  art.appendChild(head);
+
+  const q = document.createElement('p');
+  q.className = 'ic-issue';
+  q.textContent = it.issue || '（論点が書かれていない）';
+  if (!it.issue) q.classList.add('is-empty');
+  art.appendChild(q);
+
+  const ul = document.createElement('ul');
+  ul.className = 'ic-meta';
+  if (it.picture) meta(ul, '🎬 ' + it.picture);
+  if (it.next) meta(ul, '▶ 次の一手  ' + it.next.replace(/^-\s*\[[^\]]\]\s*/, ''));
+  if (it.subs) {
+    const w = it.ways;
+    const inner = ['聞く', '調べる', '試す'].filter(function (k) { return w[k]; })
+      .map(function (k) { return k + w[k]; }).join('・');
+    meta(ul, '🧩 サブイシュー ' + it.subs + '件' + (inner ? '（' + inner + '）' : ''));
+  }
+  if (it.status === 'closed') meta(ul, '✔ 閉じた' + (it.verdict ? '（' + it.verdict + '）' : ''));
+  art.appendChild(ul);
+
+  const acts = document.createElement('div');
+  acts.className = 'ic-actions';
+  const vlist = document.createElement('ul');
+  vlist.className = 'ic-verdicts';
+  vlist.hidden = true;
+
+  if (it.warn > 0) {
+    const wb = document.createElement('button');
+    wb.type = 'button';
+    wb.className = 'ic-warn';
+    wb.textContent = '⚠ 引っかかり ' + it.warn + '件';
+    wb.addEventListener('click', function () {
+      vlist.hidden = !vlist.hidden;
+      wb.setAttribute('aria-expanded', String(!vlist.hidden));
+    });
+    acts.appendChild(wb);
+    for (let i = 0; i < it.verdicts.length; i++) {
+      const v = it.verdicts[i];
+      const li = document.createElement('li');
+      li.className = 'v-' + v.level;
+      li.dataset.id = v.id;
+      li.textContent = (v.level === 'warn' ? '⚠ ' : '· ') + v.msg + ' — ' + v.fix;
+      vlist.appendChild(li);
+    }
+  }
+  if (it.warn === 0) {
+    // 何も出ないと「判定されたのか」が分からない。通ったことも言う（IS-Q5 の2段表示と同じ考え）
+    const ok = document.createElement('span');
+    ok.className = 'ic-ok';
+    ok.textContent = '✓ 引っかかりなし';
+    acts.appendChild(ok);
+  }
+  const href = obsidianHref(it.name);
+  if (href) {
+    const a = document.createElement('a');
+    a.className = 'ic-obsidian';
+    a.href = href;
+    a.textContent = 'Obsidian で開く';
+    acts.appendChild(a);
+  }
+  if (it.status !== 'closed') {
+    const cb = document.createElement('button');
+    cb.type = 'button';
+    cb.className = 'ic-close';
+    cb.textContent = '閉じる…';
+    cb.addEventListener('click', function () { openCloseModal(it); });
+    acts.appendChild(cb);
+  }
+  art.appendChild(acts);
+  art.appendChild(vlist);
+  return art;
+}
+
+function visibleIssues() {
+  const f = $id('f-status').value;
+  return issues.filter(function (it) {
+    if (f === 'all') return true;
+    if (f === 'closed') return it.status === 'closed';
+    return it.status !== 'closed';
+  });
+}
+
+function renderCards() {
+  const host = $id('cards');
+  host.textContent = '';
+  const list = visibleIssues();
+  const label = { open: '開いているもの', all: 'すべて', closed: '閉じたもの' }[$id('f-status').value];
+  $id('summary').textContent = issues.length === 0 ? '' : list.length + '件（' + label + '）';
+  if (list.length === 0) {
+    const p = document.createElement('p');
+    p.className = 'ic-empty';
+    p.textContent = issues.length === 0
+      ? (fsaAvailable() ? '［📂 04_Issues を開く］でフォルダを選ぶと、イシューがここに並びます'
+                        : 'このブラウザでは一覧を読み込めません（Chrome 系で開いてください）')
+      : '該当なし';
+    host.appendChild(p);
+    return;
+  }
+  for (let i = 0; i < list.length; i++) host.appendChild(card(list[i]));
+}
+
+/* ---------- 閉じる = 振り返り（IS-Q2 再改訂） ---------- */
+let closing = null;
+
+function openCloseModal(it) {
+  closing = it;
+  $id('cm-target').textContent = it.title + (it.issue ? ' — ' + it.issue : '');
+  $id('cm-note').value = '';
+  $id('cm-err').hidden = true;
+  $id('cm-err').textContent = '';
+  const first = document.querySelector('input[name="cm-v"]');
+  if (first) first.checked = true;
+  $id('close-modal').hidden = false;
+  $id('cm-note').focus();
+}
+function closeCloseModal() { $id('close-modal').hidden = true; closing = null; }
+
+async function applyClose() {
+  if (!closing || !dirHandle) return;
+  const it = closing;
+  if (!it.hasFrontmatter) {
+    $id('cm-err').textContent = 'このノートには frontmatter が無いため書き換えません（Obsidian で直接閉じてください）';
+    $id('cm-err').hidden = false;
+    return;
+  }
+  const picked = document.querySelector('input[name="cm-v"]:checked');
+  const verdict = picked ? picked.value : '未決';
+  const note = nfc($id('cm-note').value).trim();
+  try {
+    const fh = await dirHandle.getFileHandle(it.file);
+    const cur = await (await fh.getFile()).text();
+    // **書き込む直前に再読して比較**（Plan Tasks の保存と同じ鮮度チェック）
+    if (nfc(cur) !== nfc(it.text)) {
+      $id('cm-err').textContent = 'Obsidian 側で変更されています。［再読込］してからもう一度お願いします（上書きは避けました）';
+      $id('cm-err').hidden = false;
+      return;
+    }
+    let next = setFrontmatter(cur, { status: 'closed', verdict: verdict });
+    if (note !== '') next = appendToSection(next, '## 結論', '- ' + note);
+    const w = await fh.createWritable();
+    await w.write(next);
+    await w.close();
+    closeCloseModal();
+    ToolUI.banner($id('banner'), 'success', it.title + ' を閉じました（' + verdict + '）');
+    await loadIssues(false);
+  } catch (e) {
+    $id('cm-err').textContent = '書き込めませんでした: ' + errText(e);
+    $id('cm-err').hidden = false;
+  }
+}
+
+/* vault 名（lib/config.js）。効くのは Obsidian リンクだけで、読み書きには一切関係しない */
+function applyVaultCfg() {
+  if (!window.ToolConfig) return;
+  $id('cfg-vault').value = ToolConfig.get('vaultName') || '';
+}
+$id('cfg-vault').addEventListener('change', function () {
+  if (window.ToolConfig) ToolConfig.set({ vaultName: $id('cfg-vault').value });
+  renderCards();
+});
+
+$id('pick-btn').addEventListener('click', function () { loadIssues(true); });
+$id('reload-btn').addEventListener('click', function () { loadIssues(false); });
+$id('f-status').addEventListener('change', renderCards);
+$id('cm-cancel').addEventListener('click', closeCloseModal);
+$id('cm-ok').addEventListener('click', applyClose);
 
 /* ---------- 入力ウィザード（IS-Q8） ----------
    **ただの md 入力欄では Obsidian と同じ**という利用者の指摘への対処。
@@ -878,12 +1311,39 @@ $id('wz-create').addEventListener('click', async () => {
   await createNote();
 });
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape' && !$id('wizard').hidden) { e.preventDefault(); wzClose(); }
+  if (e.key !== 'Escape') return;
+  if (!$id('close-modal').hidden) { e.preventDefault(); closeCloseModal(); return; }
+  if (!$id('wizard').hidden) { e.preventDefault(); wzClose(); }
 });
+
+/* ---------- 起動（**すべての定義の後**に置く — 一覧の let issues より前だと TDZ で落ちる） ---------- */
+restore();
+run();
+updateSampleBtn();
+updateEnvNote();
+applyVaultCfg();
+renderCards();
+/* 前回選んだフォルダを思い出して**自動で一覧を出す**（選び直させない）。
+   権限が prompt のときはピッカーがジェスチャ必須なので読まず、［📂］に委ねる */
+idbGet(IDB_KEY).then(async h => {
+  if (!h) return;
+  dirHandle = h;
+  try {
+    if ((await h.queryPermission({ mode: 'readwrite' })) === 'granted') await loadIssues(false);
+  } catch (_) { /* 権限の問い合わせ自体が失敗しても一覧が空になるだけ */ }
+}).catch(() => {});
+ToolStorage.mountWarning();
+
+ToolEdit.tabIndent($id('input'), { mdList: true });   // md を書く欄（coding-rules）
+ToolEdit.mountTodayShortcut();                        // Ctrl/Cmd+; = 今日（締切）
+ToolUI.mountModeSwitch();        // Cmd/Ctrl+Shift+E でタスク ⇔ イシュー
 
 // テスト用フック（docs/specs/issue.md）
 window.issue = { parseSections: parseSections, judge: judge, toNote: toNote,
-                 toTasks: toTasks, noteFileName: noteFileName, buildMd: buildMd };
+                 toTasks: toTasks, noteFileName: noteFileName, buildMd: buildMd,
+                 parseFrontmatter: parseFrontmatter, setFrontmatter: setFrontmatter,
+                 appendToSection: appendToSection, subRows: subRows, summarize: summarize,
+                 load: () => loadIssues(false), list: () => issues };
 
 ToolLauncher.mount();   // ☰ ツール / Cmd+Ctrl+K で引き出しメニュー（lib/launcher.js）
 </script>

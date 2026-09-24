@@ -4,7 +4,7 @@
    出力: 合否一覧と終了コード（全 pass かつコンソールエラー0件で 0）
    例:   node test/issue.js  /  ./test/run issue
 
-   照合するID: IS-01〜21（純関数）＋ IS-U1〜U23（UI 経路・FSA 書き込み・入力ウィザード・モード切替）＋ハブ導線
+   照合するID: IS-01〜21・IS-L1〜L4（純関数）＋ IS-U1〜U23・IS-UL1〜UL5（UI 経路・FSA 読み書き・ウィザード・一覧・振り返り）＋ハブ導線
    仕様の正本は docs/specs/issue.md。期待値を変えるときは spec を先に直す。 */
 
 const { launch, fileUrl, createRunner, eq } = require('./helpers');
@@ -45,6 +45,14 @@ const SAMPLE_MD = [
         name: '04_Issues', kind: 'directory',
         queryPermission: async () => 'granted',
         requestPermission: async () => 'granted',
+        values: async function* () {
+          for (const n of Object.keys(files)) {
+            yield {
+              kind: 'file', name: n,
+              getFile: async () => ({ text: async () => files[n] }),
+            };
+          }
+        },
         getFileHandle: async (name, opts) => {
           const exists = Object.prototype.hasOwnProperty.call(files, name);
           if (!(opts && opts.create) && !exists) {
@@ -239,6 +247,71 @@ const SAMPLE_MD = [
       && fn2.dirty === '2026-09-24_A-B-C-D-E-F-G-H-I.md',
       JSON.stringify(fn2));
 
+    /* ========== IS-L1〜L4: 一覧のための純関数 ========== */
+    const NOTE = [
+      '---', 'created: 2026-09-24', 'deadline: 2026-09-30', 'status: open',
+      'verdict: ', 'tags: [issue]', '---',
+      '# 本番停止手順書', '',
+      '## 2. 論点', '',
+      '- 手順書が書けないのは情報不足ではなく合意が無いからではないか',
+      '> 答えが出たら: 依頼内容が変わる', '',
+      '## 3. 絵コンテ', '', '- 【表】粒度ごとの表', '',
+      '## 4. サブイシュー', '',
+      '| 分からないこと | 聞く / 調べる / 試す | 誰に・どこで | いつまでに |',
+      '| --- | --- | --- | --- |',
+      '| 粒度 | 聞く | 柳葉さん | 2026-09-30 |',
+      '| 一覧 | 調べる |  |  |', '',
+      '## 5. 次の一手', '', '- [ ] 粒度を確認する \u{1F4C5} 2026-10-02', '',
+      '---', '', '## 分かったこと', '', '- ', '', '## 結論', '', '- ', '',
+    ].join('\n');
+
+    const L = await page.evaluate((note) => {
+      const I = window.issue;
+      const fm = I.parseFrontmatter(note);
+      const patched = I.setFrontmatter(note, { status: 'closed', verdict: '当たり' });
+      const noFm = I.setFrontmatter('見出しだけ\n## 結論\n- x', { status: 'closed' });
+      return {
+        data: fm.data,
+        bodyKeepsTitle: fm.body.indexOf('# 本番停止手順書') === 0,
+        patched: patched,
+        bodyUnchanged: patched.split('---\n')[2] === note.split('---\n')[2],
+        noFm: noFm,
+        rows: I.subRows(I.parseSections(note).subs),
+        appended: I.appendToSection(note, '## 結論', '- 粒度未合意が原因だった'),
+        madeSection: I.appendToSection('# t\n\n## 2. 論点\n\n- x\n', '## 結論', '- けつろん'),
+        sum: I.summarize(note, '2026-09-24_本番停止手順書.md'),
+      };
+    }, NOTE);
+
+    r.check('IS-L1（frontmatter を読み、キーを差し替えても本文が1文字も変わらない・無い場合は素通し）',
+      L.data.status === 'open' && L.data.deadline === '2026-09-30' && L.bodyKeepsTitle
+      && L.patched.includes('status: closed') && L.patched.includes('verdict: 当たり')
+      && !L.patched.includes('status: open')
+      && L.bodyUnchanged
+      && L.noFm === '見出しだけ\n## 結論\n- x',
+      JSON.stringify({ data: L.data, bodyUnchanged: L.bodyUnchanged, noFm: L.noFm }));
+
+    r.check('IS-L2（subRows: 表の見出し行と区切り行を除き、手段を2列目から取る）',
+      L.rows.length === 2 && L.rows[0].what === '粒度' && L.rows[0].way === '聞く'
+      && L.rows[1].what === '一覧' && L.rows[1].way === '調べる',
+      JSON.stringify(L.rows));
+
+    r.check('IS-L3（appendToSection: 結論の末尾に足す・節が無ければ作る）',
+      /## 結論\n\n- \n- 粒度未合意が原因だった/.test(L.appended.replace(/\s+$/, ''))
+      && L.madeSection.includes('## 結論') && L.madeSection.includes('- けつろん')
+      && L.madeSection.includes('## 2. 論点'),
+      JSON.stringify([L.appended.slice(L.appended.indexOf('## 結論')), L.madeSection]));
+
+    r.check('IS-L4（summarize: 論点1行・締切・状態・サブ件数・引っかかり件数）',
+      L.sum.issue === '手順書が書けないのは情報不足ではなく合意が無いからではないか'
+      && L.sum.deadline === '2026-09-30' && L.sum.status === 'open'
+      && L.sum.subs === 2 && L.sum.ways['聞く'] === 1 && L.sum.ways['調べる'] === 1
+      && L.sum.next.includes('粒度を確認する')
+      && L.sum.picture.includes('粒度ごとの表')
+      && L.sum.warn === 0
+      && L.sum.title === '本番停止手順書',
+      JSON.stringify(L.sum));
+
     /* ========== IS-17/18: ウィザードの下書き → md ========== */
     const w = await page.evaluate(() => {
       const md = window.issue.buildMd({
@@ -283,12 +356,11 @@ const SAMPLE_MD = [
   await setValue('#input', SAMPLE_MD);
   await page.waitForTimeout(400);
   const u1 = await page.evaluate(() => ({
-    items: document.querySelectorAll('#verdict li').length,
-    out: document.getElementById('output').value,
+    ids: Array.from(document.querySelectorAll('#verdict li')).map(li => li.dataset.id),
+    noPreview: !document.getElementById('output'),      // プレビューは廃止（IS-Q10）
   }));
-  r.check('IS-U1（貼ると判定一覧と右ペインの md が更新される）',
-    u1.out.includes('## 2. 論点') && u1.out.includes('情報不足ではなく'),
-    JSON.stringify({ items: u1.items, head: u1.out.slice(0, 80) }));
+  r.check('IS-U1（貼ると判定が更新される・md プレビューは存在しない）',
+    u1.ids.length > 0 && u1.noPreview, JSON.stringify(u1));
 
   /* IS-U9: 掘削ログの「なぜ？」は判定対象外 */
   await setValue('#input', SAMPLE_MD + '\n\n## 掘ったログ\nなぜ？\nなぜ？\nなぜ？');
@@ -307,30 +379,147 @@ const SAMPLE_MD = [
   r.check('IS-U2（warn 0件のとき「まず外していない」が ok の見た目で出る）',
     u2.text.includes('外していない') && u2.ok, JSON.stringify(u2));
 
-  /* IS-U3 / IS-U4: コピー2種 */
-  const u34 = await page.evaluate(async () => {
-    const out = { note: null, tasks: null };
-    let target = 'note';
+  /* ========== IS-UL1〜UL5: 一覧（画面の主） ========== */
+  const mkNote = (o) => [
+    '---', 'created: 2026-09-01', 'deadline: ' + (o.due || ''), 'status: ' + (o.status || 'open'),
+    'verdict: ' + (o.verdict || ''), 'tags: [issue]', '---',
+    '# ' + o.title, '',
+    '## 2. 論点', '', '- ' + o.issue, '',
+    '## 3. 絵コンテ', '', '- 【表】' + o.title + 'の表', '',
+    '## 4. サブイシュー', '',
+    '| 分からないこと | 聞く / 調べる / 試す | 誰に・どこで | いつまでに |',
+    '| --- | --- | --- | --- |',
+    '| 粒度 | 聞く | 柳葉さん | 2026-09-30 |', '',
+    '## 5. 次の一手', '', '- [ ] ' + o.title + 'の一手', '',
+    '---', '', '## 分かったこと', '', '- ', '', '## 結論', '', '- ', '',
+  ].join('\n');
+
+  const ul1 = await page.evaluate(async (notes) => {
+    // **参照を差し替えないこと** — ダミーは閉包で files を握っているので、中身だけ入れ替える
+    for (const k of Object.keys(window.__fsa.files)) delete window.__fsa.files[k];
+    for (const k of Object.keys(notes)) window.__fsa.files[k] = notes[k];
+    window.__fsa.files['README.txt'] = 'md ではないので無視される';
+    await window.issue.load();
+    const cards = Array.from(document.querySelectorAll('.issue-card'));
+    return {
+      order: cards.map(c => c.querySelector('.ic-title').textContent),
+      issue0: cards[0].querySelector('.ic-issue').textContent,
+      meta0: Array.from(cards[0].querySelectorAll('.ic-meta li')).map(li => li.textContent),
+      due0: cards[0].querySelector('.ic-due').textContent,
+      summary: document.getElementById('summary').textContent,
+      warnBtn: !!cards.find(c => c.querySelector('.ic-warn')),
+      okMarks: cards.filter(c => c.querySelector('.ic-ok')).length,
+    };
+  }, {
+    'a.md': mkNote({ title: '遅い方', issue: 'Xは A ではなく B ではないか', due: '2026-12-31' }),
+    'b.md': mkNote({ title: '急ぐ方', issue: 'Yは C ではなく D ではないか', due: '2026-09-25' }),
+    'c.md': mkNote({ title: '閉じた方', issue: 'Zは E ではなく F ではないか', due: '2026-10-10', status: 'closed', verdict: '当たり' }),
+  });
+  r.check('IS-UL1（締切の早い順にカードが並び、論点・次の一手・サブ件数が出る・md 以外は無視）',
+    eq(ul1.order, ['急ぐ方', '遅い方'])          // closed は既定フィルタで出ない
+    && ul1.issue0 === 'Yは C ではなく D ではないか'
+    && ul1.meta0.some(m => m.includes('次の一手')) && ul1.meta0.some(m => m.includes('サブイシュー 1件'))
+    && ul1.due0.includes('2026-09-25')
+    && ul1.summary.includes('2件')
+    && ul1.okMarks === 2,          // どちらも締切・絵コンテ・サブがあるので引っかかりなし
+    JSON.stringify(ul1));
+
+  const ul2 = await page.evaluate(() => {
+    const set = v => {
+      const f = document.getElementById('f-status');
+      f.value = v; f.dispatchEvent(new Event('change', { bubbles: true }));
+      return document.querySelectorAll('.issue-card').length;
+    };
+    return { open: set('open'), all: set('all'), closed: set('closed'), back: set('open') };
+  });
+  r.check('IS-UL2（フィルタ: 開いているもの2 / すべて3 / 閉じたもの1）',
+    ul2.open === 2 && ul2.all === 3 && ul2.closed === 1 && ul2.back === 2,
+    JSON.stringify(ul2));
+
+  /* IS-UL5: vault 名が無ければ Obsidian リンクを作らない */
+  const ul5 = await page.evaluate(() => {
+    const before = document.querySelectorAll('.ic-obsidian').length;
+    window.ToolConfig.set({ vaultName: 'MyVault' });
+    document.getElementById('cfg-vault').value = 'MyVault';
+    document.getElementById('cfg-vault').dispatchEvent(new Event('change', { bubbles: true }));
+    const a = document.querySelector('.ic-obsidian');
+    const href = a ? a.getAttribute('href') : '';
+    document.getElementById('cfg-vault').value = '';   // 欄を空にしてから change（実際の操作と同じ）
+    document.getElementById('cfg-vault').dispatchEvent(new Event('change', { bubbles: true }));
+    return { before, href, after: document.querySelectorAll('.ic-obsidian').length };
+  });
+  r.check('IS-UL5（vault 名が未設定ならリンクを作らない・設定すると obsidian:// が出る）',
+    ul5.before === 0 && ul5.href.indexOf('obsidian://open?vault=MyVault&file=') === 0
+    && ul5.after === 0,
+    JSON.stringify(ul5));
+
+  /* IS-UL4: 外部で変わっていたら閉じない（鮮度チェック） */
+  const ul4 = await page.evaluate(async () => {
+    const card = document.querySelector('.issue-card');
+    card.querySelector('.ic-close').click();
+    window.__fsa.files['b.md'] = window.__fsa.files['b.md'] + '\n外部で追記された\n';
+    const before = window.__fsa.files['b.md'];
+    document.getElementById('cm-ok').click();
+    await new Promise(d => setTimeout(d, 300));
+    return {
+      err: document.getElementById('cm-err').textContent,
+      errHidden: document.getElementById('cm-err').hidden,
+      stillOpen: !document.getElementById('close-modal').hidden,
+      unchanged: window.__fsa.files['b.md'] === before,
+    };
+  });
+  r.check('IS-UL4（外部で変わっていたら書き込まず警告・ファイルは不変）',
+    !ul4.errHidden && ul4.err.includes('Obsidian') && ul4.stillOpen && ul4.unchanged,
+    JSON.stringify(ul4));
+
+  /* IS-UL3: 閉じる → frontmatter が変わり結論に1行入る。本文の他は不変 */
+  const ul3 = await page.evaluate(async () => {
+    document.getElementById('cm-cancel').click();
+    await window.issue.load();                       // 外部変更を取り込み直す
+    const card = Array.from(document.querySelectorAll('.issue-card'))
+      .find(c => c.querySelector('.ic-title').textContent === '急ぐ方');
+    const before = window.__fsa.files['b.md'];
+    card.querySelector('.ic-close').click();
+    document.querySelector('input[name="cm-v"][value="外れ"]').checked = true;
+    const n = document.getElementById('cm-note');
+    n.value = '粒度ではなく体制が原因だった';
+    n.dispatchEvent(new Event('input', { bubbles: true }));
+    document.getElementById('cm-ok').click();
+    await new Promise(d => setTimeout(d, 400));
+    const after = window.__fsa.files['b.md'];
+    // frontmatter を除いた本文が、追記した1行以外は同一か
+    const bodyOf = t => t.split('\n---\n').slice(1).join('\n---\n');
+    const strip = t => bodyOf(t).split('\n').filter(l => l !== '- 粒度ではなく体制が原因だった').join('\n');
+    return {
+      closedModal: document.getElementById('close-modal').hidden,
+      status: /^status: closed$/m.test(after),
+      verdict: /^verdict: 外れ$/m.test(after),
+      conclusion: after.indexOf('## 結論') >= 0
+        && after.slice(after.indexOf('## 結論')).includes('- 粒度ではなく体制が原因だった'),
+      bodyOtherwiseSame: strip(after) === bodyOf(before),
+      nowClosedInList: Array.from(document.querySelectorAll('.issue-card'))
+        .every(c => c.querySelector('.ic-title').textContent !== '急ぐ方'),
+    };
+  });
+  r.check('IS-UL3（閉じると status/verdict が変わり結論に1行入る・本文の他は不変・一覧から外れる）',
+    ul3.closedModal && ul3.status && ul3.verdict && ul3.conclusion
+    && ul3.bodyOtherwiseSame && ul3.nowClosedInList,
+    JSON.stringify(ul3));
+
+  /* IS-U4: tasks.md 用の行をコピー（md のコピーは FSA 非対応時のみなので IS-U12 で見る） */
+  const u4 = await page.evaluate(async () => {
+    let got = null;
     Object.defineProperty(navigator, 'clipboard', {
-      configurable: true,
-      value: { writeText: async t => { out[target] = t; } },
+      configurable: true, value: { writeText: async t => { got = t; } },
     });
-    document.getElementById('copy-btn').click();
-    await new Promise(d => setTimeout(d, 200));
-    const noteLabel = document.getElementById('copy-btn').textContent;
-    target = 'tasks';
     document.getElementById('copy-tasks-btn').click();
     await new Promise(d => setTimeout(d, 200));
-    return { ...out, noteLabel, tasksLabel: document.getElementById('copy-tasks-btn').textContent };
+    return { text: got, label: document.getElementById('copy-tasks-btn').textContent };
   });
-  r.check('IS-U3（ノートをコピー: md が渡り ✓ 表示・実クリップボードに書かない）',
-    typeof u34.note === 'string' && u34.note.includes('status: open')
-    && u34.note.includes('## 2. 論点') && u34.noteLabel === '✓ コピーしました',
-    JSON.stringify({ head: (u34.note || '').slice(0, 60), label: u34.noteLabel }));
   r.check('IS-U4（tasks.md 用の行をコピー: Tasks 記法が渡る）',
-    typeof u34.tasks === 'string' && u34.tasks.includes('- [ ] 粒度を確認する')
-    && u34.tasks.includes('📅 2026-09-30'),
-    JSON.stringify(u34.tasks));
+    typeof u4.text === 'string' && u4.text.includes('- [ ] 粒度を確認する')
+    && u4.text.includes('📅 2026-09-30'),
+    JSON.stringify(u4.text));
 
   /* IS-U6: Cmd/Ctrl+Enter は「そのとき有効な方」= FSA があるので作成 */
   const u6 = await page.evaluate(async () => {
@@ -351,12 +540,12 @@ const SAMPLE_MD = [
   /* IS-U22: コピーボタンは FSA が無いときだけ出る（プレビューは常に出る） */
   const u22 = await page.evaluate(() => ({
     copyHidden: document.getElementById('copy-btn').hidden,
-    previewVisible: !!document.getElementById('output')
-      && document.getElementById('output').value.includes('## 2. 論点'),
+    listVisible: !!document.getElementById('cards'),
+    pasteFolded: document.getElementById('paste-box').open === false,
     tasksCopyVisible: !document.getElementById('copy-tasks-btn').hidden,
   }));
-  r.check('IS-U22（FSA あり: ［md をコピー］は隠れ、プレビューと tasks.md 用コピーは残る）',
-    u22.copyHidden === true && u22.previewVisible && u22.tasksCopyVisible,
+  r.check('IS-U22（FSA あり: ［md をコピー］は隠れ、一覧が主・貼る欄は畳まれている）',
+    u22.copyHidden === true && u22.listVisible && u22.tasksCopyVisible && u22.pasteFolded,
     JSON.stringify(u22));
 
   /* IS-U5: pagehide フラッシュ → reload で復元 */
@@ -390,12 +579,12 @@ const SAMPLE_MD = [
     return {
       hiddenWhenFilled, visibleWhenEmpty,
       hiddenAfter: document.getElementById('sample-btn').hidden,
-      hasOutput: document.getElementById('output').value.includes('## 2. 論点'),
+      hasInput: document.getElementById('input').value.includes('## 2. 論点'),
       hasVerdict: document.querySelectorAll('#verdict li').length >= 0,
     };
   });
   r.check('IS-U7（サンプルは空のときだけ表示・投入で md まで埋まる）',
-    u7.hiddenWhenFilled && u7.visibleWhenEmpty && u7.hiddenAfter && u7.hasOutput,
+    u7.hiddenWhenFilled && u7.visibleWhenEmpty && u7.hiddenAfter && u7.hasInput,
     JSON.stringify(u7));
 
   /* IS-U10: ノートを直接作る */
@@ -597,18 +786,32 @@ const SAMPLE_MD = [
   const page2 = r.watch(await browser.newPage());
   await page2.addInitScript(() => { delete window.showDirectoryPicker; });
   await page2.goto(fileUrl('web/issue.html'));
-  const u12 = await page2.evaluate(() => ({
-    disabled: document.getElementById('create-btn').disabled,
-    note: document.getElementById('env-note').textContent,
-    noteHidden: document.getElementById('env-note').hidden,
-    copyEnabled: !document.getElementById('copy-btn').disabled,
-    copyVisible: !document.getElementById('copy-btn').hidden,
-  }));
+  const u12 = await page2.evaluate(async () => {
+    let got = null;
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true, value: { writeText: async t => { got = t; } },
+    });
+    const i = document.getElementById('input');
+    i.value = '## 2. 論点\n- Aは B ではなく C ではないか';
+    i.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise(d => setTimeout(d, 300));
+    document.getElementById('copy-btn').click();
+    await new Promise(d => setTimeout(d, 200));
+    return {
+      disabled: document.getElementById('create-btn').disabled,
+      pickDisabled: document.getElementById('pick-btn').disabled,
+      note: document.getElementById('env-note').textContent,
+      noteHidden: document.getElementById('env-note').hidden,
+      copyVisible: !document.getElementById('copy-btn').hidden,
+      copied: got,
+    };
+  });
   await page2.close();
-  r.check('IS-U12（FSA 非対応: 作成ボタンが無効＋理由を表示・コピーは使える）',
-    u12.disabled === true && !u12.noteHidden && u12.note.includes('Chrome')
-    && u12.copyEnabled && u12.copyVisible,
-    JSON.stringify(u12));
+  r.check('IS-U12（FSA 非対応: 作成とフォルダ選択が無効＋理由を表示・md コピーだけは使える）',
+    u12.disabled === true && u12.pickDisabled === true
+    && !u12.noteHidden && u12.note.includes('Chrome') && u12.copyVisible
+    && typeof u12.copied === 'string' && u12.copied.includes('## 2. 論点'),
+    JSON.stringify({ ...u12, copied: (u12.copied || '').slice(0, 40) }));
 
   /* IS-U8: 幅390px */
   await page.setViewportSize({ width: 390, height: 800 });
