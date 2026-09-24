@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Check Issue (issue)</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🎯%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../lib/ui.css">
+<style>
+  /* issue 固有: 判定一覧（warn は目立たせ、info は控えめ） */
+  .toolbar { flex-wrap: wrap; }
+  .field { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+  .field input[type="text"] { min-width: 140px; }
+  #verdict { list-style: none; margin: 10px 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+  #verdict li {
+    font-size: 13px; padding: 5px 10px; border-radius: 8px; border: 1px solid transparent;
+    overflow-wrap: anywhere;
+  }
+  #verdict .v-warn { background: var(--warn-bg); border-color: var(--warn-border); }
+  #verdict .v-info { color: var(--muted); }
+  #verdict .v-ok { background: var(--success-bg); border-color: var(--success-border); }
+  #verdict span { color: var(--muted); }
+  #verdict .v-ok span { color: inherit; }
+</style>
+</head>
+<body>
+<main class="app-wide">
+  <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">入力は自動保存されます</span></p>
+  <h1>Check Issue</h1>
+  <p class="subtitle">論点を点検して形にする — 貼った文章が「イシューか」を判定し、04_Issues 用の md と tasks.md 用の行を出す</p>
+
+  <div class="toolbar">
+    <button class="primary" id="copy-btn" title="Cmd/Ctrl+Enter">ノートをコピー</button>
+    <button id="copy-tasks-btn">tasks.md 用の行をコピー</button>
+    <label class="field">締切<input type="date" id="deadline"></label>
+    <label class="field">タイトル<input type="text" id="title" placeholder="本番停止手順書"></label>
+  </div>
+
+  <div class="banner" id="banner" hidden></div>
+
+  <div class="panes">
+    <div class="pane">
+      <p class="pane-title">貼る（5ステップの md・定例メモ・掘削ログ）<button type="button" class="sample-btn" id="sample-btn">サンプルを入れる</button></p>
+      <textarea id="input" spellcheck="false" placeholder="## 1. ゴール&#10;- 全部終わったら誰に何を説明できればいい？&#10;&#10;## 2. 論点&#10;- 答えを出すべき問いを一行で&#10;&#10;## 3. 不明点&#10;- 聞く / 調べる / 試す のどれかを付ける"></textarea>
+    </div>
+    <div class="pane">
+      <p class="pane-title">04_Issues に貼る md</p>
+      <textarea id="output" readonly spellcheck="false"></textarea>
+    </div>
+  </div>
+
+  <ul id="verdict" class="verdict"></ul>
+</main>
+
+<script src="../lib/ui.js"></script>
+<script src="../lib/storage.js"></script>
+<script src="../lib/edit.js"></script>
+<script>
+'use strict';
+
+/* ========== 純関数（フックと UI が同一コードパス） ========== */
+
+/* 5ステップの見出し。表記の揺れを許容する（docs/specs/issue.md「5ステップの見出し認識」）:
+   "## 1. ゴール" / "## ゴール" / "**2. 論点**" / "3. 不明点：" / "#### リスク" */
+const HEAD_RE = /^\s*(?:#{1,6}\s*)?(?:\*\*)?\s*(?:[1-9][.．、)]?\s*)?(ゴール|論点|イシュー|不明点|リスク|次の一手|掘ったログ)\s*(?:\*\*)?\s*[:：]?\s*$/;
+const KEY_OF = {
+  'ゴール': 'goal', '論点': 'issue', 'イシュー': 'issue',
+  '不明点': 'unknowns', 'リスク': 'risks', '次の一手': 'next', '掘ったログ': 'rest',
+};
+
+function nfc(s) { return String(s == null ? '' : s).normalize('NFC'); }
+
+// 行頭の箇条書き記号を落とす。**タスク記法（- [ ]）はそのまま残す**（次の一手で使うため）
+function stripBullet(raw) {
+  const s = nfc(raw).replace(/\s+$/, '');
+  if (/^\s*[-*+]\s+\[[^\]]\]\s/.test(s)) return s.trim();
+  return s.replace(/^\s*(?:[-*+]|\d+[.)])\s+/, '').trim();
+}
+
+function parseSections(text) {
+  const out = { title: '', goal: [], issue: [], unknowns: [], risks: [], next: [], rest: [] };
+  const lines = nfc(text).replace(/\r\n?/g, '\n').split('\n');
+  let cur = null;                       // null = rest（どの見出しにも属さない部分）
+  for (const raw of lines) {
+    const m = raw.match(HEAD_RE);
+    if (m) { cur = KEY_OF[m[1]]; continue; }
+    // 未知の見出し行はセクションを閉じる（次の行から rest へ戻す）。
+    // 最初の1本だけは title として拾う（ノートの H1 になる）
+    const h = raw.match(/^\s*#{1,6}\s+(.+?)\s*$/);
+    if (h) {
+      if (out.title === '') out.title = h[1].trim();
+      cur = null;
+      continue;
+    }
+    const body = stripBullet(raw);
+    if (body === '') continue;
+    out[cur === null ? 'rest' : cur].push(body);
+  }
+  return out;
+}
+
+/* 判定（IS-Q5: 警告であって拒否ではない）。見るのは**論点の1行目**と締切・不明点の有無。
+   掘削ログの「なぜ？」は対象外 — WHY を避けるのはイシュー文の書き方だけ（IssueDriven.md） */
+function judge(line, opts) {
+  const o = opts || {};
+  const arr = Array.isArray(line) ? line : (line == null ? [] : [line]);
+  const lines = arr.map(x => nfc(x).trim()).filter(x => x !== '');
+  const first = lines[0] || '';
+  const out = [];
+  const add = (id, level, msg, fix) => out.push({ id: id, level: level, msg: msg, fix: fix });
+
+  if (first === '') {
+    add('empty', 'warn', '論点が書かれていない',
+      'ゴールから「で、答えを出すべき問いは何か」を一行で書く');
+  } else {
+    if (/(について|の件|まとめ|整理)\s*[。．.]?$/.test(first))
+      add('about', 'warn', '「〜について」で止まっている',
+        '動詞を足してスタンスを取る（本: 「〜について」で止めない）');
+    if (/(整理|確認|検討|調査|把握|対応|共有)(する|します|を行う|を実施|をする)/.test(first))
+      add('worktheme', 'warn', '作業テーマであって論点ではない',
+        '「整理する・確認する」は犬の道の症状。答えが出たら何が変わるかを問いにする');
+    if (/^(なぜ|何故|どうして|why)/i.test(first))
+      add('why', 'warn', 'WHY で始まっている',
+        '「どこを / 何を / どう」に置き換える（本: WHY ではなく WHERE・WHAT・HOW）');
+    if (!/[はが]/.test(first))
+      add('subject', 'info', '主語が見えない', '「◯◯は〜」の形にする（言語化のコツ①）');
+    if (!/(ではなく|じゃなく|ではなくて|より|それとも|vs)/i.test(first))
+      add('compare', 'info', '比較の形になっていない',
+        '「〜ではなく〜」でスタンスを取ると仮説になる（言語化のコツ③）');
+    if (lines.length > 1)
+      add('multiline', 'info', '論点が複数行ある', '一行に絞る。残りはサブイシューへ');
+  }
+  if (!o.deadline)
+    add('deadline', 'warn', 'いつ白黒がつくかが決まっていない',
+      '締切を入れる（よいイシューの条件③ 答えを出せる）');
+  if (!(o.unknowns && o.unknowns.length))
+    add('evidence', 'warn', '何を見れば白黒つくかが無い',
+      '不明点を1つ以上書き、聞く / 調べる / 試す を振る');
+  return out;
+}
+
+// 不明点の本文から解消手段を検出して表の2列目に入れる
+function wayOf(s) {
+  const t = nfc(s);
+  if (/聞く|訊く|確認を取る|依頼/.test(t)) return '聞く';
+  if (/調べ|洗い出|一覧|確認する/.test(t)) return '調べる';
+  if (/試す|検証|流して|再現/.test(t)) return '試す';
+  return '';
+}
+
+function todayStr() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0')
+    + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+/* 04_Issues 用の md。**空のセクションも見出しは残す**（後でノート側で埋めるため）。
+   器は 99_Templates/issue.md と同じ5ステップ */
+function toNote(parsed, opts) {
+  const o = opts || {};
+  const p = parsed || parseSections('');
+  const L = [];
+  const bullets = arr => {
+    if (!arr || arr.length === 0) { L.push('- '); } else {
+      for (const a of arr) L.push(/^\s*[-*+|]/.test(a) ? a : '- ' + a);
+    }
+    L.push('');
+  };
+  L.push('---');
+  L.push('created: ' + (o.today || todayStr()));
+  L.push('deadline: ' + (o.deadline || ''));
+  L.push('status: open');
+  L.push('tags: [issue]');
+  L.push('---');
+  L.push('# ' + ((o.title || p.title || '').trim() || '無題'));
+  L.push('');
+  L.push('→ [[IssueDriven]] ｜ [[イシューの書き方と記入例]]');
+  L.push('');
+  L.push('## 1. ゴール');
+  L.push('');
+  bullets(p.goal);
+  L.push('## 2. 論点');
+  L.push('');
+  bullets(p.issue);
+  L.push('## 3. 不明点');
+  L.push('');
+  L.push('| 分からないこと | 聞く / 調べる / 試す | 誰に・どこで | いつまでに |');
+  L.push('| --- | --- | --- | --- |');
+  const rows = (p.unknowns && p.unknowns.length) ? p.unknowns : [''];
+  for (const u of rows) L.push('| ' + u + ' | ' + wayOf(u) + ' |  |  |');
+  L.push('');
+  L.push('## 4. リスク');
+  L.push('');
+  bullets(p.risks);
+  L.push('## 5. 次の一手');
+  L.push('');
+  if (!p.next || p.next.length === 0) { L.push('- [ ] '); } else {
+    for (const n of p.next) L.push(/^\s*[-*+]\s+\[/.test(n) ? n : '- [ ] ' + n);
+  }
+  L.push('');
+  if (p.rest && p.rest.length) {
+    L.push('---');
+    L.push('');
+    L.push('## 掘ったログ');
+    L.push('');
+    for (const x of p.rest) L.push(x);
+    L.push('');
+  }
+  return L.join('\n');
+}
+
+// tasks.md 用の行（Obsidian Tasks 記法）。既に "- [ ]" なら二重に付けない
+function toTasks(nextLines, opts) {
+  const o = opts || {};
+  const dl = o.deadline ? ' \u{1F4C5} ' + o.deadline : '';
+  const arr = (nextLines || []).map(x => nfc(x).trim()).filter(x => x !== '');
+  if (arr.length === 0) return '';
+  return arr.map(x => {
+    const has = /^[-*+]\s+\[[^\]]\]\s/.test(x);
+    const body = has ? x : '- [ ] ' + x.replace(/^[-*+]\s+/, '');
+    return /\u{1F4C5}/u.test(body) ? body : body + dl;
+  }).join('\n');
+}
+
+/* ========== UI 配線 ========== */
+
+const $id = id => document.getElementById(id);
+const TOOL = 'issue';
+
+const SAMPLE = [
+  '# 本番停止手順書',
+  '',
+  '## 1. ゴール',
+  '- 運営チームが自分たちだけで本番を停止できる手順書を出し、「これで実行できます」と言ってもらう',
+  '',
+  '## 2. 論点',
+  '- 手順書が書けないのは情報が足りないからではなく、どこまで書けば運営チームが実行できるかの合意が無いからではないか',
+  '',
+  '## 3. 不明点',
+  '- 運営チームはどの粒度なら実行できるかを聞く',
+  '- 本番で動いているサービス・バッチを調べる',
+  '- その手順で実際に静止するか開発環境で試す',
+  '',
+  '## 4. リスク',
+  '- 本番環境へのアクセス日程が動くと全部ずれる → 先に開発環境で当たりを付ける',
+  '',
+  '## 5. 次の一手',
+  '- 運営チームに求める完成度（粒度）を確認する',
+].join('\n');
+
+let lastParsed = parseSections('');
+
+function renderVerdict(list) {
+  const el = $id('verdict');
+  el.textContent = '';
+  const warns = list.filter(v => v.level === 'warn');
+  el.className = 'verdict' + (warns.length === 0 ? ' verdict-ok' : '');
+  if (warns.length === 0) {
+    const li = document.createElement('li');
+    li.className = 'v-ok';
+    li.dataset.id = 'ok';
+    li.textContent = '✓ 引っかかりなし — まず外していない';
+    el.appendChild(li);
+  }
+  for (const v of list) {
+    const li = document.createElement('li');
+    li.className = 'v-' + v.level;
+    li.dataset.id = v.id;
+    const b = document.createElement('strong');
+    b.textContent = (v.level === 'warn' ? '⚠ ' : '· ') + v.msg;
+    li.appendChild(b);
+    const s = document.createElement('span');
+    s.textContent = ' — ' + v.fix;
+    li.appendChild(s);
+    el.appendChild(li);
+  }
+}
+
+function run() {
+  const parsed = parseSections($id('input').value);
+  lastParsed = parsed;
+  const deadline = $id('deadline').value;
+  $id('output').value = toNote(parsed,
+    { deadline: deadline, today: todayStr(), title: $id('title').value });
+  renderVerdict(judge(parsed.issue, { deadline: deadline, unknowns: parsed.unknowns }));
+}
+
+let runTimer = null;
+function scheduleRun() {
+  clearTimeout(runTimer);
+  runTimer = setTimeout(() => { runTimer = null; run(); }, 200);
+}
+// コピー時に確定 — デバウンス中の古い結果を渡さない（coding-rules「UI の標準形」）
+function settle() { clearTimeout(runTimer); runTimer = null; run(); }
+
+/* 保存規約（coding-rules）: デバウンス＋pagehide/visibilitychange フラッシュ、
+   1フィールド 100KB 超は {omitted:true}（黙って捨てず次回起動時に通知） */
+const FIELD_LIMIT = 100000;
+let saveTimer = null;
+function savePayload() {
+  const v = $id('input').value;
+  return {
+    input: v.length > FIELD_LIMIT ? { omitted: true } : v,
+    title: $id('title').value,
+    deadline: $id('deadline').value,
+  };
+}
+function scheduleSave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => { saveTimer = null; ToolStorage.save(TOOL, savePayload()); }, 300);
+}
+function flushSave() {
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  ToolStorage.save(TOOL, savePayload());
+}
+window.addEventListener('pagehide', flushSave);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') flushSave();
+});
+
+function restore() {
+  const data = ToolStorage.load(TOOL);
+  if (!data) return;
+  if (typeof data.input === 'string') $id('input').value = data.input;
+  else if (data.input && data.input.omitted) {
+    ToolUI.banner($id('banner'), 'info',
+      '前回の内容は大きすぎたため復元されませんでした（保存上限 100KB/欄）');
+  }
+  if (typeof data.title === 'string') $id('title').value = data.title;
+  if (typeof data.deadline === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(data.deadline)) {
+    $id('deadline').value = data.deadline;
+  }
+}
+
+// サンプル投入ボタンは入力が空のときだけ表示（coding-rules「UI の標準形」）
+function updateSampleBtn() { $id('sample-btn').hidden = $id('input').value !== ''; }
+
+$id('input').addEventListener('input', () => { scheduleRun(); updateSampleBtn(); scheduleSave(); });
+$id('title').addEventListener('input', () => { scheduleRun(); scheduleSave(); });
+$id('deadline').addEventListener('input', () => { scheduleRun(); scheduleSave(); });
+$id('deadline').addEventListener('change', () => { scheduleRun(); scheduleSave(); });
+
+$id('copy-btn').addEventListener('click', () => {
+  settle();
+  ToolUI.copy($id('output').value).then(ok =>
+    ToolUI.feedback($id('copy-btn'), ok ? '✓ コピーしました' : 'コピーできませんでした'));
+});
+$id('copy-tasks-btn').addEventListener('click', () => {
+  settle();
+  const text = toTasks(lastParsed.next, { deadline: $id('deadline').value });
+  if (text === '') {
+    ToolUI.banner($id('banner'), 'warn', '「## 5. 次の一手」が空です — 最初に潰すものを1つ書いてください');
+    return;
+  }
+  ToolUI.copy(text).then(ok =>
+    ToolUI.feedback($id('copy-tasks-btn'), ok ? '✓ コピーしました' : 'コピーできませんでした'));
+});
+document.addEventListener('keydown', e => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+    e.preventDefault();
+    $id('copy-btn').click();
+  }
+});
+
+$id('sample-btn').addEventListener('click', () => {
+  $id('input').value = SAMPLE;
+  $id('title').value = '本番停止手順書';
+  settle();
+  updateSampleBtn();
+  scheduleSave();
+});
+
+restore();
+run();
+updateSampleBtn();
+ToolStorage.mountWarning();
+
+ToolEdit.tabIndent($id('input'), { mdList: true });   // md を書く欄（coding-rules）
+ToolEdit.mountTodayShortcut();                        // Ctrl/Cmd+; = 今日（締切）
+
+// テスト用フック（docs/specs/issue.md）
+window.issue = { parseSections: parseSections, judge: judge, toNote: toNote, toTasks: toTasks };
+</script>
+</body>
+</html>

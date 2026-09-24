@@ -1,7 +1,7 @@
 
 # Personal Tools
 
-業務効率化のための個人ツール群。**現在あるのはブラウザHTML（`web/` 16本）だけ**。
+業務効率化のための個人ツール群。**現在あるのはブラウザHTML（`web/` 17本）だけ**。
 CLI（`bin/`）は形態として認めているが、まだ1本も無い（→「構成」）。
 
 ## このリポジトリでの作業原則
@@ -23,12 +23,12 @@ CLI（`bin/`）は形態として認めているが、まだ1本も無い（→�
 README.md    公開リポジトリの入口。ツール表と本数は test/hub.js（HUB-15/16）が TOOLS と照合する
 LICENSE      MIT
 index.html   ハブ。web/ツール一覧（内部のTOOLS配列に1行足すと追加される）
-web/         ブラウザツール16本。1ツール=1HTML完結
+web/         ブラウザツール17本。1ツール=1HTML完結
 lib/         web ツールの共通コード。ui.css / ui.js / storage.js / config.js / sql.js / excel.js / mmd.js / edit.js / handoff.js
              同梱ライブラリは lib/vendor/（現在 mermaid のみ。作法は coding-rules.md）
 docs/        coding-rules.md（実装規約の正本）/ verification-notes.md（検証の罠）/
              ux-backlog.md / tool-backlog.md
-docs/specs/  ツールごとの仕様書兼テストケース（16本＋ taskboard-decisions.md の計17ファイル）
+docs/specs/  ツールごとの仕様書兼テストケース（17本＋ taskboard-decisions.md の計18ファイル）
 test/        検証ハーネス（`./test/run [ツール名]`。書き方は test/README.md）
 ```
 
@@ -64,8 +64,8 @@ test/        検証ハーネス（`./test/run [ツール名]`。書き方は tes
 - 現在の対応: Plan Tasks=taskboard / Convert Table=excel2md / Convert Data=devpad /
   Normalize Text=norm / Compare Text=diff / Unify Terms=terms / Fill Template=fill /
   Document Schema=ddl2spec / Export Outline=doc2xl / Draw Diagram=diagram /
-  Draw Mindmap=mindmap / Sort Ideas=board / Mask Image=mask / Check Vault=vaultlint /
-  Calc Dates=dates / Draw Gantt=gantt
+  Draw Mindmap=mindmap / Sort Ideas=board / Check Issue=issue / Mask Image=mask /
+  Check Vault=vaultlint / Calc Dates=dates / Draw Gantt=gantt
 - カテゴリ名は日本語のまま（英語にすると Convert ツールと同名になる。
   日本語=分類 / 英語=ツール名 の対比で階層が読みやすくなる）
 
@@ -100,7 +100,7 @@ test/        検証ハーネス（`./test/run [ツール名]`。書き方は tes
 
 - **ビルド前提（Vite/React 等）にしない**: 「使用時にビルド・インストール不要」の土台が消える。
   さらにこの環境は **asdf shim のため GUI 起動時に node が動かない**ことを実測済み（下の CLI の制約）で、
-  その不安定さを日々の開発に持ち込むことになる。**742チェックの検証機構が
+  その不安定さを日々の開発に持ち込むことになる。**769チェックの検証機構が
   `file://` 実機＋`window.<英名>` フックの上に建っている**ことも重い
   （実機通しでしか出ない欠陥を実際に2件検出している）
 - **Electron / Tauri にしない**: 100〜200MB のバイナリ・macOS の署名・更新機構・
@@ -130,7 +130,7 @@ test/        検証ハーネス（`./test/run [ツール名]`。書き方は tes
 
 - 検証時は `docs/verification-notes.md`（環境・道具・既知の罠）を必ず参照する
 - **合否の正本は `./test/run <tool>` が全 pass（コンソールエラー0件を含む）**。
-  16ツールすべてにハーネスがある。手順は `test/README.md`
+  17ツールすべてにハーネスがある。手順は `test/README.md`
 - `docs/specs/<tool>.md` のテストケースが全て一致すること（ハーネスがそれを照合している）。
   ブラウザツールも、変換ロジックを node 等で単体実行するのではなく、
   HTML から関数を切り出さずに済む範囲で、入力→期待出力の照合結果を提示する

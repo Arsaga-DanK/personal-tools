@@ -1,6 +1,6 @@
 # Personal Tools
 
-業務効率化のためのブラウザツール集（16本）。
+業務効率化のためのブラウザツール集（17本）。
 **インストールもビルドもサーバー起動も要りません。`index.html` をダブルクリックするだけです。**
 
 ## 設計方針
@@ -40,6 +40,7 @@ open index.html          # macOS。Windows は start index.html / Linux は xdg-
 | **Draw Diagram**（diagram） | テキストからフローチャート・シーケンス図 → PNG コピー / SVG 保存 | 設計 |
 | **Draw Mindmap**（mindmap） | 箇条書き → マインドマップ。1行目が中心テーマ、タブで階層 | 発想 |
 | **Sort Ideas**（board） | 付箋ボード。付箋を置いて・並べて・色分け・結線 → md アウトライン書き出し / PNG コピー | 発想 |
+| **Check Issue**（issue） | 論点（イシュー）の点検。貼った文章が「イシューか」を判定し、04_Issues 用の md とタスク1行を出す | 発想 |
 | **Mask Image**（mask） | スクショのマスキングと注釈。モザイク・黒塗り・枠・矢印・テキスト・番号スタンプ・切り抜き → PNG コピー | 画像 |
 | **Check Vault**（vaultlint） | Obsidian vault の健全性チェック。リンク切れ・添付消失・ファイル名の罠を検出し、承認した修復を実行 | 整理 |
 | **Calc Dates**（dates） | 日付・営業日・工数の計算。N 営業日後、期限の逆算、和暦/年度、人日⇄時間⇄人月換算 | PM |

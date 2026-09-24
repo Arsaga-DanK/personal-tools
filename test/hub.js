@@ -10,7 +10,7 @@
    CLAUDE.md「命名規約」が正本。HUB-9/HUB-10 がその規約を照合する。
 
    期待値の書き方（2026-08-17 に整理）:
-   - **固定値でピンするもの**: 「今この15本がこの順で載っている」（HUB-3 前半・HUB-4）。
+   - **固定値でピンするもの**: 「今この17本がこの順で載っている」（HUB-3 前半・HUB-4）。
      ツール追加を**意識的な仕様変更**にするための関門で、壊れることが仕事
      （coding-rules「新ツール追加の定型リップル」がこの更新を手順に含めている）
    - **導出するもの**: 描画がデータどおりか（HUB-3 後半）・検索が効くか（HUB-5/9）。
@@ -58,16 +58,16 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
       toolsArray: window.hub.TOOLS.map(t => t.name),
     };
   });
-  r.check('HUB-1（チップ: 先頭が「すべて 16」・以降は CATEGORY_ORDER 順で件数つき）',
+  r.check('HUB-1（チップ: 先頭が「すべて 17」・以降は CATEGORY_ORDER 順で件数つき）',
     order.chips.length === order.expectedChips.length + 1
-    && order.chips[0].cat === '' && order.chips[0].n === 16 && order.chips[0].pressed === 'true'
+    && order.chips[0].cat === '' && order.chips[0].n === 17 && order.chips[0].pressed === 'true'
     && eq(order.chips.slice(1).map(c => ({ cat: c.cat, n: c.n })), order.expectedChips),
     JSON.stringify(order.chips));
   r.check('HUB-2（Plan Tasks が最初のリンク）', order.firstLink === 'Plan Tasks', order.firstLink);
   // 前半は**意図的な固定ピン**（ツール追加・改名を意識的な仕様変更にする関門）。
   // 後半は導出値との照合（描画順が TOOLS × CATEGORY_ORDER に従っているか）
   r.check('HUB-3（グリッドは1枚・並びは CATEGORY_ORDER → TOOLS 配列順）',
-    eq(order.toolsArray, ['Plan Tasks', 'Convert Table', 'Convert Data', 'Normalize Text', 'Compare Text', 'Unify Terms', 'Fill Template', 'Document Schema', 'Export Outline', 'Draw Diagram', 'Draw Mindmap', 'Sort Ideas', 'Mask Image', 'Check Vault', 'Calc Dates', 'Draw Gantt'])
+    eq(order.toolsArray, ['Plan Tasks', 'Convert Table', 'Convert Data', 'Normalize Text', 'Compare Text', 'Unify Terms', 'Fill Template', 'Document Schema', 'Export Outline', 'Draw Diagram', 'Draw Mindmap', 'Sort Ideas', 'Check Issue', 'Mask Image', 'Check Vault', 'Calc Dates', 'Draw Gantt'])
     && order.grids === 1 && eq(order.rendered, order.expected),
     JSON.stringify([order.grids, order.rendered, order.expected]));
 
@@ -80,8 +80,8 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
       .map(b => b.dataset.cat).filter(c => c !== '' && !known.includes(c));
     return { names, unique: new Set(names).size, total: window.hub.TOOLS.length, unknownChips };
   });
-  r.check('HUB-4（登録した16本が重複なく全て載る・未知カテゴリのチップが出ない）',
-    listed.names.length === 16 && listed.unique === 16 && listed.total === 16
+  r.check('HUB-4（登録した17本が重複なく全て載る・未知カテゴリのチップが出ない）',
+    listed.names.length === 17 && listed.unique === 17 && listed.total === 17
     && listed.unknownChips.length === 0,
     JSON.stringify(listed));
 
@@ -122,17 +122,17 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     };
   });
   r.check('HUB-5（検索: 空・表示名・説明・用途・大文字小文字・部分一致）',
-    eq(search.empty, ['Plan Tasks', 'Convert Table', 'Convert Data', 'Normalize Text', 'Compare Text', 'Unify Terms', 'Fill Template', 'Document Schema', 'Export Outline', 'Draw Diagram', 'Draw Mindmap', 'Sort Ideas', 'Mask Image', 'Check Vault', 'Calc Dates', 'Draw Gantt'])
+    eq(search.empty, ['Plan Tasks', 'Convert Table', 'Convert Data', 'Normalize Text', 'Compare Text', 'Unify Terms', 'Fill Template', 'Document Schema', 'Export Outline', 'Draw Diagram', 'Draw Mindmap', 'Sort Ideas', 'Check Issue', 'Mask Image', 'Check Vault', 'Calc Dates', 'Draw Gantt'])
     && eq(search.byName, ['Plan Tasks']) && eq(search.byDesc, ['Plan Tasks', 'Check Vault'])   // 'vault' は両ツールの desc にある
     && eq(search.byWhen, ['Plan Tasks']) && eq(search.caseInsensitive, ['Convert Data'])
     && eq(search.none, []),
     JSON.stringify(search));
-  // 部分一致・英名検索は**全16本**を照合する（1本ずつ導出したクエリで自分自身に当たること）
+  // 部分一致・英名検索は**全17本**を照合する（1本ずつ導出したクエリで自分自身に当たること）
   r.check('HUB-5b（表示名の部分一致が全ツールで効く）',
-    search.partialName.length === 16 && search.partialName.every(p => p.q.length >= 3 && p.ok),
+    search.partialName.length === 17 && search.partialName.every(p => p.q.length >= 3 && p.ok),
     JSON.stringify(search.partialName.filter(p => !p.ok)));
   r.check('HUB-9（英名で辿れる（完全一致・大文字小文字無視・部分一致）・英名は画面に出さない）',
-    search.aliasProbe.length === 16
+    search.aliasProbe.length === 17
     && search.aliasProbe.every(p => p.exact && p.upper && p.partial)
     && search.aliasLeaked.length === 0,
     JSON.stringify([search.aliasProbe.filter(p => !(p.exact && p.upper && p.partial)), search.aliasLeaked]));
@@ -216,7 +216,7 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
   r.check('HUB-6（UI 検索: 絞り込み・該当なし・クリアで復帰）',
     eq(s1.names, ['Normalize Text'])
     && eq(s2.names, []) && s2.empty === '該当なし'
-    && eq(s3.names, ['Plan Tasks', 'Convert Table', 'Convert Data', 'Normalize Text', 'Compare Text', 'Unify Terms', 'Fill Template', 'Document Schema', 'Export Outline', 'Draw Diagram', 'Draw Mindmap', 'Sort Ideas', 'Mask Image', 'Check Vault', 'Calc Dates', 'Draw Gantt']),
+    && eq(s3.names, ['Plan Tasks', 'Convert Table', 'Convert Data', 'Normalize Text', 'Compare Text', 'Unify Terms', 'Fill Template', 'Document Schema', 'Export Outline', 'Draw Diagram', 'Draw Mindmap', 'Sort Ideas', 'Check Issue', 'Mask Image', 'Check Vault', 'Calc Dates', 'Draw Gantt']),
     JSON.stringify([s1, s2, s3]));
 
   /* ---------- HUB-21: チップの絞り込み（検索と合成・もう一度押すと解除） ---------- */
@@ -241,10 +241,10 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     return { only, combined, released };
   });
   r.check('HUB-21（チップで絞る・検索と合成・再押下で解除・aria-pressed が追随）',
-    eq(chipFilter.only.names, ['Draw Mindmap', 'Sort Ideas'])
+    eq(chipFilter.only.names, ['Draw Mindmap', 'Sort Ideas', 'Check Issue'])
     && chipFilter.only.pressed === 'true' && chipFilter.only.all === 'false'
     && eq(chipFilter.combined, ['Draw Mindmap'])
-    && chipFilter.released.names.length === 16 && chipFilter.released.pressed === 'false',
+    && chipFilter.released.names.length === 17 && chipFilter.released.pressed === 'false',
     JSON.stringify(chipFilter));
 
   /* ---------- リンク遷移（全ツール） ---------- */
@@ -269,11 +269,11 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
       naming: h1 === name && title === wantTitle && alias === basename,
     });
   }
-  r.check('HUB-7（16本すべてリンクで遷移でき title が一致）',
-    navResults.length === 16 && navResults.every(n => n.ok),
+  r.check('HUB-7（17本すべてリンクで遷移でき title が一致）',
+    navResults.length === 17 && navResults.every(n => n.ok),
     JSON.stringify(navResults));
   r.check('HUB-10（h1 = 表示名・title = 「表示名 (英名)」・英名 = ファイル名）',
-    navResults.length === 16 && navResults.every(n => n.naming),
+    navResults.length === 17 && navResults.every(n => n.naming),
     JSON.stringify(navResults.map(n => [n.name, n.h1, n.title, n.href])));
 
   /* ---------- 狭幅で横スクロールしない ---------- */
@@ -343,7 +343,7 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
         const t = toolOf(a);
         return !t || !(a.title || '').includes(t.desc);
       }).map(a => a.textContent),
-      // カードにアイコンと一言が出ているか（全16本を導出で照合）
+      // カードにアイコンと一言が出ているか（全17本を導出で照合）
       missingCard: window.hub.TOOLS.filter(t => {
         const a = links.find(x => (x.querySelector('.tool-name') || {}).textContent === t.name);
         if (!a) return true;
@@ -378,19 +378,19 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     && titles.sameRow === true,
     JSON.stringify(titles));
 
-  /* ---------- HUB-18: 1画面に収まる（16本 + 見出し + 検索欄） ---------- */
+  /* ---------- HUB-18: 1画面に収まる（17本 + 見出し + 検索欄） ---------- */
   await page.setViewportSize({ width: 1280, height: 900 });
   const fits = await page.evaluate(() => ({
     scrollH: document.documentElement.scrollHeight,
     clientH: document.documentElement.clientHeight,
     links: document.querySelectorAll('ul.tool-list a').length,
   }));
-  r.check('HUB-18（1280x900 で縦スクロールなしに16本すべて見える）',
-    fits.links === 16 && fits.scrollH <= fits.clientH,
+  r.check('HUB-18（1280x900 で縦スクロールなしに17本すべて見える）',
+    fits.links === 17 && fits.scrollH <= fits.clientH,
     JSON.stringify(fits));
 
   /* ---------- HUB-19: 最近使った（クリックで記録・先頭・重複なし・上限5） ----------
-     直前の HUB-7 が全16本をクリックで巡回して履歴を作っているので、
+     直前の HUB-7 が全17本をクリックで巡回して履歴を作っているので、
      「履歴なしの表示」を見るには**消してから読み込み直す**（消すだけでは再描画されない） */
   await page.evaluate(() => localStorage.removeItem('tools:hub'));
   await page.reload();
@@ -418,7 +418,7 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     && eq(recent.list, ['norm', 'fill', 'dates', 'board', 'gantt'])
     && eq(recent.shown, ['Normalize Text', 'Fill Template', 'Calc Dates', 'Sort Ideas', 'Draw Gantt'])
     && recent.envelope.tool === 'hub' && recent.envelope.v === 1
-    && recent.listLinks === 16,
+    && recent.listLinks === 17,
     JSON.stringify(recent));
 
   /* ---------- HUB-20: 検索の自動フォーカスと Enter で先頭を開く（IME ガード） ---------- */
@@ -578,7 +578,7 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
       fromLocation: md.includes(location.href.replace(/index\.html$/, '')),
     };
   });
-  r.check('HUB-25（Obsidian 用のリンク集: 全16本＋ハブ＋カテゴリ見出しの md をコピー・パスは実行時に組む）',
+  r.check('HUB-25（Obsidian 用のリンク集: 全17本＋ハブ＋カテゴリ見出しの md をコピー・パスは実行時に組む）',
     !notes.missing && notes.allListed === true && notes.hasHub === true
     && notes.cats === true && notes.fromLocation === true
     && notes.copied === notes.md && notes.label === '✓ コピーしました',
