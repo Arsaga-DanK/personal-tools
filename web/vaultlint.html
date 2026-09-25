@@ -51,6 +51,12 @@
     <label>アーカイブ先
       <input type="text" id="cfg-archive" placeholder="例: 90_Archive/daily（空なら移動しない）">
     </label>
+    <label>イシューのフォルダ
+      <input type="text" id="cfg-issue" placeholder="例: 04_Issues（空なら閉じたイシューを検査しない）">
+    </label>
+    <label>閉じたイシューの移動先
+      <input type="text" id="cfg-closed" placeholder="例: 90_Archive/{YYYY}（{YYYY} は閉じた年。空なら移動しない）">
+    </label>
     <button id="cfg-save">設定を保存</button>
     <p class="note">vault のフォルダ構成は人によって違うため設定で持ちます。<code>.obsidian</code> <code>.git</code> <code>.trash</code> は設定に関係なく常に除外します。</p>
   </div>
@@ -80,7 +86,7 @@ const ALWAYS_EXCLUDE = new Set(['.obsidian', '.git', '.trash']);
    **privateDirs === null は「未設定」**で、空配列（＝除外なしと決めた）とは区別する —
    未設定のまま走査すると非公開ノートを読み込む事故になるため、設定が済むまで
    フォルダ選択を無効化する（旧「91_Private をコードで強制除外」の一般化）。 */
-let CFG = { privateDirs: null, inboxDir: '', archiveDir: '' };
+let CFG = { privateDirs: null, inboxDir: '', archiveDir: '', issueDir: '', closedDir: '' };
 
 // 読み込み自体しないディレクトリ名の集合（常時除外 ＋ 設定した非公開フォルダ）
 function excludeDirSet() {
@@ -136,7 +142,7 @@ function lint(files, today) {
     return { ok: false, error: 'ファイル数が上限（20,000）を超えたため処理を中止しました' };
   }
   const warnings = [];
-  const issues = { brokenLinks: [], missingAttachments: [], badNames: [], dupBasenames: [], inbox: [] };
+  const issues = { brokenLinks: [], missingAttachments: [], badNames: [], dupBasenames: [], inbox: [], closedIssues: [] };
 
   // インデックス（比較は NFC + 小文字化 — spec「リンク解決規則」）
   const mdByBase = new Map();
@@ -255,7 +261,38 @@ function lint(files, today) {
     }
   }
 
+  // 閉じたイシュー（VL-22・VL-Q13）: 設定した issueDir **直下**の md で frontmatter が status: closed のもの。
+  // 閉じるのは Check Issue（status/closed を書く）、ここは片づけだけ。**issueDir が空なら検査自体をしない**
+  if (CFG.issueDir) {
+    const prefix = CFG.issueDir + '/';
+    for (const f of files) {
+      if (!f.path.startsWith(prefix) || !/\.md$/i.test(f.path) || typeof f.text !== 'string') continue;
+      if (f.path.slice(prefix.length).includes('/')) continue;      // 直下のみ
+      const fm = frontmatterOf(f.text);
+      if (!fm || fm.status !== 'closed') continue;
+      issues.closedIssues.push({ path: f.path, closed: fm.closed || '', verdict: fm.verdict || '' });
+    }
+  }
+
   return { ok: true, issues, stats: { files: files.length, notes, links, inboxOthers }, warnings };
+}
+
+// 先頭の frontmatter を key: value のスカラーだけ読む（status / closed / verdict で足りる）
+function frontmatterOf(text) {
+  const m = String(text || '').replace(/\r\n?/g, '\n').match(/^---\n([\s\S]*?)\n---(?:\n|$)/);
+  if (!m) return null;
+  const out = {};
+  for (const l of m[1].split('\n')) {
+    const k = l.match(/^([A-Za-z_][\w-]*):\s*(.*)$/);
+    if (k) out[k[1]] = k[2].trim();
+  }
+  return out;
+}
+
+// 閉じたイシューの移動先: closedDir の {YYYY} を閉じた年（無ければ今年）に置き換える
+function closedDirFor(closed) {
+  const y = (closed && /^\d{4}/.test(closed)) ? closed.slice(0, 4) : todayStr().slice(0, 4);
+  return CFG.closedDir.replace(/\{YYYY\}/g, y);
 }
 
 // アダプタ層の除外（UI/テスト経路の共通入口。FSA 走査は同じ集合をディレクトリ単位で飛ばす）
@@ -338,6 +375,18 @@ function planFixes(files, selections) {
         continue;
       }
       const to = CFG.archiveDir + '/' + basenameOf(sel.from);
+      if (byPath.has(to) || moves.some(mv => mv.to === to)) {
+        skipped.push({ path: sel.from, reason: '移動先に同名があります: ' + to });
+      } else {
+        moves.push({ from: sel.from, to });
+      }
+    } else if (sel.type === 'archiveIssue') {
+      // 閉じたイシュー（VL-Q13）: closedDir の {YYYY} を閉じた年に。フォルダは適用側が階層ごとに作る
+      if (!CFG.closedDir) {
+        skipped.push({ path: sel.from, reason: '閉じたイシューの移動先が未設定です' });
+        continue;
+      }
+      const to = closedDirFor(sel.closed) + '/' + basenameOf(sel.from);
       if (byPath.has(to) || moves.some(mv => mv.to === to)) {
         skipped.push({ path: sel.from, reason: '移動先に同名があります: ' + to });
       } else {
@@ -494,11 +543,21 @@ const CLASS_DEFS = [
       value: i.pending ? 'none' : 'archive',   // 未転記タスクが残るものは既定で動かさない
     } : null),
     selectionOf: (i, v) => (v === 'archive' ? { type: 'archiveDaily', from: i.path } : null) },
+  { key: 'closedIssues', title: '閉じたイシュー（status: closed）', cols: ['ファイル', '閉じた日', '判定'],
+    row: i => [i.path, i.closed || '—', i.verdict || '—'],
+    md: i => i.path + '（' + (i.closed || '日付なし') + (i.verdict ? '・' + i.verdict : '') + '）',
+    // 移動先が未設定なら移動を提案しない（Inbox 棚卸しと同じ流儀）。待ち日数は置かない（閉じる操作が承認）
+    fix: i => (CFG.closedDir ? {
+      options: [{ value: 'archive', label: closedDirFor(i.closed) + '/ へ移動' }, { value: 'none', label: 'しない' }],
+      value: 'archive',
+    } : null),
+    selectionOf: (i, v) => (v === 'archive' ? { type: 'archiveIssue', from: i.path, closed: i.closed } : null) },
 ];
 
 /* 実際に検査したクラスだけを出す。Inbox 棚卸しは対象フォルダが未設定なら**検査していない**ので
    一覧から外す — 検査していないものを「問題なし ✅」と表示すると嘘になる。 */
-const activeClasses = () => CLASS_DEFS.filter(d => d.key !== 'inbox' || CFG.inboxDir !== '');
+const activeClasses = () => CLASS_DEFS.filter(d =>
+  (d.key !== 'inbox' || CFG.inboxDir !== '') && (d.key !== 'closedIssues' || CFG.issueDir !== ''));
 
 let lastReport = '';
 
@@ -804,10 +863,13 @@ el('fix-btn').addEventListener('click', executeFixes);
 
 // 設定を反映する唯一の経路（UI・起動時・テストが同じここを通る）
 function applyConfig(cfg) {
-  CFG = { privateDirs: cfg.privateDirs, inboxDir: cfg.inboxDir, archiveDir: cfg.archiveDir };
+  CFG = { privateDirs: cfg.privateDirs, inboxDir: cfg.inboxDir, archiveDir: cfg.archiveDir,
+    issueDir: cfg.issueDir || '', closedDir: cfg.closedDir || '' };
   el('cfg-private').value = (CFG.privateDirs || []).join(', ');
   el('cfg-inbox').value = CFG.inboxDir;
   el('cfg-archive').value = CFG.archiveDir;
+  el('cfg-issue').value = CFG.issueDir;
+  el('cfg-closed').value = CFG.closedDir;
   updatePickState();
 }
 
@@ -830,6 +892,8 @@ el('cfg-save').addEventListener('click', () => {
     privateDirs: el('cfg-private').value,   // 空欄 → [] （＝「除外なし」と決めた状態）
     inboxDir: el('cfg-inbox').value,
     archiveDir: el('cfg-archive').value,
+    issueDir: el('cfg-issue').value,
+    closedDir: el('cfg-closed').value,
   });
   applyConfig(ToolConfig.all());
   showBanner('success', '設定を保存しました');
@@ -856,6 +920,8 @@ window.vaultlint = {
         privateDirs: ToolConfig.normDirList(c.privateDirs),   // undefined → null（未設定）
         inboxDir: ToolConfig.normDir(c.inboxDir),
         archiveDir: ToolConfig.normDir(c.archiveDir),
+        issueDir: ToolConfig.normDir(c.issueDir),
+        closedDir: ToolConfig.normDir(c.closedDir),
       });
     },
     // FSA を通さず、アダプタ層の除外 → lint → 描画 → （実行ボタンは）メモリ適用まで通す

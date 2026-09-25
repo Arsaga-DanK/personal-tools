@@ -88,6 +88,7 @@
   .note-open { color: var(--accent); text-decoration: none; font-size: 11.5px; }
   .note-open:hover { text-decoration: underline; }
   .note-add { font-size: 11.5px; padding: 1px 8px; border-radius: 999px; margin-left: auto; }
+  .note-close { font-size: 11.5px; padding: 1px 8px; border-radius: 999px; }
   .ic-spun { font-size: 12px; color: var(--accent); text-decoration: none;
     border: 1px solid var(--border); border-radius: 8px; padding: 4px 10px; }
   .ic-spun:hover { border-color: var(--accent); }
@@ -367,7 +368,11 @@ function parseFrontmatter(text) {
 function setFrontmatter(text, patch) {
   const t = nfc(text).replace(/\r\n?/g, '\n');
   const m = t.match(/^---\n([\s\S]*?)\n---\n?/);
-  if (!m) return t;
+  // frontmatter が無ければ先頭に作る（IS-Q20: 閉じられないノートを残さない）
+  if (!m) {
+    const ks = Object.keys(patch || {});
+    return '---\n' + ks.map(function (k) { return k + ': ' + patch[k]; }).join('\n') + '\n---\n' + t;
+  }
   let ls = m[1].split('\n');
   const keys = Object.keys(patch || {});
   for (let i = 0; i < keys.length; i++) {
@@ -1119,7 +1124,8 @@ function noteOf(text, fileName) {
       file: base.file, name: base.name, title: base.title,
       lineNo: L.lineNo, raw: L.raw, link: L.link,
       issue: L.text, deadline: L.due, doneDate: L.doneDate, conclusion: L.note || '',
-      status: L.done ? 'closed' : 'open', verdict: L.verdict,
+      // ノートが閉じていれば行も「閉じたもの」扱い（IS-Q20）
+      status: (base.status === 'closed' || L.done) ? 'closed' : 'open', verdict: L.verdict,
       picture: '', subs: 0, ways: { '聞く': 0, '調べる': 0, '試す': 0 }, rows: [],
       next: '', goal: '', hasFrontmatter: base.hasFrontmatter, text: text,
       warn: vs.filter(function (v) { return v.level === 'warn'; }).length, verdicts: vs,
@@ -1452,7 +1458,23 @@ function noteHeader(n) {
   add.textContent = '＋ 論点を足す';
   add.addEventListener('click', function () { openAddIssue(row, n); });
   row.appendChild(add);
+  // ノート単位の閉じる（IS-Q20）。閉じたノートには出さない
+  if (n.base && n.base.status !== 'closed') {
+    const cl = document.createElement('button');
+    cl.type = 'button';
+    cl.className = 'note-close';
+    cl.textContent = 'ノートを閉じる…';
+    cl.title = 'このノート全体を閉じる（frontmatter に status: closed と閉じた日を書く。片づけは Check Vault）';
+    cl.addEventListener('click', function () { openCloseModal(noteCardOf(n)); });
+    row.appendChild(cl);
+  }
   return row;
+}
+
+// ノート単位で閉じるためのカード相当（applyClose の非 line 経路が読む項目だけ）
+function noteCardOf(n) {
+  return { kind: 'note', note: n, file: n.file, name: n.name, title: n.title, issue: '',
+    hasFrontmatter: n.hasFrontmatter };
 }
 
 function openAddIssue(row, n) {
@@ -1590,17 +1612,31 @@ async function applyClose() {
     }, null);
     if (!ok) { $id('cm-err').textContent = '書き込めませんでした。Obsidian 側で変更されているかもしれません（［再読込］してからもう一度）'; $id('cm-err').hidden = false; return; }
     closeCloseModal();
-    ToolUI.banner($id('banner'), 'success', '論点を閉じました（' + verdict + '）');
+    // 最後の開いている行だったら「ノートも閉じる？」を添える（強制しない — IS-Q20）
+    const stillOpen = (it.note.cards || []).some(function (c) {
+      return c.kind === 'line' && c.lineNo !== it.lineNo && c.status !== 'closed';
+    });
+    const b = ToolUI.banner($id('banner'), 'success', '論点を閉じました（' + verdict + '）'
+      + (stillOpen ? '' : ' — このノートの論点は全部閉じました'));
+    if (!stillOpen) {
+      const name = it.note.name;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = 'ノートも閉じる…';
+      btn.style.marginLeft = '10px';
+      // 再読込後のノートで開く（古いオブジェクトだと鮮度チェックに掛かる）
+      btn.addEventListener('click', function () {
+        const fresh = notes.find(function (n) { return n.name === name; });
+        if (fresh) openCloseModal(noteCardOf(fresh));
+      });
+      b.appendChild(btn);
+    }
     return;
   }
 
-  if (!it.hasFrontmatter) {
-    $id('cm-err').textContent = 'このノートには frontmatter が無いため書き換えません（Obsidian で直接閉じてください）';
-    $id('cm-err').hidden = false;
-    return;
-  }
+  // ノート単位（5段ノート・見出しの［ノートを閉じる…］）。frontmatter が無ければ setFrontmatter が作る
   const ok2 = await writeNote(it.note, function (cur) {
-    let next = setFrontmatter(cur, { status: 'closed', verdict: verdict });
+    let next = setFrontmatter(cur, { status: 'closed', verdict: verdict, closed: todayStr() });
     if (note !== '') next = appendToSection(next, '## 結論', '- ' + note);
     if (told !== '') next = appendToSection(next, '## 結論', '- 伝えた: ' + told);
     return next;

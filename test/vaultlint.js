@@ -34,6 +34,7 @@ const IDEO_SPACE = '\u3000';
       bad: res.issues.badNames.map(i => [i.path, i.reason]),
       dup: res.issues.dupBasenames.map(i => [i.base, i.paths]),
       inbox: (res.issues.inbox || []).map(i => [i.path, i.date, i.age, i.pending]),
+      closed: (res.issues.closedIssues || []).map(i => [i.path, i.closed, i.verdict]),
       stats: res.stats,
       warnings: res.warnings,
     };
@@ -166,6 +167,38 @@ const IDEO_SPACE = '\u3000';
       ['00_Inbox/2026-08-03.md', '2026-08-03', 11, 2]])
     && v14.stats.inboxOthers === 1,
     JSON.stringify([v14.inbox, v14.stats]));
+
+  /* ========== VL-22〜24: 閉じたイシュー（VL-Q13・2026-09-25） ========== */
+  const FM = (st, extra) => ['---', 'created: 2026-09-01', 'status: ' + st].concat(extra || []).concat(['tags: [issue]', '---', '# t', '', '## 論点', '', '- [x] x', '']).join('\n');
+  const CI = [
+    { path: '04_Issues/a.md', text: FM('closed', ['closed: 2026-09-20', 'verdict: 当たり']) },
+    { path: '04_Issues/b.md', text: FM('open') },
+    { path: '04_Issues/c.md', text: FM('closed') },                              // 閉じた日・判定なし
+    { path: '04_Issues/sub/d.md', text: FM('closed', ['closed: 2026-09-21']) },  // サブフォルダは対象外
+    { path: 'x/e.md', text: FM('closed', ['closed: 2026-09-22']) },              // フォルダ外
+    { path: '04_Issues/f.md', text: '# frontmatter なし\n- [x] 済' },
+  ];
+  const v22 = await lint(CI, '2026-09-25', { issueDir: '04_Issues' });
+  r.check('VL-22（閉じたイシュー: issueDir 直下の status: closed だけ。closed / verdict を拾う・無ければ空）',
+    eq(v22.closed, [['04_Issues/a.md', '2026-09-20', '当たり'], ['04_Issues/c.md', '', '']]),
+    JSON.stringify(v22.closed));
+  const v23 = await lint(CI, '2026-09-25', {});
+  r.check('VL-23（issueDir 未設定なら閉じたイシューの検査自体をしない）', eq(v23.closed, []), JSON.stringify(v23.closed));
+  const v24 = await page.evaluate((files) => {
+    if (!window.vaultlint.planFixes) return { missing: true };
+    const sel = [{ type: 'archiveIssue', from: '04_Issues/a.md', closed: '2026-09-20' }];
+    window.vaultlint.test.setConfig({ issueDir: '04_Issues', closedDir: '90_Archive/{YYYY}' });
+    const p = window.vaultlint.planFixes(files, sel);
+    const conflict = window.vaultlint.planFixes(files.concat([{ path: '90_Archive/2026/a.md', text: '' }]), sel);
+    window.vaultlint.test.setConfig({ issueDir: '04_Issues' });
+    const unset = window.vaultlint.planFixes(files, sel);
+    return { moves: p.moves, skipped: p.skipped, conflict: conflict.skipped, unset: unset.skipped, unsetMoves: unset.moves };
+  }, CI);
+  r.check('VL-24（planFixes archiveIssue: {YYYY} は閉じた年・移動先に同名があればスキップ・closedDir 未設定なら理由つきでスキップ）',
+    !v24.missing && eq(v24.moves, [{ from: '04_Issues/a.md', to: '90_Archive/2026/a.md' }]) && v24.skipped.length === 0
+    && v24.conflict.length === 1 && v24.conflict[0].reason.includes('同名')
+    && v24.unsetMoves.length === 0 && v24.unset.length === 1 && v24.unset[0].reason.includes('未設定'),
+    JSON.stringify(v24));
 
   /* ========== VL-20: Inbox フォルダが未設定なら棚卸し自体をしない ========== */
   const v20 = await lint([
@@ -430,6 +463,38 @@ const IDEO_SPACE = '\u3000';
   r.check('ハブの「整理」カテゴリから遷移でき title と h1 が命名規約どおり',
     hubCats.includes('整理') && hubTitle === 'Check Vault (vaultlint)' && hubH1 === 'Check Vault',
     JSON.stringify([hubCats, hubTitle, hubH1]));
+
+  /* ========== VL-U9/U10: 閉じたイシューの設定と一覧（VL-Q13） ========== */
+  const u9 = await page.evaluate(() => {
+    const ci = document.getElementById('cfg-issue'), cc = document.getElementById('cfg-closed');
+    if (!ci || !cc) return { missing: true };
+    ci.value = '/04_Issues/'; cc.value = '90_Archive/{YYYY}';
+    document.getElementById('cfg-save').click();
+    const saved = JSON.parse(localStorage.getItem('tools:config')).data;
+    return { issueDir: saved.issueDir, closedDir: saved.closedDir };
+  });
+  r.check('VL-U9（設定欄: イシューのフォルダと閉じたイシューの移動先が保存され、{YYYY} は正規化で残る）',
+    u9.issueDir === '04_Issues' && u9.closedDir === '90_Archive/{YYYY}', JSON.stringify(u9));
+  const u10 = await page.evaluate((files) => {
+    if (!window.vaultlint.test.run) return { missing: true };
+    window.vaultlint.test.run(files, '2026-09-25', { issueDir: '04_Issues', closedDir: '90_Archive/{YYYY}' });
+    const h2 = Array.from(document.querySelectorAll('#results h2')).map(h => h.textContent);
+    const block = Array.from(document.querySelectorAll('#results section')).find(sec => sec.querySelector('h2').textContent.includes('閉じたイシュー'));
+    const sel = block && block.querySelector('select.fix-select');
+    const withCfg = {
+      title: h2.find(t => t.includes('閉じたイシュー')) || '',
+      options: sel ? Array.from(sel.options).map(o => o.value) : [],
+      label: sel ? Array.from(sel.options).map(o => o.textContent).join(' | ') : '',
+      value: sel ? sel.value : '',
+    };
+    window.vaultlint.test.run(files, '2026-09-25', {});
+    const without = Array.from(document.querySelectorAll('#results h2')).map(h => h.textContent).some(t => t.includes('閉じたイシュー'));
+    return { withCfg, without };
+  }, CI);
+  r.check('VL-U10（一覧: issueDir ありで「閉じたイシュー（2件）」が出て既定が移動・ラベルに年つきの移動先／未設定なら検査クラスごと出ない）',
+    !u10.missing && u10.withCfg.title.includes('2件') && u10.withCfg.options.includes('archive')
+    && u10.withCfg.label.includes('90_Archive/2026') && u10.withCfg.value === 'archive' && u10.without === false,
+    JSON.stringify(u10));
 
   await browser.close();
   r.report('vaultlint（docs/specs/vaultlint.md）');

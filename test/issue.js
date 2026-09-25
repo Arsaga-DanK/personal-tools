@@ -284,12 +284,12 @@ const SAMPLE_MD = [
       };
     }, NOTE);
 
-    r.check('IS-L1（frontmatter を読み、キーを差し替えても本文が1文字も変わらない・無い場合は素通し）',
+    r.check('IS-L1（frontmatter を読み、キーを差し替えても本文が1文字も変わらない・無ければ先頭に作る）',
       L.data.status === 'open' && L.data.deadline === '2026-09-30' && L.bodyKeepsTitle
       && L.patched.includes('status: closed') && L.patched.includes('verdict: 当たり')
       && !L.patched.includes('status: open')
       && L.bodyUnchanged
-      && L.noFm === '見出しだけ\n## 結論\n- x',
+      && L.noFm === '---\nstatus: closed\n---\n見出しだけ\n## 結論\n- x',
       JSON.stringify({ data: L.data, bodyUnchanged: L.bodyUnchanged, noFm: L.noFm }));
 
     r.check('IS-L2（subRows: 表の見出し行と区切り行を除き、手段を2列目から取る）',
@@ -990,6 +990,72 @@ const SAMPLE_MD = [
     && ul14.dueOS.includes('2026-09-22') && !ul14.overClass.includes('is-over')
     && ul14.closeBtn === false,
     JSON.stringify(ul14));
+
+  /* ========== IS-UL16/UL17: ノートを閉じる（IS-Q20） ========== */
+  const N1 = ['---', 'created: 2026-09-20', 'status: open', 'tags: [issue]', '---', '# ノート1', '',
+    '## 論点', '', '- [ ] 甲は A ではなく B ではないか \u{1F4C5} 2026-10-01', '- [ ] 乙は C ではなく D ではないか \u{1F4C5} 2026-10-02', '',
+    '## 掘る', '- メモ1', ''].join('\n');
+  const N2 = ['---', 'created: 2026-09-20', 'status: open', 'tags: [issue]', '---', '# ノート2', '',
+    '## 論点', '', '- [ ] 丙は E ではなく F ではないか \u{1F4C5} 2026-10-03', '', '## 掘る', '- メモ2', ''].join('\n');
+  const ul16 = await page.evaluate(async ([n1, n2]) => {
+    for (const k of Object.keys(window.__fsa.files)) delete window.__fsa.files[k];
+    window.__fsa.files['n1.md'] = n1; window.__fsa.files['n2.md'] = n2;
+    document.getElementById('f-status').value = 'open';
+    await window.issue.load();
+    const head = Array.from(document.querySelectorAll('.note-head')).find(h => h.textContent.includes('ノート1'));
+    const btn = head && head.querySelector('.note-close');
+    if (!btn) return { noBtn: true };
+    btn.click();
+    const target = document.getElementById('cm-target').textContent;
+    document.querySelector('input[name="cm-v"][value="外れ"]').checked = true;
+    document.getElementById('cm-note').value = '分かった1';
+    document.getElementById('cm-ok').click();
+    await new Promise(d => setTimeout(d, 400));
+    const after = window.__fsa.files['n1.md'];
+    const openIssues = Array.from(document.querySelectorAll('.ic-issue')).map(e => e.textContent);
+    document.getElementById('f-status').value = 'closed';
+    document.getElementById('f-status').dispatchEvent(new Event('change'));
+    const closedIssues = Array.from(document.querySelectorAll('.ic-issue')).map(e => e.textContent);
+    const headAfter = Array.from(document.querySelectorAll('.note-head')).find(h => h.textContent.includes('ノート1'));
+    const btnGone = !headAfter || !headAfter.querySelector('.note-close');
+    document.getElementById('f-status').value = 'open';
+    document.getElementById('f-status').dispatchEvent(new Event('change'));
+    return {
+      target, btnGone,
+      status: /^status: closed$/m.test(after), verdict: /^verdict: 外れ$/m.test(after),
+      closed: /^closed: \d{4}-\d{2}-\d{2}$/m.test(after),
+      conclusion: after.slice(after.indexOf('## 結論')).includes('- 分かった1'),
+      scribble: after.includes('- メモ1'),
+      openHasN1: openIssues.some(t => t.includes('甲は')), openHasN2: openIssues.some(t => t.includes('丙は')),
+      closedHasN1: closedIssues.some(t => t.includes('甲は')),
+    };
+  }, [N1, N2]);
+  r.check('IS-UL16（見出しの［ノートを閉じる…］: frontmatter に status/verdict/closed・結論に1行・書き殴りは不変・行は「閉じたもの」へ・ボタンは消える）',
+    !ul16.noBtn && ul16.target.includes('ノート1') && ul16.status && ul16.verdict && ul16.closed && ul16.conclusion
+    && ul16.scribble && !ul16.openHasN1 && ul16.openHasN2 && ul16.closedHasN1 && ul16.btnGone,
+    JSON.stringify(ul16));
+
+  const ul17 = await page.evaluate(async () => {
+    const card = Array.from(document.querySelectorAll('.issue-card'))
+      .find(c => c.querySelector('.ic-issue') && c.querySelector('.ic-issue').textContent.includes('丙は'));
+    if (!card) return { noCard: true };
+    card.querySelector('.ic-close').click();
+    document.querySelector('input[name="cm-v"][value="当たり"]').checked = true;
+    document.getElementById('cm-ok').click();
+    await new Promise(d => setTimeout(d, 400));
+    const b = document.getElementById('banner');
+    const offer = b && Array.from(b.querySelectorAll('button')).find(x => x.textContent.includes('ノートも閉じる'));
+    if (!offer) return { noOffer: true, banner: b ? b.textContent : '' };
+    offer.click();
+    await new Promise(d => setTimeout(d, 50));
+    const opened = !document.getElementById('close-modal').hidden;
+    const target = document.getElementById('cm-target').textContent;
+    document.getElementById('cm-cancel').click();
+    return { opened, target, lineClosed: /- \[x\] 丙は .*当たり/.test(window.__fsa.files['n2.md']) };
+  });
+  r.check('IS-UL17（最後の開いている行を閉じると、バナーに［ノートも閉じる…］が出て、押すとそのノートでモーダルが開く）',
+    !ul17.noCard && !ul17.noOffer && ul17.opened && ul17.target.includes('ノート2') && ul17.lineClosed,
+    JSON.stringify(ul17));
 
   // IS-U25: 初見（ノート0）は使い方が開いている・ノートがあれば強制しない
   const u25 = await page.evaluate(async () => {
