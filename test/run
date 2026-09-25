@@ -164,6 +164,34 @@ if (( ${#big} )); then
   for b in $big; do print -r -- "  $b"; done
 fi
 
+# spec ⇔ テスト ID の整合（2026-09-25 設計 §5）。「期待値の正本は spec」を機械に持たせる。
+#   - r.check('XX-nn…' の ID が docs/specs/<alias>.md か docs/specs/<alias>/*.md に語境界つきである
+#     （TB-1 が TB-10 に当たらない。末尾の小文字1字「同 ID の別経路」= b / a と、UI 経路の -UI は剥がして照合）
+#   - 同じ alias のテストで同じ ID を2度使わない（2026-09-25 に TB-M1/M2・TB-T1〜T3 の二重使用を検出）
+#   - hub は spec を持たない設計（test/hub.js 冒頭）なので対象外
+if ! perl -e '
+      use strict; my %spec; my %seen; my $bad = 0;
+      sub slurp { local $/; open my $h, "<", $_[0] or return ""; my $t = <$h>; close $h; $t }
+      for my $f (sort(glob("test/*.js"), glob("test/*/*.js"))) {
+        next if $f =~ m{/helpers\.js$};
+        my ($alias) = $f =~ m{^test/([a-z0-9]+)(?:/[a-z0-9-]+)?\.js$} or next;
+        next if $alias eq "hub";
+        $spec{$alias} //= join "\n", map { slurp($_) } (glob("docs/specs/$alias.md"), glob("docs/specs/$alias/*.md"));
+        open my $h, "<", $f or die "$f: $!";
+        while (<$h>) {
+          next unless /r\.check\(\s*[\x27"`]([A-Z][A-Z0-9]*-[A-Za-z]*\d+[a-z]?(?:-UI)?)/;
+          my $id = $1; (my $base = $id) =~ s/-UI$//; $base =~ s/[a-z]$//;
+          if ($seen{$alias}{$id}++) { print "  $f:$. ID が重複しています: $id\n"; $bad = 1; next; }
+          next if $spec{$alias} =~ /(?<![A-Za-z0-9-])(?:\Q$id\E|\Q$base\E)(?![0-9A-Za-z])/;
+          print "  $f:$. spec に無い ID: $id（docs/specs/$alias.md か docs/specs/$alias/*.md に書く）\n"; $bad = 1;
+        }
+        close $h;
+      }
+      exit($bad ? 1 : 0)'; then
+  print -r -- "テストの ID と spec が食い違っています（上記の行）。期待値の正本は spec なので spec 側に足してください" >&2
+  exit 1
+fi
+
 typeset -a targets
 if [[ -n "${1:-}" && "${1}" != --* ]]; then
   targets=("test/${1}.js")

@@ -6,7 +6,7 @@
 
    照合するID: TB-01〜20・parse チェック / TB-S1〜S11（セクション移動）/
    TB-A1〜A7（事故防止）/ TB-I1〜I7（IME ガード）/ TB-U1〜U7（追加の取り消し）/
-   TB-P1〜P19（計画ビュー: 🛫 とタイムライン）/ TB-M1〜M2（モード切替と共通モーダル）/ TB-AS1〜AS4（自動保存）/ TB-T1〜T3（ツールバー整理・モード切替）/ TB-H2〜H4（Check Issue からの受け取り・案件）/ TB-D4〜D5・W2〜W3（日付の既定と チップ・モーダル幅・長い関連ノート）/ TB-N1〜N8（タスクを考える場所へ — イシューノートを開く／作る・案件）/ TB-K1〜K11（親子の付け替え）
+   TB-P1〜P19（計画ビュー: 🛫 とタイムライン）/ TB-MS1〜MS3（モード切替・モーダルの殻・Cmd+Shift+E）/ TB-UI1〜UI2（ツールバー）/ TB-AS1〜AS4（自動保存）/ TB-T1〜T3（ツールバー整理・モード切替）/ TB-H2〜H4（Check Issue からの受け取り・案件）/ TB-D4〜D5・W2〜W3（日付の既定と チップ・モーダル幅・長い関連ノート）/ TB-N1〜N8（タスクを考える場所へ — イシューノートを開く／作る・案件）/ TB-K1〜K11（親子の付け替え）
    仕様の正本は docs/specs/taskboard.md。期待値を変えるときは spec を先に直す。 */
 
 const path = require('path');
@@ -3608,7 +3608,7 @@ const F5 = [
     && h1.header === '内容\t開始日\t期限\t日数\t状態\tセクション' && h1.rows > 1,
     JSON.stringify(h1));
 
-  /* ---------- TB-M1/M2: モード切替と、lib/ui.css へ移設したモーダルの殻 ---------- */
+  /* ---------- TB-MS1/MS2: モード切替と、lib/ui.css へ移設したモーダルの殻 ---------- */
   await page.goto(fileUrl('web/taskboard.html'));
   const modes = await page.evaluate(() => {
     const links = Array.from(document.querySelectorAll('nav.modes a'));
@@ -3619,7 +3619,7 @@ const F5 = [
         .map(a => a.textContent.trim()),
     };
   });
-  r.check('TB-M1（モードセグメント: Check Issue へ行けて、自分側が aria-current="page"）',
+  r.check('TB-MS1（モードセグメント: Check Issue へ行けて、自分側が aria-current="page"）',
     modes.hrefs.includes('issue.html') && modes.labels.some(l => l.includes('イシュー'))
     && modes.current.length === 1 && modes.current[0].includes('タスク'),
     JSON.stringify(modes));
@@ -3640,14 +3640,14 @@ const F5 = [
     ov.hidden = true;
     return out;
   });
-  r.check('TB-M2（lib/ui.css へ移設後もモーダルの殻が効いている: 中央固定・背景・パネル幅）',
+  r.check('TB-MS2（lib/ui.css へ移設後もモーダルの殻が効いている: 中央固定・背景・パネル幅）',
     shell.position === 'fixed' && shell.display === 'flex'
     && shell.align === 'center' && shell.justify === 'center'
     && shell.bg !== 'rgba(0, 0, 0, 0)' && shell.zIndex === '200'
     && shell.panelWidth > 0 && shell.radius !== '0px',
     JSON.stringify(shell));
 
-  /* ---------- TB-T1/T2: ツールバーの整理と未保存インジケータ ---------- */
+  /* ---------- TB-UI1/UI2: ツールバーの整理と未保存インジケータ ---------- */
   await page.goto(fileUrl('web/taskboard.html'));
   const tbT1 = await page.evaluate((f1) => {
     window.taskboard.test.newSession(f1);
@@ -3658,7 +3658,7 @@ const F5 = [
     const folded = Array.from(more.querySelectorAll('button')).map(b => b.id);
     return { always: always, folded: folded, moreOpen: more.open };
   }, F1);
-  r.check('TB-T1（常時のボタンは最小・低頻度は ⋯ の中・⋯ は既定で閉じている）',
+  r.check('TB-UI1（常時のボタンは最小・低頻度は ⋯ の中・⋯ は既定で閉じている）',
     tbT1.always.includes('btn-add-form') && tbT1.always.includes('btn-copy')
     && !tbT1.always.includes('btn-save')            // 未保存が無いので出ていない
     && ['btn-weekly', 'btn-archive', 'btn-reload', 'btn-copy-all', 'btn-to-gantt']
@@ -3675,7 +3675,7 @@ const F5 = [
     return { before: before, dirtyHidden: dirty,
       afterHidden: document.getElementById('btn-save').hidden };
   }, F1);
-  r.check('TB-T2（［今すぐ保存］は未保存のときだけ出て、自動保存後に消える）',
+  r.check('TB-UI2（［今すぐ保存］は未保存のときだけ出て、自動保存後に消える）',
     tbT2.before === true && tbT2.dirtyHidden === false && tbT2.afterHidden === true,
     JSON.stringify(tbT2));
 
@@ -4166,14 +4166,14 @@ const F5 = [
   r.check('TB-K11（UI: 新しい親の行の ↩︎ は無効で、理由に「親タスク」— 親だけ消して子が別のタスクの下に付く事故を防ぐ）',
     !k11.missing && k11.hasUndo && k11.disabled && k11.title.includes('親タスク'), JSON.stringify(k11));
 
-  /* ---------- TB-T3: Cmd/Ctrl+Shift+E でモード切替（最後にやる — 遷移するため） ---------- */
+  /* ---------- TB-MS3: Cmd/Ctrl+Shift+E でモード切替（最後にやる — 遷移するため） ---------- */
   await page.goto(fileUrl('web/taskboard.html'));
   await page.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown',
     { key: 'E', metaKey: true, shiftKey: true, bubbles: true, cancelable: true })));
   await page.waitForURL(/issue\.html/, { timeout: 5000 }).catch(() => {});
   await page.waitForLoadState('load');
   const tbT3 = await page.title();
-  r.check('TB-T3（Cmd/Ctrl+Shift+E で Check Issue へ移る）',
+  r.check('TB-MS3（Cmd/Ctrl+Shift+E で Check Issue へ移る）',
     tbT3 === 'Check Issue (issue)', tbT3);
 
   await browser.close();
