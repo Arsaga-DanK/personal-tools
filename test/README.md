@@ -76,18 +76,25 @@ MCP 側の制約（`browser_navigate` が `file:` を拒否する等）も受け
 
 | ファイル | 役割 |
 |---|---|
-| `run` | ランナー。PATH を固定して各ハーネスを実行 |
-| `helpers.js` | playwright-core / Chromium 実体の探索、合否集計、`file://` URL 組み立て |
-| `excel2md.js` | excel2md（E2M-01〜10 / R01〜R08 / H01〜H09 / P01〜P24） |
-| `hub.js` | index.html（HUB-1〜10: 表示順・検索・カテゴリ・リンク遷移・狭幅・表示名と h1/title の整合） |
-| `norm.js` | norm（NORM-01〜15・Q5 / NM-13: インポートバナーの回帰 / コピー・エクスポート） |
-| `diff.js` | diff（DIFF-01〜11・Q2 / 折り畳み・フォールバック・コピー。**DIFF-07 は性能計測**） |
-| `devpad.js` | devpad（DEV-01〜17・Q1〜Q3 / 7タブの独立性・タブ切替・永続化・性能ガード2種） |
-| `taskboard.js` | taskboard（TB-01〜20・parse / TB-I1〜I7: IME ガード / TB-U1〜U7: 追加の取り消し） |
+| `run` | ランナー。PATH を固定し、4 つのゲート（文字・バナー引数・行数・spec ⇔ ID）を通してから各ハーネスを実行。所要時間を出す |
+| `helpers.js` | playwright-core / Chromium 実体の探索、合否集計、`file://` URL 組み立て、`TOOL_COUNT`（本数の固定ピン） |
+| `hub.js` / `launcher.js` | index.html（HUB-1〜27: 表示順・検索・README 照合・3点セット）/ 引き出しメニュー（LA-01〜10） |
+| `<alias>.js`（17 本） | 各ツール。`docs/specs/<alias>.md` のテストケースを照合する |
+| `taskboard.js` + `taskboard/*.js` | 入口＋節 10 本（fixtures.js・engine・input・timeline-model・edit・board-search・deps・status・timeline-ui・flows・parent） |
+| `issue.js` + `issue/*.js` | 入口＋節 2 本（pure・ui。ui は状態を引き継ぐ連続シナリオなので1節） |
 
 `taskboard.js` の TB-I6 は **CDP で実際の IME composition を張る**（`Input.imeSetComposition` →
 `Input.dispatchKeyEvent`）。MCP 経由ではなく playwright-core を直接起動しているので
 `context.newCDPSession(page)` がそのまま使える。
+
+## ゲート（ハーネスの前に `run` が通す静的検査）
+
+| ゲート | 落とすもの | 直し方 |
+|---|---|---|
+| 文字 | 許可範囲外の文字（ホモグリフ・双方向制御・不可視文字・CR）。対象は `web/**` `lib/*.js` `test/**` `docs/**` `CLAUDE.md` `README.md` | 意図した文字なら `run` の `@ALLOW` に範囲を足す |
+| バナー引数 | `showBanner` / `ToolUI.banner` の種別の位置に種別以外のリテラル | 引数順を統一形に直す |
+| 行数（警告のみ） | 1,000 行超のファイル（`SIZE_KNOWN` 以外） | 同名フォルダに分ける（coding-rules「ファイルの分割」） |
+| spec ⇔ ID | テストにあって spec に無い ID・同じ alias 内の ID の二重使用（hub は対象外。`-UI` と末尾の小文字1字は剥がして照合） | spec に行を足す／ID を分ける |
 
 ## 性能を測るケース（DIFF-07）
 
@@ -120,5 +127,6 @@ MCP 側の制約（`browser_navigate` が `file:` を拒否する等）も受け
    （norm の NM-13／NM-14 はどちらもこれで発見した）
 7. 「触られないこと」を確かめるときは**目印を入れてから**操作する。
    `=== ''` は前の操作で偶然空だっただけかもしれない（`'SENTINEL'` を置いて不変を見る）
+8. **1,000 行を超えたら入口＋節に分ける**（`test/taskboard.js` が手本。節は `{ name, ids, run(ctx) }`・前の節の状態に依存しない）
 
 既知の罠と環境の詳細は `docs/verification-notes.md`。

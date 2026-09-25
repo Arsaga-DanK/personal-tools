@@ -387,3 +387,16 @@ vault の「ファイル名の罠」を Python の heredoc で再現したとき
   `saveNow()` で保存を await してから開く）
 - 測り方: `page.on('dialog')` を仕込み、`beforeunload` で `preventDefault` してから `location.href` を代入する
   （使い捨てスクリプト。ハーネスには残していない）
+
+## 12. classic script の分割は「連結等価」で確かめる（2026-09-25 実測）
+
+- 症状: 4,000 行超の1本の `<script>` を複数ファイルに分けたい。ES モジュールは file:// で使えない
+- 事実: classic script の top-level `const` / `let` / `function` はページ全体で1つのグローバル字句スコープを共有する。
+  したがって**節の境目で切って元の順序で `<script src>` に並べれば、連結した中身が同一である限り挙動は同一**
+  （taskboard 8 本・issue 4 本で実測。270 / 87 チェックが変更なしで pass）
+- 罠: 読み込み時に実行される文（列 0 の `addEventListener` や代入）が後のファイルの宣言を使うと落ちる。
+  切る前に `awk '/^[^ \t\/\*}]/ && !/^(function|async function|const|let)/'` で列 0 の実行文を洗い、起動節以外に無いことを見る
+- 罠（テスト側）: 1本のハーネスを節に分けると、前の節が作った値やページ状態に黙って依存していた箇所が単独実行で
+  初めて落ちる（taskboard は `window.__h` のインストールと fixture の置き場、issue は `ul3` と入力・クリップボードの状態）。
+  節は必ず1本ずつ単独で回してから全体を回す
+- 対処: 断片を元の順に `cat` して元の `<script>` 本体と `diff`（空であること）。手順は docs/audits/2026-09-25-structure-plan.md Task 7
