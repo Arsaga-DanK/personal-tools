@@ -323,7 +323,7 @@
     <label class="mf"><span>メモ</span>
       <textarea id="modal-memo" spellcheck="false" placeholder="任意。複数行可（tasks.md ではタスクの下の箇条書きになります）"></textarea></label>
     <details id="modal-more">
-      <summary>詳細（すべて任意） — タグ・セクション・開始日・期限・優先度・依存・関連ノート</summary>
+      <summary>詳細（すべて任意） — タグ・セクション・開始日・期限・優先度・依存・親タスク・関連ノート</summary>
       <div class="mf"><span>タグ</span>
         <div class="mf-body">
           <div class="row-btns" id="modal-tag-list"></div>
@@ -358,6 +358,17 @@
             <button type="button" id="modal-dep-add">追加</button>
             <span class="muted" id="modal-dep-note" style="font-size:12px"></span>
           </div>
+        </div>
+      </div>
+      <div class="mf" id="modal-parent-field"><span>親タスク</span>
+        <div class="mf-body">
+          <div class="row-btns">
+            <select id="modal-parent" title="子・メモごと、選んだタスクの下へ移ります（セクションも親に合わせます）"></select>
+          </div>
+          <div class="row-btns" id="modal-parent-new-row" hidden>
+            <input type="text" id="modal-parent-new" style="flex: 1 1 18em; min-width: 0" placeholder="新しい親の名前（このタスクの位置に作り、その下に入れる）" spellcheck="false">
+          </div>
+          <span class="muted" id="modal-parent-note" style="font-size:12px"></span>
         </div>
       </div>
       <div class="mf"><span>関連ノート</span>
@@ -847,6 +858,83 @@ function opMoveSection(lines, op) {
   const block = lines.splice(i, subtreeEnd(lines, i) - i + 1);
   insertIntoSection(lines, op.section, block);
 }
+/* ---------- 親子の付け替え（TB-K・TB-Q64）。書き換えるのは移る行の先頭のタブだけ ---------- */
+// 部分木 [i..end] を動かしてよいか。CR 行と、直後に「タスクでもメモでもない字下げ行」が続く場合は断る
+// （移すとその行が別のタスクの下に付いてしまう）
+function assertMovable(lines, i, end) {
+  for (let k = i; k <= end; k++) {
+    if (lines[k].raw.includes('\r')) throw new Error((k + 1) + '行目は CR 改行のため編集できません');
+  }
+  const next = lines[end + 1];
+  if (next && /^[ \t]+\S/.test(next.raw) && !TASK_RE.test(next.raw)) {
+    throw new Error((end + 2) + '行目に字下げされた行（タスクでもメモでもない）が続くため動かせません。Obsidian で直してから');
+  }
+}
+function reindent(block, delta) {
+  if (delta === 0) return;
+  for (const l of block) l.raw = l.raw.replace(/^\t*/, t => '\t'.repeat(t.length + delta));
+}
+// 直近の浅いタスク行（＝今の親）。見出しをまたがない。無ければ -1
+function parentIndexOf(lines, i, d) {
+  for (let k = i - 1; k >= 0; k--) {
+    if (HEAD_RE.test(lines[k].raw)) return -1;
+    const t = TASK_RE.exec(lines[k].raw);
+    if (t && t[1].length < d) return k;
+  }
+  return -1;
+}
+// 部分木ごと別の親の下へ（parent: 行番号）／最上位へ（parent: null）。セクションは移った先に従う
+function opSetParent(lines, op) {
+  const i = op.line - 1;
+  const m = lines[i] && TASK_RE.exec(lines[i].raw);
+  if (!m) throw new Error(op.line + '行目はタスク行ではありません');
+  const d = m[1].length;
+  const end = subtreeEnd(lines, i);
+  assertMovable(lines, i, end);
+  if (op.parent === null) {
+    if (d === 0) return;                               // 既に最上位
+    let root = -1;                                     // 元の最上位の祖先（その部分木の直後に置く）
+    for (let k = i - 1; k >= 0; k--) {
+      if (HEAD_RE.test(lines[k].raw)) break;
+      const t = TASK_RE.exec(lines[k].raw);
+      if (t && t[1].length === 0) { root = k; break; }
+    }
+    const block = lines.splice(i, end - i + 1);
+    reindent(block, -d);
+    const at = root >= 0 ? subtreeEnd(lines, root) + 1 : i;
+    lines.splice(at, 0, ...block);
+    return;
+  }
+  const p = op.parent - 1;
+  if (p >= i && p <= end) throw new Error('自分や自分の子は親にできません');
+  const pm = lines[p] && TASK_RE.exec(lines[p].raw);
+  if (!pm) throw new Error(op.parent + '行目はタスク行ではありません');
+  if (lines[p].raw.includes('\r')) throw new Error(op.parent + '行目は CR 改行のため編集できません');
+  if (parentIndexOf(lines, i, d) === p) return;       // 既にその親の子
+  // 入れる先（親の部分木の末尾）の直後に字下げ行が続くなら、そこへは入れない
+  const qOrig = subtreeEnd(lines, p);
+  const after = lines[qOrig + 1];
+  if (after && after !== lines[i] && /^[ \t]+\S/.test(after.raw) && !TASK_RE.test(after.raw)) {
+    throw new Error((qOrig + 2) + '行目に字下げされた行（タスクでもメモでもない）があるため、その親の下へは入れられません');
+  }
+  const block = lines.splice(i, end - i + 1);
+  const p2 = p > end ? p - block.length : p;
+  reindent(block, pm[1].length + 1 - d);
+  lines.splice(subtreeEnd(lines, p2) + 1, 0, ...block);
+}
+// この位置に同じ深さの親を作り、自分の部分木を1段下げてその下に入れる
+function opWrapParent(lines, op) {
+  const i = op.line - 1;
+  const m = lines[i] && TASK_RE.exec(lines[i].raw);
+  if (!m) throw new Error(op.line + '行目はタスク行ではありません');
+  const content = nfc(String(op.content || '')).trim();
+  if (content === '') throw new Error('新しい親の名前が空です');
+  const end = subtreeEnd(lines, i);
+  assertMovable(lines, i, end);
+  reindent(lines.slice(i, end + 1), 1);
+  lines.splice(i, 0, { raw: m[1] + '- [ ] ' + content, orig: null });
+}
+
 function opAddChild(lines, op) {
   const p = op.parentLine - 1;
   const pm = lines[p] && TASK_RE.exec(lines[p].raw);
@@ -913,6 +1001,8 @@ function runOp(lines, op, today) {
     case 'addChild':    opAddChild(lines, op); break;
     case 'undoAdd':     opUndoAdd(lines, op); break;
     case 'moveSection': opMoveSection(lines, op); break;
+    case 'setParent':   opSetParent(lines, op); break;
+    case 'wrapParent':  opWrapParent(lines, op); break;
     case 'setMemo':     opSetMemo(lines, op); break;
     case 'setTags':     opSetTags(lines, op); break;
     default: throw new Error('不明な操作: ' + op.type);
@@ -3337,7 +3427,9 @@ function renderRow(t, today) {
     undo.textContent = '↩︎';
     if (hasAddedDescendant(state.lines, t.line - 1)) {
       undo.disabled = true;
-      undo.title = '先に子タスクを取り消してください';
+      // 子が既存の行（＝新しい親でまとめた直後など）なら、親だけ消すと子が別のタスクの下に付く（TB-K11）
+      const kidsExisting = descendantLines(t, []).some(l => state.lines[l - 1] && state.lines[l - 1].orig !== null);
+      undo.title = kidsExisting ? '子タスクがあるため取り消せません（子の「親タスク」を変えてから）' : '先に子タスクを取り消してください';
     } else {
       undo.title = 'この追加を取り消す（未保存）';
       undo.addEventListener('click', () => {
@@ -3640,6 +3732,41 @@ function descendantLines(t, out) {
   for (const c of t.children) { out.push(c.line); descendantLines(c, out); }
   return out;
 }
+function refreshModalParent(t) {
+  const sel = el('modal-parent');
+  sel.textContent = '';
+  const add = (value, label, title) => {
+    const o = document.createElement('option');
+    o.value = value; o.textContent = label;
+    if (title) o.title = title;
+    sel.appendChild(o);
+  };
+  add('', '（なし — 最上位）');
+  add('__new__', '＋ 新しい親でまとめる…');
+  // 自分と自分の子孫は親にできない（循環）。CR 行は編集できない
+  const banned = new Set([t.line].concat(descendantLines(t, [])));
+  for (const x of state.doc.tasks) {
+    if (banned.has(x.line) || x.hasCR) continue;
+    const full = (x.displayBody || x.body || ('行' + x.line)) + (x.section ? '（' + x.section + '）' : '');
+    add(String(x.line), '　'.repeat(x.indent) + (full.length > 40 ? full.slice(0, 39) + '…' : full), full);
+  }
+  sel.value = (t.parentLine === null || t.parentLine === undefined) ? '' : String(t.parentLine);
+  el('modal-parent-new').value = '';
+  syncModalParent();
+}
+// 親を変えたら: 名前欄の出し分け・セクション欄を無効（セクションは親に従う）・一言の説明
+function syncModalParent() {
+  const v = el('modal-parent').value;
+  const changed = !!(modalState && modalState.initial) && v !== modalState.initial.parent;
+  el('modal-parent-new-row').hidden = v !== '__new__';
+  el('modal-section').disabled = changed;
+  el('modal-parent-note').textContent = !changed ? ''
+    : v === '__new__' ? 'このタスクの位置に親を作り、その下に入れます'
+    : v === '' ? '最上位に戻します（元の親の近くに置きます）'
+    : '子・メモごとその親の下へ移ります。セクションも親に合わせます';
+}
+el('modal-parent').addEventListener('change', syncModalParent);
+
 function refreshModalDeps() {
   const lineOfName = (line) => {
     const x = state.doc.tasks.find(y => y.line === line);
@@ -3696,6 +3823,8 @@ function readModal() {
     start: el('modal-start').value,
     due: el('modal-due').value,
     priority: el('modal-pri').value,
+    parent: el('modal-parent').value,              // '' = 最上位 / '__new__' = 新しい親 / 行番号
+    parentNew: el('modal-parent-new').value.trim(),
   };
 }
 
@@ -3746,6 +3875,11 @@ function openTaskModal(mode, t, opts) {
   // 欄を出すと「入力できるのに保存で黙って捨てられる」口になる（TB-R20）
   el('modal-dep-field').hidden = mode !== 'edit';
   if (mode === 'edit') refreshModalDeps();
+  // 親タスク欄も編集モーダル限定（TB-K）。セクション欄の無効化は毎回解く
+  el('modal-section').disabled = false;
+  el('modal-parent-field').hidden = mode !== 'edit';
+  if (mode === 'edit') refreshModalParent(t);
+  else { el('modal-parent').textContent = ''; el('modal-parent-new').value = ''; syncModalParent(); }
   refreshModalLinks();
   el('modal-tag-input').value = '';
   el('modal-link-input').value = '';
@@ -3852,10 +3986,30 @@ function saveModal() {
     }
     ops.push({ type: 'setDependsOn', line, ids: ids });
   }
-  if (v.section !== a.section) ops.push({ type: 'moveSection', line, section: v.section });
-  if (!ops.length) { closeModal(); return; }
+  // 親子の付け替え（TB-K）。セクションは親に従うので、親を変えたときは moveSection を出さない
+  const parentChanged = v.parent !== a.parent;
+  if (parentChanged && v.parent === '__new__' && v.parentNew === '') {
+    showBanner('warn', '新しい親の名前を入れてください');
+    el('modal-parent-new').focus();
+    return;
+  }
+  if (!parentChanged && v.section !== a.section) ops.push({ type: 'moveSection', line, section: v.section });
+  if (!ops.length && !parentChanged) { closeModal(); return; }
+  const before = state.lines.length;
   for (const op of ops) if (!applyUiOp(op)) return;
-  showBanner('info', ops.length + '項目を変更しました（ファイルへは保存時に反映）');
+  if (parentChanged) {
+    // 付け替えは行を動かすので最後に1つ。先の op（メモ）で増減した行数だけ、下にある親の行番号を補正する
+    // （増減するのは自分のメモ範囲だけ＝自分より下の行が同じだけずれる）
+    let pop;
+    if (v.parent === '__new__') pop = { type: 'wrapParent', line, content: v.parentNew };
+    else {
+      let p = v.parent === '' ? null : Number(v.parent);
+      if (p !== null && p > line) p += state.lines.length - before;
+      pop = { type: 'setParent', line, parent: p };
+    }
+    if (!applyUiOp(pop)) return;
+  }
+  showBanner('info', (ops.length + (parentChanged ? 1 : 0)) + '項目を変更しました（ファイルへは保存時に反映）');
   closeModal();
 }
 
