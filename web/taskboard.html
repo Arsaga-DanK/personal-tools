@@ -3026,6 +3026,33 @@ function archiveTargetName() {
 }
 
 // 順序は archive 追記 → tasks 除去保存（失敗しても行が消えない方向に倒す）
+/* archive.md へ**案件（セクション）の見出しの下**に入れる（TB-Q63）。既存の行は1バイトも変えず挿入だけ。
+   groups = [{ section, lines }]（tasks.md の出現順）。見出しがあればその節の末尾（次の # / ## の前・節末の空行の前）、
+   無ければ末尾に「## セクション」を作る。セクションの無いタスクは従来どおり末尾へ */
+function archiveMerge(text, groups) {
+  let out = text === '' ? '# archive\n' : text;
+  if (!out.endsWith('\n')) out += '\n';
+  const lines = out.split('\n');
+  lines.pop();                                         // 末尾の改行ぶん（最後に戻す）
+  for (const g of groups) {
+    if (!g.lines.length) continue;
+    if (!g.section) { lines.push(...g.lines); continue; }
+    const at = lines.findIndex(l => l.replace(/\s+$/, '') === '## ' + g.section);
+    if (at >= 0) {
+      let end = lines.length;
+      for (let k = at + 1; k < lines.length; k++) if (/^#{1,2}\s/.test(lines[k])) { end = k; break; }
+      let ins = end;
+      while (ins > at + 1 && lines[ins - 1].trim() === '') ins--;
+      // 見出しの直後に入るときは空行を1つ挟む（見出しと本文の間の空行を保つ）
+      lines.splice(ins, 0, ...(ins === at + 1 ? [''].concat(g.lines) : g.lines));
+    } else {
+      if (lines.length && lines[lines.length - 1].trim() !== '') lines.push('');
+      lines.push('## ' + g.section, '', ...g.lines);
+    }
+  }
+  return lines.join('\n') + '\n';
+}
+
 async function doArchive() {
   if (!state.loaded || !state.adapter) return { ok: false, reason: 'notloaded' };
   if (state.demo) { showBanner('info', 'デモ中はアーカイブできません'); return { ok: false, reason: 'demo' }; }
@@ -3079,10 +3106,15 @@ async function doArchive() {
   // 書き込み直前に読み直して末尾へ追記（外部編集を消さない）。無ければヘッダを付与して新規作成
   let archText = '';
   try { archText = await arch.read(); } catch (_) { archText = ''; }
-  let out = archText;
-  if (out === '') out = '# archive\n';
-  if (!out.endsWith('\n')) out += '\n';
-  for (const n of lineNos) out += state.lines[n - 1].raw + '\n';
+  // 案件（セクション）ごとにまとめて、その見出しの下へ（TB-Q63）
+  const groups = [];
+  for (const t of roots.slice().sort((a, b) => a.line - b.line)) {
+    const sec = t.section || '';
+    let g = groups.find(x => x.section === sec);
+    if (!g) { g = { section: sec, lines: [] }; groups.push(g); }
+    for (const n of subtreeLines(t, []).sort((a, b) => a - b)) g.lines.push(state.lines[n - 1].raw);
+  }
+  const out = archiveMerge(archText, groups);
   try {
     await arch.write(out);
   } catch (e) {
@@ -4251,6 +4283,7 @@ window.taskboard = {
       return sess;
     },
     fillProject,
+    archiveMerge,
     setToday: (ymd) => { state.todayOverride = ymd; if (state.loaded) render(); },
     forceFallback: () => { state.fsaOff = true; state.loaded = false; state.resumeHandle = null; enterFallbackUi(); render(); },
   },

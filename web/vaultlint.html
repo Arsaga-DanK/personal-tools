@@ -55,7 +55,7 @@
       <input type="text" id="cfg-issue" placeholder="例: 04_Issues（空なら閉じたイシューを検査しない）">
     </label>
     <label>閉じたイシューの移動先
-      <input type="text" id="cfg-closed" placeholder="例: 90_Archive/{YYYY}（{YYYY} は閉じた年。空なら移動しない）">
+      <input type="text" id="cfg-closed" placeholder="例: 10_Projects/{project}/Archive, 20_Areas/{project}/Archive, 90_Archive/{YYYY}（左から、案件フォルダがあるものを使う）">
     </label>
     <button id="cfg-save">設定を保存</button>
     <p class="note">vault のフォルダ構成は人によって違うため設定で持ちます。<code>.obsidian</code> <code>.git</code> <code>.trash</code> は設定に関係なく常に除外します。</p>
@@ -263,6 +263,7 @@ function lint(files, today) {
 
   // 閉じたイシュー（VL-22・VL-Q13）: 設定した issueDir **直下**の md で frontmatter が status: closed のもの。
   // 閉じるのは Check Issue（status/closed を書く）、ここは片づけだけ。**issueDir が空なら検査自体をしない**
+  let dirSet = null;   // 案件フォルダの有無（VL-Q14）。必要になったときだけ作る
   if (CFG.issueDir) {
     const prefix = CFG.issueDir + '/';
     for (const f of files) {
@@ -270,7 +271,9 @@ function lint(files, today) {
       if (f.path.slice(prefix.length).includes('/')) continue;      // 直下のみ
       const fm = frontmatterOf(f.text);
       if (!fm || fm.status !== 'closed') continue;
-      issues.closedIssues.push({ path: f.path, closed: fm.closed || '', verdict: fm.verdict || '' });
+      const project = fm.project || '';
+      issues.closedIssues.push({ path: f.path, closed: fm.closed || '', verdict: fm.verdict || '',
+        project, dest: closedDest(fm.closed || '', project, dirSet || (dirSet = dirsOf(files))) });
     }
   }
 
@@ -284,15 +287,44 @@ function frontmatterOf(text) {
   const out = {};
   for (const l of m[1].split('\n')) {
     const k = l.match(/^([A-Za-z_][\w-]*):\s*(.*)$/);
-    if (k) out[k[1]] = k[2].trim();
+    if (k) {
+      let v = k[2].trim();
+      // "a: b" / 'x' の引用を外す（Plan Tasks の yamlScalar が記号を含む値を "…" で書く）
+      if (/^".*"$/.test(v)) { try { v = JSON.parse(v); } catch (_) { v = v.slice(1, -1); } }
+      else if (/^'.*'$/.test(v)) v = v.slice(1, -1);
+      out[k[1]] = v;
+    }
   }
   return out;
 }
 
-// 閉じたイシューの移動先: closedDir の {YYYY} を閉じた年（無ければ今年）に置き換える
-function closedDirFor(closed) {
+// vault に在るフォルダの集合（ファイルのパスの祖先）。中身が空のフォルダは含まれない
+function dirsOf(files) {
+  const out = new Set();
+  for (const f of files) {
+    const parts = f.path.split('/');
+    for (let i = 1; i < parts.length; i++) out.add(parts.slice(0, i).join('/'));
+  }
+  return out;
+}
+/* 閉じたイシューの移動先（VL-Q14）。closedDir はカンマ区切りの候補で、**左から試して最初に決まったもの**:
+   {project} を含む候補は、project があり「{project} までの部分」（例 10_Projects/ITK）が vault に在るときだけ。
+   {YYYY} は閉じた年（無ければ今年）。どれも決まらなければ ''（移動を提案しない） */
+function closedDest(closed, project, dirs) {
   const y = (closed && /^\d{4}/.test(closed)) ? closed.slice(0, 4) : todayStr().slice(0, 4);
-  return CFG.closedDir.replace(/\{YYYY\}/g, y);
+  const pj = String(project || '').trim();
+  for (const raw of CFG.closedDir.split(/[,、]/)) {
+    const c = ToolConfig.normDir(raw);
+    if (c === '') continue;
+    if (c.includes('{project}')) {
+      if (pj === '' || /[\/\\]/.test(pj)) continue;
+      const root = c.split('{project}')[0] + pj;
+      if (!dirs.has(root)) continue;
+      return c.replace(/\{project\}/g, pj).replace(/\{YYYY\}/g, y);
+    }
+    return c.replace(/\{YYYY\}/g, y);
+  }
+  return '';
 }
 
 // アダプタ層の除外（UI/テスト経路の共通入口。FSA 走査は同じ集合をディレクトリ単位で飛ばす）
@@ -386,7 +418,12 @@ function planFixes(files, selections) {
         skipped.push({ path: sel.from, reason: '閉じたイシューの移動先が未設定です' });
         continue;
       }
-      const to = closedDirFor(sel.closed) + '/' + basenameOf(sel.from);
+      const dir = closedDest(sel.closed, sel.project, dirsOf(files));
+      if (!dir) {
+        skipped.push({ path: sel.from, reason: '移動先が決まりません（案件フォルダが無く、ほかの候補もありません）' });
+        continue;
+      }
+      const to = dir + '/' + basenameOf(sel.from);
       if (byPath.has(to) || moves.some(mv => mv.to === to)) {
         skipped.push({ path: sel.from, reason: '移動先に同名があります: ' + to });
       } else {
@@ -543,15 +580,16 @@ const CLASS_DEFS = [
       value: i.pending ? 'none' : 'archive',   // 未転記タスクが残るものは既定で動かさない
     } : null),
     selectionOf: (i, v) => (v === 'archive' ? { type: 'archiveDaily', from: i.path } : null) },
-  { key: 'closedIssues', title: '閉じたイシュー（status: closed）', cols: ['ファイル', '閉じた日', '判定'],
-    row: i => [i.path, i.closed || '—', i.verdict || '—'],
-    md: i => i.path + '（' + (i.closed || '日付なし') + (i.verdict ? '・' + i.verdict : '') + '）',
+  { key: 'closedIssues', title: '閉じたイシュー（status: closed）', cols: ['ファイル', '案件', '閉じた日', '判定'],
+    row: i => [i.path, i.project || '—', i.closed || '—', i.verdict || '—'],
+    md: i => i.path + '（' + (i.project ? i.project + '・' : '') + (i.closed || '日付なし') + (i.verdict ? '・' + i.verdict : '') + '）',
     // 移動先が未設定なら移動を提案しない（Inbox 棚卸しと同じ流儀）。待ち日数は置かない（閉じる操作が承認）
-    fix: i => (CFG.closedDir ? {
-      options: [{ value: 'archive', label: closedDirFor(i.closed) + '/ へ移動' }, { value: 'none', label: 'しない' }],
+    // 移動先は lint が候補から決めた dest（決まらなければ提案しない — VL-Q14）
+    fix: i => (CFG.closedDir && i.dest ? {
+      options: [{ value: 'archive', label: i.dest + '/ へ移動' }, { value: 'none', label: 'しない' }],
       value: 'archive',
     } : null),
-    selectionOf: (i, v) => (v === 'archive' ? { type: 'archiveIssue', from: i.path, closed: i.closed } : null) },
+    selectionOf: (i, v) => (v === 'archive' ? { type: 'archiveIssue', from: i.path, closed: i.closed, project: i.project } : null) },
 ];
 
 /* 実際に検査したクラスだけを出す。Inbox 棚卸しは対象フォルダが未設定なら**検査していない**ので

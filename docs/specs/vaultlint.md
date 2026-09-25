@@ -47,7 +47,7 @@ vault のフォルダ構成は利用者ごとに違うため、**フォルダ名
 | `inboxDir` | `''` | Inbox 棚卸しの対象フォルダ。空 = 棚卸しをしない |
 | `archiveDir` | `''` | 棚卸しの移動先フォルダ。空 = 移動を提案しない |
 | `issueDir` | `''` | イシューノートのフォルダ（例 `04_Issues`）。空 = 閉じたイシューの検査をしない |
-| `closedDir` | `''` | 閉じたイシューの移動先。**`{YYYY}` は閉じた年**に置き換える（例 `90_Archive/{YYYY}`）。空 = 移動を提案しない |
+| `closedDir` | `''` | 閉じたイシューの移動先。**カンマ区切りの候補を左から試す**。`{project}` はノートの `project:`、`{YYYY}` は閉じた年。`{project}` を含む候補は**その案件フォルダが vault にあるときだけ**使う（例 `10_Projects/{project}/Archive, 20_Areas/{project}/Archive, 90_Archive/{YYYY}`）。空 = 移動を提案しない |
 
 - **`privateDirs === null`（未設定）と `[]`（除外なしと決めた）は区別する。**
   未設定のうちは［vault フォルダを選択］を**無効化し、理由を表示する** —
@@ -85,8 +85,10 @@ vault のフォルダ構成は利用者ごとに違うため、**フォルダ名
 - 待ち日数は置かない（閉じた＝終わった。デイリーの7日は「まだ転記していないかもしれない」ための猶予で、
   イシューは閉じる操作そのものが承認）
 - issue 形: `{ path, closed, verdict }`（`closed`・`verdict` は無ければ空）
-- 修復: 「`closedDir` へ移動」（既定 ON）。移動先は **`closedDir` の `{YYYY}` を閉じた年で置き換えたフォルダ**
-  （`closed` が無ければ今日の年）。フォルダは無ければ作る（`getDirByPath` が階層ごとに create）。
+- 修復: 「`closedDir` へ移動」（既定 ON）。移動先は **`closedDir` の候補を左から試して最初に決まったもの**（VL-Q14）:
+  `{project}` を含む候補は、ノートに `project:` があり、候補の `{project}` までの部分（例 `10_Projects/ITK`）が vault に
+  フォルダとして在るときだけ採用。`{YYYY}` は閉じた年（`closed` が無ければ今日の年）。**どの候補も決まらなければ移動を提案しない**。
+  issue 形に `project`・`dest`（決まった移動先・無ければ空）を足す。フォルダは無ければ作る（`getDirByPath` が階層ごとに create）。
   移動先に同名があればスキップ。**`closedDir` が空なら移動を提案せず、選ばれても理由つきでスキップ**
 - リンクは Obsidian がベース名で解決するので移動で切れない（デイリーの移動と同じ前提）
 
@@ -184,6 +186,8 @@ before/after・スキップと理由）を表示＋コピー可 → 自動で再
 | VL-22 | `issueDir='04_Issues'`、直下に closed（closed/verdict あり）・open・closed（日付なし）・`sub/` の closed・フォルダ外の closed・frontmatter なし | closedIssues は直下の closed 2件だけ `[path, closed, verdict]`（無ければ空文字） |
 | VL-23 | 同じ files で `issueDir` 未設定 | closedIssues 0件（**検査自体をしない**） |
 | VL-24 | `planFixes` に `archiveIssue`（closed=2026-09-20）・`closedDir='90_Archive/{YYYY}'` ／ 移動先に同名あり ／ `closedDir` 未設定 | `90_Archive/2026/a.md` へ moves ／ 「同名」でスキップ ／ 「未設定」でスキップ |
+| VL-25 | `closedDir='10_Projects/{project}/Archive, 20_Areas/{project}/Archive, 90_Archive/{YYYY}'`、閉じたノートが project ITK（`10_Projects/ITK/` あり）・UL（`20_Areas/UL/` あり）・面接（フォルダなし）・なし | dest がそれぞれ `10_Projects/ITK/Archive`・`20_Areas/UL/Archive`・`90_Archive/2026`・`90_Archive/2026` |
+| VL-26 | `planFixes` の archiveIssue（project ITK）／候補が `10_Projects/{project}/Archive` だけで project なし | `10_Projects/ITK/Archive/a.md` へ moves ／「移動先が決まりません」でスキップ |
 | VL-15 | `planFixes`: `[[c]]` と `[[c\|別名]]` をテキスト化 | after の行が `c` / `別名`（`[[ ]]` が消えて内容は残る） |
 | VL-16 | 行削除: `[[c]]` だけの行 / `前置き [[c]]` の行 | 前者は行ごと削除できる（`deletable: true`）・後者は不可 |
 | VL-17 | 参照除去: `説明 ![[img.png]] 続き` | after が `説明 続き`（トークンと片側の空白1つを除去） |
@@ -204,6 +208,7 @@ UI 手順ケース:
 - **VL-U8**: 未設定の状態で**空欄のまま**［設定を保存］→ `privateDirs` が `[]`（＝除外なしと
 - **VL-U9**: 設定欄「イシューのフォルダ」「閉じたイシューの移動先」が保存され、`{YYYY}` は正規化で残る
 - **VL-U10**: `issueDir` ありで「閉じたイシュー（N件）」の検査ブロックが出て、修復の既定が移動・ラベルに年つきの移動先。未設定なら検査クラスごと出ない
+- **VL-U11**: 案件フォルダがある閉じたイシューの修復ラベルが `10_Projects/ITK/Archive/ へ移動`、表に案件の列
   決めた）になり、選択が有効化される
 - **VL-U5**: `test.run` で修復可能な問題（リンクだけの行の brokenLink）→ 修復セレクトに
   テキスト化／行削除が並ぶ → 行削除を選択 → 「コミット済み」チェック → ［実行］→
@@ -246,3 +251,7 @@ Chrome 実機スモークで確認する:
   一括で archive」）。Check Issue に移動させない理由: 04_Issues のハンドルしか持たず、移動先の権限を増やしたくない。
   移動先は `closedDir` に **`{YYYY}` トークン**（vault の掟「終わったものは `90_Archive/YYYY/`」を毎年設定し直さずに済む。
   フォルダ名をコードに書かない規約は守ったまま）。待ち日数は置かない（閉じる操作が承認）
+- **VL-Q14**（2026-09-25）: 閉じたイシューの移動先に **`{project}` と候補リスト**（利用者の選択「案件フォルダの Archive/。無ければ 90_Archive/{YYYY}」）。
+  設定を1つ増やす代わりにカンマ区切りの候補にした — 案件（10_Projects）と領域（20_Areas）の両方を、フォルダ名をコードに書かずに表せるため。
+  フォルダの有無は走査したファイルのパスから求める（**中身が空のフォルダは「無い」扱い**になる。案件フォルダには普通 Memo 等がある）
+

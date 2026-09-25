@@ -238,7 +238,7 @@ const F5 = [
   r.check('TB-14（NFC/NFD 差では偽検知せず・保存後も NFD バイト保全）',
     t14.res.ok === true && t14.line9 === NFD9, JSON.stringify([t14.res, t14.line9 === NFD9]));
 
-  /* ========== TB-15〜19: アーカイブ ========== */
+  /* ========== TB-15〜19・TB-AR1〜AR2: アーカイブ ========== */
   const archive = (script) => page.evaluate(([f1, today, mode]) => {
     window.taskboard.test.setToday(today);
     const s = window.taskboard.test.newSession(f1);
@@ -282,15 +282,41 @@ const F5 = [
 
   const a16 = await archive('TB-16');
   const doneLine = '- [x] 資料作成 #102 [[2026-07-07]] ✅ 2026-08-04';
-  r.check('TB-16（1件移動・archive 新規作成・tasks はラウンドトリップ）',
+  r.check('TB-16（1件移動・archive 新規作成で ## PEW の下に入る・tasks はラウンドトリップ）',
     a16.res.ok === true && a16.res.moved === 1
-    && a16.archive === '# archive\n' + doneLine + '\n'
+    && a16.archive === '# archive\n\n## PEW\n\n' + doneLine + '\n'
     && a16.tasks === F1.split('\n').filter((_, i) => i !== 8).join('\n'),
     JSON.stringify([a16.res, a16.archive]));
 
   const a17 = await archive('TB-17');
-  r.check('TB-17（既存 archive に追記・ヘッダ重複なし・末尾改行を補修）',
-    a17.archive === '# archive\n- [x] 旧行\n' + doneLine + '\n', JSON.stringify(a17.archive));
+  r.check('TB-17（既存 archive に追記・ヘッダ重複なし・末尾改行を補修・見出しが無ければ末尾に ## PEW を作る）',
+    a17.archive === '# archive\n- [x] 旧行\n\n## PEW\n\n' + doneLine + '\n', JSON.stringify(a17.archive));
+
+  /* ---------- TB-AR1/AR2: 案件（セクション）の見出しの下へ ---------- */
+  const ar1 = await page.evaluate(() => {
+    const f = window.taskboard.test.archiveMerge;
+    if (!f) return null;
+    return [
+      f('# archive\n\n## UL\n\n- [x] a\n\n## ITK\n\n- [x] x\n', [{ section: 'UL', lines: ['- [x] b'] }, { section: '面接', lines: ['- [x] c', '\t- [x] d'] }]),
+      f('', [{ section: 'UL', lines: ['- [x] b'] }]),
+    ];
+  });
+  r.check('TB-AR1（archiveMerge: 既存の節の末尾・次の見出しの前へ／無ければ末尾に見出しを作る／空なら # archive から）',
+    eq(ar1, ['# archive\n\n## UL\n\n- [x] a\n- [x] b\n\n## ITK\n\n- [x] x\n\n## 面接\n\n- [x] c\n\t- [x] d\n',
+      '# archive\n\n## UL\n\n- [x] b\n']), JSON.stringify(ar1));
+  const AR2 = ['# tasks', '', '## A', '', '- [x] a1 ✅ 2026-08-01', '', '## B', '', '- [x] b1 ✅ 2026-08-01', '\t- [x] b1c ✅ 2026-08-01', ''].join('\n');
+  const ar2 = await withDialogs('accept', () => page.evaluate(async ([t, today]) => {
+    window.taskboard.test.setToday(today);
+    const s = window.taskboard.test.newSession(t);
+    s.setArchiveText('# archive\n\n## B\n\n- [x] old\n');
+    const cb = document.getElementById('f-done'); cb.checked = true; cb.dispatchEvent(new Event('change', { bubbles: true }));
+    const res = await s.archive();
+    return { res, archive: s.getArchiveText() };
+  }, [AR2, TODAY]));
+  r.check('TB-AR2（2つのセクションを一度にアーカイブ: B は既存の ## B の末尾へ・A は末尾に ## A を作る・既存の行は不変）',
+    ar2.result.res.ok === true
+    && ar2.result.archive === '# archive\n\n## B\n\n- [x] old\n- [x] b1 ✅ 2026-08-01\n\t- [x] b1c ✅ 2026-08-01\n\n## A\n\n- [x] a1 ✅ 2026-08-01\n',
+    JSON.stringify(ar2.result));
 
   const a18 = await archive('TB-18');
   r.check('TB-18（未保存変更があれば中止）',

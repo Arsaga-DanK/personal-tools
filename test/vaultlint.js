@@ -200,6 +200,35 @@ const IDEO_SPACE = '\u3000';
     && v24.unsetMoves.length === 0 && v24.unset.length === 1 && v24.unset[0].reason.includes('未設定'),
     JSON.stringify(v24));
 
+  /* ========== VL-25/26: 閉じたイシューを案件フォルダの Archive/ へ（VL-Q14） ========== */
+  const FMP = (proj) => ['---', 'status: closed', 'closed: 2026-09-20'].concat(proj ? ['project: ' + proj] : []).concat(['---', '# t', '']).join('\n');
+  const CP = [
+    { path: '04_Issues/itk.md', text: FMP('ITK') }, { path: '04_Issues/ul.md', text: FMP('UL') },
+    { path: '04_Issues/men.md', text: FMP('面接') }, { path: '04_Issues/none.md', text: FMP('') },
+    { path: '10_Projects/ITK/Memo/x.md', text: '' }, { path: '20_Areas/UL/y.md', text: '' },
+  ];
+  const CAND = '10_Projects/{project}/Archive, 20_Areas/{project}/Archive, 90_Archive/{YYYY}';
+  const v25 = await page.evaluate(([files, cand]) => {
+    window.vaultlint.test.setConfig({ issueDir: '04_Issues', closedDir: cand });
+    const res = window.vaultlint.lint(files, '2026-09-25');
+    return res.issues.closedIssues.map(i => [i.path, i.project, i.dest]);
+  }, [CP, CAND]);
+  r.check('VL-25（候補を左から: 案件フォルダがあれば 10_Projects/ITK/Archive・20_Areas/UL/Archive、無ければ 90_Archive/2026）',
+    eq(v25, [['04_Issues/itk.md', 'ITK', '10_Projects/ITK/Archive'], ['04_Issues/ul.md', 'UL', '20_Areas/UL/Archive'],
+      ['04_Issues/men.md', '面接', '90_Archive/2026'], ['04_Issues/none.md', '', '90_Archive/2026']]),
+    JSON.stringify(v25));
+  const v26 = await page.evaluate(([files, cand]) => {
+    window.vaultlint.test.setConfig({ issueDir: '04_Issues', closedDir: cand });
+    const ok = window.vaultlint.planFixes(files, [{ type: 'archiveIssue', from: '04_Issues/itk.md', closed: '2026-09-20', project: 'ITK' }]);
+    window.vaultlint.test.setConfig({ issueDir: '04_Issues', closedDir: '10_Projects/{project}/Archive' });
+    const none = window.vaultlint.planFixes(files, [{ type: 'archiveIssue', from: '04_Issues/none.md', closed: '2026-09-20', project: '' }]);
+    return { moves: ok.moves, noneMoves: none.moves, noneSkipped: none.skipped };
+  }, [CP, CAND]);
+  r.check('VL-26（planFixes: 案件フォルダの Archive へ moves／どの候補も決まらなければ「移動先が決まりません」でスキップ）',
+    eq(v26.moves, [{ from: '04_Issues/itk.md', to: '10_Projects/ITK/Archive/itk.md' }])
+    && v26.noneMoves.length === 0 && v26.noneSkipped.length === 1 && v26.noneSkipped[0].reason.includes('移動先が決まりません'),
+    JSON.stringify(v26));
+
   /* ========== VL-20: Inbox フォルダが未設定なら棚卸し自体をしない ========== */
   const v20 = await lint([
     { path: '00_Inbox/2026-08-04.md', text: '## ログ\n作業した。' },
@@ -495,6 +524,17 @@ const IDEO_SPACE = '\u3000';
     !u10.missing && u10.withCfg.title.includes('2件') && u10.withCfg.options.includes('archive')
     && u10.withCfg.label.includes('90_Archive/2026') && u10.withCfg.value === 'archive' && u10.without === false,
     JSON.stringify(u10));
+  const u11 = await page.evaluate(([files, cand]) => {
+    window.vaultlint.test.run(files, '2026-09-25', { issueDir: '04_Issues', closedDir: cand });
+    const block = Array.from(document.querySelectorAll('#results section')).find(sec => sec.querySelector('h2').textContent.includes('閉じたイシュー'));
+    if (!block) return { missing: true };
+    const heads = Array.from(block.querySelectorAll('th')).map(th => th.textContent);
+    const labels = Array.from(block.querySelectorAll('select.fix-select')).map(sel => Array.from(sel.options).map(o => o.textContent).join(' | '));
+    return { heads, labels };
+  }, [CP, CAND]);
+  r.check('VL-U11（案件フォルダのある閉じたイシューは「10_Projects/ITK/Archive/ へ移動」・表に案件の列）',
+    !u11.missing && u11.heads.includes('案件') && u11.labels.some(l => l.includes('10_Projects/ITK/Archive/ へ移動')),
+    JSON.stringify(u11));
 
   await browser.close();
   r.report('vaultlint（docs/specs/vaultlint.md）');
