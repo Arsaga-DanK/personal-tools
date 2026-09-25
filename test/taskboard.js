@@ -6,7 +6,7 @@
 
    照合するID: TB-01〜20・parse チェック / TB-S1〜S11（セクション移動）/
    TB-A1〜A7（事故防止）/ TB-I1〜I7（IME ガード）/ TB-U1〜U7（追加の取り消し）/
-   TB-P1〜P19（計画ビュー: 🛫 とタイムライン）/ TB-M1〜M2（モード切替と共通モーダル）/ TB-AS1〜AS4（自動保存）/ TB-T1〜T3（ツールバー整理・モード切替）/ TB-H2〜H3（Check Issue からの受け取り）/ TB-D4〜D5・W2（日付の既定と チップ・モーダル幅）/ TB-N1〜N6（タスクを考える場所へ — イシューノートを開く／作る）
+   TB-P1〜P19（計画ビュー: 🛫 とタイムライン）/ TB-M1〜M2（モード切替と共通モーダル）/ TB-AS1〜AS4（自動保存）/ TB-T1〜T3（ツールバー整理・モード切替）/ TB-H2〜H3（Check Issue からの受け取り）/ TB-D4〜D5・W2〜W3（日付の既定と チップ・モーダル幅・長い関連ノート）/ TB-N1〜N6（タスクを考える場所へ — イシューノートを開く／作る）
    仕様の正本は docs/specs/taskboard.md。期待値を変えるときは spec を先に直す。 */
 
 const path = require('path');
@@ -3853,6 +3853,50 @@ const F5 = [
   r.check('TB-W2（長い本文の依存セレクトがあっても 700px でモーダルが横にはみ出さない・選択肢は40字＋title に全文）',
     w2m.open && w2m.docNoScroll && w2m.modalNoScroll && w2m.selectFits && w2m.shortLabel && w2m.fullTitle,
     JSON.stringify(w2m));
+
+  /* ---------- TB-W3: 長い関連ノート名で内容の列が潰れない（利用者のスクリーンショット・2026-09-25） ---------- */
+  const W3NOTE = '2026-09-25_先方に確認：検証環境構築の認識合わせ(ITKインフラ担当者)';
+  const W3 = ['# tasks', '', '## ITK', '',
+    '- [ ] 先方に確認：検証環境構築の認識合わせ(ITKインフラ担当者) [[' + W3NOTE + ']] 🛫 2026-09-16 📅 2026-10-02 ⏫',
+    '- [ ] 本番環境停止手順書の作成 🛫 2026-09-16 📅 2026-10-02 ⏫',
+    '\t- [ ] 大谷さんが叩き台を作成してくれるのでそれをベースに運営チームに展開できるまで具体化した資料を作成する(スクショ)',
+    ''].join('\n');
+  const w3 = await page.evaluate(async ([txt, note]) => {
+    window.taskboard.test.newSession(txt);
+    const tr = document.querySelector('#task-table tbody tr');
+    const body = tr.querySelector('td.cell-body');
+    const chip = tr.querySelector('.chip');
+    const linksTd = chip.closest('td');
+    const table = document.getElementById('task-table');
+    const fs = parseFloat(getComputedStyle(chip).fontSize);
+    const out = {
+      bodyW: Math.round(body.getBoundingClientRect().width),
+      linksW: Math.round(linksTd.getBoundingClientRect().width),
+      tableW: Math.round(table.getBoundingClientRect().width),
+      chipEm: +(chip.getBoundingClientRect().width / fs).toFixed(1),
+      fullTitle: (chip.title || '').includes(note),
+      docNoScroll: document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+    };
+    // 編集モーダルのチップも同じ長さでモーダルをはみ出さず、✕ が見える
+    Array.from(tr.querySelectorAll('.btn-child')).find(x => x.textContent === '編集').click();
+    await new Promise(r => setTimeout(r, 150));
+    document.getElementById('modal-more').open = true;
+    await new Promise(r => setTimeout(r, 50));
+    const m = document.querySelector('#modal .modal');
+    const mc = document.querySelector('#modal-link-list .chip');
+    const del = mc && mc.querySelector('.chip-del');
+    const mr = m.getBoundingClientRect(), cr = mc ? mc.getBoundingClientRect() : null, dr = del ? del.getBoundingClientRect() : null;
+    out.modalNoScroll = m.scrollWidth <= m.clientWidth;
+    out.modalChipFits = !!cr && cr.right <= mr.right + 1;
+    out.delVisible = !!dr && dr.width > 0 && dr.right <= cr.right + 1 && dr.bottom <= cr.bottom + 1;
+    document.getElementById('modal-content').value = document.getElementById('modal-content').value; // 変更なし
+    document.getElementById('modal-cancel').click();
+    return out;
+  }, [W3, W3NOTE]);
+  r.check('TB-W3（長い関連ノート名: 内容の列が関連ノートの列より広く表の3割以上・チップは16em以内で全文は title・横スクロールなし・モーダルのチップもはみ出さず ✕ が見える）',
+    w3.bodyW > w3.linksW && w3.bodyW >= w3.tableW * 0.3 && w3.chipEm <= 16.5 && w3.fullTitle && w3.docNoScroll
+    && w3.modalNoScroll && w3.modalChipFits && w3.delVisible,
+    JSON.stringify(w3));
 
   /* ========== TB-N1〜N6: タスクを考える場所へ（イシューノートを開く／作る） ========== */
   const fsaReset = () => page.evaluate(() => {

@@ -43,6 +43,10 @@
     background: var(--info-bg); border: 1px solid var(--info-border); border-radius: 10px;
     padding: 0 8px; margin: 1px 2px 1px 0; white-space: nowrap; }
   a.chip:hover { text-decoration: underline; }
+  /* 一覧の関連ノート: チップは折り返さないので、長いノート名だと列がその幅まで伸びて内容の列が潰れる
+     （利用者のスクリーンショット・2026-09-25 — 🎯 が作るノート名は <日付>_<内容> で長い）。
+     16em で切って全文は title（TB-W3）。モーダルのチップは ✕ を隠さないよう切らない */
+  #task-table td .chip { max-width: 16em; overflow: hidden; text-overflow: ellipsis; vertical-align: top; }
   .btn-child { opacity: 0; font-size: 12px; padding: 1px 7px; }
   #task-table tbody tr:hover .btn-child { opacity: 1; }
   /* 入力欄の列に揃える（.modal-why と同じ 5.5em＋10px） */
@@ -3224,8 +3228,9 @@ function renderRow(t, today) {
     const chip = document.createElement(href ? 'a' : 'span');
     chip.className = 'chip';
     chip.textContent = name;
-    if (href) { chip.href = href; chip.title = 'Obsidian で開く'; }
-    else chip.title = 'Obsidian で開くにはツールバーの「vault 名」を設定してください';
+    // 一覧では16emで切るので、title の先頭に全文（TB-W3）
+    if (href) { chip.href = href; chip.title = name + ' — Obsidian で開く'; }
+    else chip.title = name + ' — Obsidian で開くにはツールバーの「vault 名」を設定してください';
     tdLinks.appendChild(chip);
   }
   tr.appendChild(tdLinks);
