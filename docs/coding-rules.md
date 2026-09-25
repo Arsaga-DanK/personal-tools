@@ -25,7 +25,7 @@ CLAUDE.md（作業原則）と `docs/specs/`（ツール別契約）の間を埋
 | tools.js | `ToolsList.TOOLS` / `CATEGORY_ORDER` / `filter(q)` / `recent()` / `recordUse(alias)` / `hrefFor(path)` / `hubHref()` / `currentAlias()` | **ツール登録簿の正本**（2026-09-24 に index.html から移設）。追加はここ1箇所。`path` は index.html 基準で書き、`web/` 配下からは `hrefFor` が剥がす。**絶対パスを書かない** |
 | launcher.js | `ToolLauncher.mount()` | `.tool-header` に［☰ ツール］を置く引き出し式メニュー（Cmd/Ctrl+K）。**ハブには載せない**。`lib/tools.js` の後に読む。契約は `docs/specs/launcher.md` |
 | handoff.js | `ToolHandoff.send(to, kind, text, path)` / `take(me)` / `peek(me)` | ツール間の受け渡し。**sessionStorage の一時バッファで正本ではない**。詳細は下の「ツール間の受け渡し」 |
-| edit.js | `ToolEdit.tabIndent(el, opts)` / `mountTodayShortcut()` / `today()` / `addDays(ymd, n)` / **`dateChips(input)`** / `listItem` / `renumber` | 適用範囲の線引きは下の「UI の標準形」。**構造テキストの欄だけ**に入れる。`{mdList:true}` は**md を書く欄だけ**（下記） |
+| edit.js | `ToolEdit.tabIndent(el, opts)` / `mountTodayShortcut()` / `today()` / `addDays(ymd, n)` / **`dateChips(input)`** / `noteFileName(title, ymd)`（vault のノート名規則。Check Issue と Plan Tasks で共有）/ `listItem` / `renumber` | 適用範囲の線引きは下の「UI の標準形」。**構造テキストの欄だけ**に入れる。`{mdList:true}` は**md を書く欄だけ**（下記） |
 
 - **共通化の条件**: 「同じ変更に N 箇所の編集が必要だった実測」または「2番目の利用者が生まれた瞬間」。
   美観・予感では抽出しない（見送り判断も tool-backlog / ux-backlog に記録する）

@@ -45,6 +45,9 @@
   a.chip:hover { text-decoration: underline; }
   .btn-child { opacity: 0; font-size: 12px; padding: 1px 7px; }
   #task-table tbody tr:hover .btn-child { opacity: 1; }
+  /* 入力欄の列に揃える（.modal-why と同じ 5.5em＋10px） */
+  .modal-think { margin: -2px 0 10px 5.5em; padding-left: 10px; }
+  .modal-think button { font-size: 12.5px; }
   /* 未保存の追加行。取り消しボタンは常時表示（＋子と違い「気づかせる」ことが目的） */
   tr.row-added td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
   .btn-undo { font-size: 12px; padding: 1px 6px; margin-left: 4px; }
@@ -310,6 +313,9 @@
     <label class="mf"><span>内容</span>
       <input type="text" id="modal-content" placeholder="タスクの内容（必須）" spellcheck="false"></label>
     <p class="muted modal-why" id="modal-why"></p>
+    <div class="row-btns modal-think">
+      <button type="button" id="modal-think" title="関連ノートにイシューノートがあれば開く。無ければ作ってリンクし、保存する">🎯 考える場所へ</button>
+    </div>
     <label class="mf"><span>メモ</span>
       <textarea id="modal-memo" spellcheck="false" placeholder="任意。複数行可（tasks.md ではタスクの下の箇条書きになります）"></textarea></label>
     <details id="modal-more">
@@ -398,6 +404,7 @@ const IDB_NAME = 'tools-taskboard';// file:// は全ページ同一オリジン�
 const IDB_STORE = 'handles';
 const IDB_KEY = 'tasksmd';
 const IDB_KEY_ARCH = 'archivemd'; // 完了アーカイブ先（vault/03_Tasks/archive.md）のハンドル
+const IDB_KEY_ISSUE = 'issuedir'; // イシューノートのフォルダ（TB-N。Check Issue と同じフォルダを選ぶ。ツール間で共有しない）
 
 /* ========== エンジン（純粋・I/O なし） ==========
    方針: 行を原文文字列のまま保持し、編集はトークン単位の最小スプライス。
@@ -1342,10 +1349,11 @@ function showBanner(kind, text, actions) {
   const b = ToolUI.banner(el('banner'), kind, text);
   if (actions) {
     for (const a of actions) {
-      const btn = document.createElement('button');
+      // href があればリンク（obsidian:// など — TB-N6）、無ければボタン
+      const btn = document.createElement(a.href ? 'a' : 'button');
       btn.textContent = a.label;
       btn.style.marginLeft = '10px';
-      btn.addEventListener('click', a.onClick);
+      if (a.href) btn.href = a.href; else btn.addEventListener('click', a.onClick);
       b.appendChild(btn);
     }
   }
@@ -1558,6 +1566,94 @@ async function verifyPermission(handle) {
     if (await handle.queryPermission(opt) === 'granted') return true;
     return (await handle.requestPermission(opt)) === 'granted';
   } catch (_) { return false; }
+}
+
+/* ---------- タスクを考える場所へ（TB-N・TB-Q61 — イシューノートを開く／無ければ作る） ---------- */
+
+/* イシューノートのフォルダ。初回だけ選ぶ（Check Issue と同じフォルダを選ぶ）。ハンドルは IDB に持つが
+   ツール間では共有しない（各ツールが自分のハンドルを持つ作法）。null = 選ばなかった（キャンセル） */
+async function issueDirHandle() {
+  let h = null;
+  try { h = await idbGet(IDB_KEY_ISSUE); } catch (_) {}
+  if (h && await verifyPermission(h)) return h;
+  try {
+    h = await window.showDirectoryPicker({ mode: 'readwrite', id: 'tools-issue-dir' });
+  } catch (e) {
+    if (e && e.name === 'AbortError') return null;
+    throw e;
+  }
+  idbSet(IDB_KEY_ISSUE, h).catch(() => {});
+  return h;
+}
+async function dirHasFile(dir, name) {
+  try { await dir.getFileHandle(name); return true; } catch (_) { return false; }
+}
+// 骨は 99_Templates/issue.md の見出しだけ。**論点は空のまま** — 書き殴って見つける（利用者の前提）
+function issueNoteMd(title, tasksName, today) {
+  return ['---', 'created: ' + today, 'status: open', 'tags: [issue]', '---',
+    '# ' + title, '', '← タスク: [[' + tasksName + ']]', '',
+    '## 論点', '', '- [ ] ', '', '## 掘る', '', '- ', ''].join('\n');
+}
+// tasks ファイルの名前（拡張子なし）。メモリ／フォールバックなど .md でなければ tasks
+function tasksBaseName() {
+  const n = state.adapter && state.adapter.name;
+  return (n && /\.md$/i.test(n)) ? n.replace(/\.md$/i, '') : 'tasks';
+}
+// 自動保存を待たずに今保存する。外部スキームへ遷移する前に使う —
+// 未保存のままだと beforeunload が離脱確認を出す（obsidian:// でも発火する。実測・verification-notes §11）
+async function saveNow() {
+  if (autoSaveTimer !== null) { clearTimeout(autoSaveTimer); autoSaveTimer = null; }
+  if (isDirty()) await doSave({ auto: true });
+}
+function openIssueNote(name, what) {
+  const href = obsidianHref(name);
+  showBanner('info', what + ': ' + name, href ? [{ label: 'Obsidian で開く', href }] : null);
+  if (href) location.href = href;   // 外部スキームなのでページは離れない
+}
+/* 1ボタン＝「このタスクを考える場所へ」。関連ノートのうちイシューフォルダに実在するものがあれば開くだけ。
+   無ければ <今日>_<内容>.md を作り、[[…]] を足して保存し、開く（TB-N1/N2）。
+   fromModal: モーダルの値で動き、保存の流儀のまま（編集は閉じる・新規は続けて足せるよう開いたまま）。
+   それ以外は行 t を editContent で更新して自動保存を待つ */
+async function thinkAbout(t, fromModal) {
+  if (!state.loaded || state.demo) { showBanner('warn', 'tasks.md を開いてから使えます'); return; }
+  if (!('showDirectoryPicker' in window)) {
+    showBanner('warn', 'このブラウザではノートを作れません（Chrome / Edge で開いてください）');
+    return;
+  }
+  const content = fromModal ? el('modal-content').value.trim() : modalContentOf(t);
+  if (content === '') {
+    showBanner('warn', 'タスクの内容を入力してください');
+    if (fromModal) el('modal-content').focus();
+    return;
+  }
+  const links = (fromModal ? modalState.links : t.links).slice();
+  let dir;
+  try { dir = await issueDirHandle(); }
+  catch (_) { showBanner('error', 'イシューのフォルダを開けませんでした'); return; }
+  if (!dir) return;
+  for (const l of links) {
+    if (await dirHasFile(dir, l + '.md')) { openIssueNote(l, '📝 このタスクのノート'); return; }
+  }
+  const file = ToolEdit.noteFileName(content, todayStr());
+  const name = file.replace(/\.md$/, '');
+  if (!(await dirHasFile(dir, file))) {       // 同名があれば作らない（上書きしない）
+    try {
+      const fh = await dir.getFileHandle(file, { create: true });
+      const w = await fh.createWritable();
+      await w.write(issueNoteMd(content, tasksBaseName(), todayStr()));
+      await w.close();
+    } catch (_) { showBanner('error', 'ノートを作れませんでした: ' + file); return; }
+  }
+  if (fromModal) {
+    if (!modalState) return;                  // 待っている間に閉じられた
+    addModalLink(name);
+    saveModal();
+  } else if (!links.includes(name)) {
+    const body = bodyTextOf({ content, tags: t.tags, links: links.concat([name]) });
+    if (!applyUiOp({ type: 'editContent', line: t.line, text: body })) return;
+  }
+  await saveNow();
+  openIssueNote(name, '📝 ノートを作りました');
 }
 
 async function openViaPicker() {
@@ -3147,6 +3243,13 @@ function renderRow(t, today) {
     editBtn.title = 'このタスクを編集（内容・メモ・タグ・日付・関連ノート）';
     editBtn.addEventListener('click', () => openTaskModal('edit', t));
     tdAct.appendChild(editBtn);
+    // このタスクを考える場所へ（イシューノートを開く／無ければ作る — TB-N1/N2）
+    const thinkBtn = document.createElement('button');
+    thinkBtn.className = 'btn-child';
+    thinkBtn.textContent = '🎯';
+    thinkBtn.title = '考える場所へ — 関連ノートにイシューノートがあれば開く。無ければ作ってリンクする';
+    thinkBtn.addEventListener('click', () => thinkAbout(t, false));
+    tdAct.appendChild(thinkBtn);
   }
   // 未保存の追加行だけ取り消せる（既存行の削除は提供しない）
   if (isAdded && !t.hasCR) {
@@ -3725,6 +3828,7 @@ el('modal-dep-add').addEventListener('click', () => {
 });
 el('modal-link-add').addEventListener('click', () => addModalLink());
 el('modal-link-today').addEventListener('click', () => addModalLink(todayStr()));
+el('modal-think').addEventListener('click', () => thinkAbout(null, true));
 el('modal-link-input').addEventListener('keydown', (e) => {
   if (isComposingKey(e)) return;
   if (e.key === 'Enter') { e.preventDefault(); addModalLink(); }

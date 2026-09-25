@@ -189,8 +189,9 @@ const SAMPLE_MD = [
       return { note, dug, bare };
     }, SAMPLE_MD);
 
-    r.check('IS-11（frontmatter＋H1＋5見出し。空セクションも見出しは残る）',
+    r.check('IS-11（frontmatter＋H1＋5見出し＋分かったこと/結論/掘る。空セクションも見出しは残る）',
       n.note.startsWith('---\n') && n.note.includes('created: 2026-09-24')
+      && n.note.indexOf('## 掘る') > n.note.indexOf('## 結論') && n.note.indexOf('## 結論') > 0
       && n.note.includes('deadline: 2026-09-30') && n.note.includes('status: open')
       && n.note.includes('tags: [issue]') && n.note.includes('# 本番停止手順書')
       && ['## 1. ゴール', '## 2. 論点', '## 3. 絵コンテ', '## 4. サブイシュー', '## 5. 次の一手']

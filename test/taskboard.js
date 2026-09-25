@@ -6,7 +6,7 @@
 
    照合するID: TB-01〜20・parse チェック / TB-S1〜S11（セクション移動）/
    TB-A1〜A7（事故防止）/ TB-I1〜I7（IME ガード）/ TB-U1〜U7（追加の取り消し）/
-   TB-P1〜P19（計画ビュー: 🛫 とタイムライン）/ TB-M1〜M2（モード切替と共通モーダル）/ TB-AS1〜AS4（自動保存）/ TB-T1〜T3（ツールバー整理・モード切替）/ TB-H2〜H3（Check Issue からの受け取り）/ TB-D4〜D5・W2（日付の既定と チップ・モーダル幅）
+   TB-P1〜P19（計画ビュー: 🛫 とタイムライン）/ TB-M1〜M2（モード切替と共通モーダル）/ TB-AS1〜AS4（自動保存）/ TB-T1〜T3（ツールバー整理・モード切替）/ TB-H2〜H3（Check Issue からの受け取り）/ TB-D4〜D5・W2（日付の既定と チップ・モーダル幅）/ TB-N1〜N6（タスクを考える場所へ — イシューノートを開く／作る）
    仕様の正本は docs/specs/taskboard.md。期待値を変えるときは spec を先に直す。 */
 
 const path = require('path');
@@ -86,6 +86,36 @@ const F5 = [
   const browser = await launch();
   const context = await browser.newContext();
   const page = r.watch(await context.newPage());
+
+  // TB-N 用: イシューフォルダのスタブ（test/issue.js と同じ形）。ハンドルは関数を持つので
+  // IndexedDB には保存できない＝毎回ピッカーが呼ばれる（picked で回数を見る）。
+  // window.__fsa.files は差し替えず中身を書き換える（クロージャが同じオブジェクトを見ている）
+  await page.addInitScript(() => {
+    const files = {};
+    window.__fsa = { files: files, picked: 0 };
+    window.showDirectoryPicker = async () => {
+      window.__fsa.picked++;
+      return {
+        name: 'Issues', kind: 'directory',
+        queryPermission: async () => 'granted',
+        requestPermission: async () => 'granted',
+        getFileHandle: async (name, opts) => {
+          const exists = Object.prototype.hasOwnProperty.call(files, name);
+          if (!(opts && opts.create) && !exists) {
+            const e = new Error('not found'); e.name = 'NotFoundError'; throw e;
+          }
+          return {
+            name: name,
+            getFile: async () => ({ text: async () => files[name] }),
+            createWritable: async () => ({
+              write: async t => { files[name] = t; },
+              close: async () => {},
+            }),
+          };
+        },
+      };
+    };
+  });
 
   // confirm() の応答を制御する。Playwright の既定は dismiss なので、明示しないと
   // AR-3 の確認ダイアログで全アーカイブ・一括保存がキャンセル扱いになる
@@ -3823,6 +3853,93 @@ const F5 = [
   r.check('TB-W2（長い本文の依存セレクトがあっても 700px でモーダルが横にはみ出さない・選択肢は40字＋title に全文）',
     w2m.open && w2m.docNoScroll && w2m.modalNoScroll && w2m.selectFits && w2m.shortLabel && w2m.fullTitle,
     JSON.stringify(w2m));
+
+  /* ========== TB-N1〜N6: タスクを考える場所へ（イシューノートを開く／作る） ========== */
+  const fsaReset = () => page.evaluate(() => {
+    for (const k of Object.keys(window.__fsa.files)) delete window.__fsa.files[k];
+    window.__fsa.picked = 0;
+  });
+  // 本文で行を探して［🎯］を押し、少し待って結果を返す
+  const think = (bodyText, waitMs) => page.evaluate(async ([txt, ms]) => {
+    const tr = Array.from(document.querySelectorAll('#task-table tbody tr')).find(x => x.textContent.includes(txt));
+    const btn = tr && Array.from(tr.querySelectorAll('.btn-child')).find(b => b.textContent === '🎯');
+    if (!btn) return { noBtn: true };
+    btn.click();
+    await new Promise(d => setTimeout(d, ms));
+    const b = document.getElementById('banner');
+    return {
+      files: Object.keys(window.__fsa.files).sort(), md: window.__fsa.files, picked: window.__fsa.picked,
+      text: window.__s.getAdapterText(),
+      banner: b.hidden ? '' : b.textContent,
+      bannerLink: (b.querySelector('a[href^="obsidian:"]') || {}).href || '',
+    };
+  }, [bodyText, waitMs]);
+  // #102 は数字だけなのでタグではなく内容の一部（modalContentOf）。ノート名では # が - になる（Obsidian の禁止文字）
+  const N_NOTE = TODAY + '_資料作成 -102';
+  const N_MD = ['---', 'created: ' + TODAY, 'status: open', 'tags: [issue]', '---', '# 資料作成 #102', '',
+    '← タスク: [[tasks]]', '', '## 論点', '', '- [ ] ', '', '## 掘る', '', '- ', ''].join('\n');
+  const N_LINE9 = '- [ ] 資料作成 #102 [[2026-07-07]] [[' + N_NOTE + ']]';
+
+  await session(F1); await fsaReset();
+  const n1 = await think('資料作成', 600);
+  r.check('TB-N1（イシューノートの無い行の［🎯］: フォルダを1回選び、骨格どおりのノートが作られ、行末に [[…]] が足されて保存される）',
+    !n1.noBtn && n1.picked === 1 && eq(n1.files, [N_NOTE + '.md']) && n1.md[N_NOTE + '.md'] === N_MD
+    && lineOf(n1.text, 9) === N_LINE9 && onlyChanged(n1.text, F1, [9])
+    && n1.banner.includes(N_NOTE) && n1.bannerLink === '',
+    JSON.stringify([n1.noBtn, n1.picked, n1.files, n1.md && n1.md[N_NOTE + '.md'], lineOf(n1.text || '', 9), n1.banner]));
+
+  await session(F1); await fsaReset();
+  await page.evaluate(() => { window.__fsa.files['2026-07-14_TODO.md'] = '# 既存'; });
+  const n2 = await think('資料Rv', 600);
+  r.check('TB-N2（関連ノートがイシューフォルダに実在する行の［🎯］: 作らず・tasks は不変・開くだけ）',
+    !n2.noBtn && eq(n2.files, ['2026-07-14_TODO.md']) && n2.text === F1 && n2.banner.includes('2026-07-14_TODO'),
+    JSON.stringify([n2.noBtn, n2.files, n2.text === F1, n2.banner]));
+
+  await session(F1); await fsaReset();
+  const n3 = await page.evaluate(async () => {
+    document.getElementById('btn-add-form').click();
+    document.getElementById('modal-content').value = '';
+    const tb3 = document.getElementById('modal-think'); if (tb3) tb3.click();
+    await new Promise(d => setTimeout(d, 300));
+    const b = document.getElementById('banner');
+    return { open: !document.getElementById('modal').hidden, picked: window.__fsa.picked,
+      files: Object.keys(window.__fsa.files), banner: b.hidden ? '' : b.className + '|' + b.textContent };
+  });
+  r.check('TB-N3（新規モーダルで内容が空のまま［🎯 考える場所へ］: warn で止まり、ピッカーもファイルも出ない）',
+    n3.open && n3.picked === 0 && n3.files.length === 0 && n3.banner.includes('warn') && n3.banner.includes('内容'),
+    JSON.stringify(n3));
+  await shutModal();
+
+  await session(F1); await fsaReset();
+  const n4 = await page.evaluate(async () => {
+    const tr = Array.from(document.querySelectorAll('#task-table tbody tr')).find(x => x.textContent.includes('資料作成'));
+    Array.from(tr.querySelectorAll('.btn-child')).find(b => b.textContent === '編集').click();
+    const open1 = !document.getElementById('modal').hidden;
+    const tb4 = document.getElementById('modal-think'); if (tb4) tb4.click();
+    await new Promise(d => setTimeout(d, 600));
+    return { open1, open2: !document.getElementById('modal').hidden, files: Object.keys(window.__fsa.files),
+      text: window.__s.getAdapterText() };
+  });
+  r.check('TB-N4（編集モーダルの［🎯 考える場所へ］: ノートが作られ、関連ノートに足されて保存され、モーダルが閉じる）',
+    n4.open1 && !n4.open2 && eq(n4.files, [N_NOTE + '.md']) && lineOf(n4.text, 9) === N_LINE9 && onlyChanged(n4.text, F1, [9]),
+    JSON.stringify([n4.open1, n4.open2, n4.files, lineOf(n4.text || '', 9)]));
+
+  const n5 = await page.evaluate(() => (window.ToolEdit && ToolEdit.noteFileName)
+    ? [ToolEdit.noteFileName('a/b: c', '2026-08-04'), ToolEdit.noteFileName('', '2026-08-04'),
+       ToolEdit.noteFileName('資料 #102 [x]', '2026-08-04')] : null);
+  r.check('TB-N5（ToolEdit.noteFileName — Check Issue の IS-16 と同じ規則: OS と Obsidian の禁止文字は -、空は 無題）',
+    eq(n5, ['2026-08-04_a-b- c.md', '2026-08-04_無題.md', '2026-08-04_資料 -102 -x-.md']), JSON.stringify(n5));
+
+  await session(F1); await fsaReset();
+  await page.evaluate(() => {
+    window.__fsa.files['2026-07-14_TODO.md'] = '# 既存';
+    const e = document.getElementById('cfg-vault'); e.value = 'V'; e.dispatchEvent(new Event('change'));
+  });
+  const n6 = await think('資料Rv', 600);
+  await page.evaluate(() => { const e = document.getElementById('cfg-vault'); e.value = ''; e.dispatchEvent(new Event('change')); });
+  r.check('TB-N6（vault 名あり: バナーに Obsidian のリンク。外部スキームなのでページは離れない）',
+    !n6.noBtn && n6.bannerLink === 'obsidian://open?vault=V&file=2026-07-14_TODO' && n6.text === F1,
+    JSON.stringify([n6.noBtn, n6.bannerLink, n6.banner]));
 
   /* ---------- TB-T3: Cmd/Ctrl+Shift+E でモード切替（最後にやる — 遷移するため） ---------- */
   await page.goto(fileUrl('web/taskboard.html'));

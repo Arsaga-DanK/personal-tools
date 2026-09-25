@@ -631,9 +631,9 @@ function todayStr() {
 
 /* ノートのファイル名（vault-rules の命名規則 `YYYY-MM-DD_トピック.md`）。
    Obsidian / ファイルシステムで使えない文字は `-` に置換する */
+// 規則は lib/edit.js（Plan Tasks の［🎯 考える場所へ］が同じフォルダに作るため共有 — IS-16 / TB-N5）
 function noteFileName(title, today) {
-  const t = nfc(title).replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, ' ').trim();
-  return (today || todayStr()) + '_' + (t === '' ? '無題' : t) + '.md';
+  return ToolEdit.noteFileName(title, today || todayStr());
 }
 
 /* 04_Issues 用の md。**空のセクションも見出しは残す**（後でノート側で埋めるため）。
@@ -686,6 +686,9 @@ function toNote(parsed, opts) {
   sec('## 分かったこと', p.found);
   // **ここが無いとイシューを閉じられず、振り返りの素材が残らない**（A5）
   sec('## 結論', p.conclusion);
+  // 書き殴る場所。5段の器にも常設（2026-09-25）— 無いと考えをデイリーに書いてしまい、論点に育たない
+  // （9/24 の実測: デイリーのログ27行・ノートの分かったこと/結論は空）
+  sec('## 掘る', []);
   if (p.rest && p.rest.length) {
     L.push('## 掘ったログ');
     L.push('');

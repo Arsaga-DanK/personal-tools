@@ -377,3 +377,13 @@ vault の「ファイル名の罠」を Python の heredoc で再現したとき
 
 - 判定手順: FAIL が0件なのに exit=1・総数が減っている → 「ハーネス自体のエラー」を grep → 該当ハーネスを単独で2回
 - 単独で再現しなければ一時的。**再現したら初めてコードを疑う**（index.html の起動時 goto を増やしていないか）
+
+## 11. `obsidian://` など外部スキームへの遷移（2026-09-25 実測・headless Chromium）
+
+- `location.href = 'obsidian://…'` は headless では**何も起きない**: URL は変わらず、コンソールエラーも出ない。
+  ハーネスで vault 名を設定したまま押しても落ちない（TB-N6）
+- ただし **`beforeunload` は発火する**。`preventDefault` していると `dialog` イベント（type `beforeunload`）が出る
+  ＝ 実機では「このサイトを離れますか？」が出る。**未保存のまま外部スキームへ遷移しない**（Plan Tasks は
+  `saveNow()` で保存を await してから開く）
+- 測り方: `page.on('dialog')` を仕込み、`beforeunload` で `preventDefault` してから `location.href` を代入する
+  （使い捨てスクリプト。ハーネスには残していない）
