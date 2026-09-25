@@ -499,6 +499,27 @@ const SAMPLE_MD = [
     r.check('IS-24（toNote: project を渡すと status の直後に project: ITK・渡さなければ project 行は無い）',
       a24.with.includes('\nstatus: open\nproject: ITK\n') && !/^project:/m.test(a24.without),
       a24.with.split('---')[1]);
+    const a25j = await page.evaluate(() => {
+      const ids = (l, lv) => window.issue.judge([l], { stage: 'line', deadline: '2026-09-30' })
+        .filter(v => v.level === lv).map(v => v.id);
+      const L = {
+        ex1: 'JP1でFTP通信をしているものがあるか。', ex2: 'JP1を本番環境停止時に止める必要があるか。',
+        ex3: '検証環境構築時に、本番環境との通信は遮断されるのか。', ex4: 'JP1で、再起動しているタスクがあれば内容をもらいたい。',
+        hy1: 'この案件が難しいと感じるのは決まっていないことも、ゴールも見えていないからではないか',
+        hy2: '検証は OS のみでよいのではないか', hy3: '通信は遮断されるのではないでしょうか',
+        wh1: 'どの粒度なら運営チームが実行できるか', wh2: '停止手順はどこから潰すか', why: 'なぜ手順書が書けないのか',
+      };
+      const out = {};
+      for (const k of Object.keys(L)) out[k] = ids(L[k], 'warn');
+      return out;
+    });
+    const hasOnly = (arr, id) => arr.includes(id);
+    r.check('IS-25（はい/いいえの問いは closed・依頼は request が warn／仮説・疑問詞つきは出ない／なぜ〜のか は why だけ）',
+      hasOnly(a25j.ex1, 'closed') && hasOnly(a25j.ex2, 'closed') && hasOnly(a25j.ex3, 'closed')
+      && hasOnly(a25j.ex4, 'request') && !a25j.ex4.includes('closed')
+      && ['hy1', 'hy2', 'hy3', 'wh1', 'wh2'].every(k => !a25j[k].includes('closed') && !a25j[k].includes('request'))
+      && a25j.why.includes('why') && !a25j.why.includes('closed'),
+      JSON.stringify(a25j));
   }
 
   /* ========== UI 経路 ========== */
@@ -1073,6 +1094,17 @@ const SAMPLE_MD = [
   r.check('IS-UL17（最後の開いている行を閉じると、バナーに［ノートも閉じる…］が出て、押すとそのノートでモーダルが開く）',
     !ul17.noCard && !ul17.noOffer && ul17.opened && ul17.target.includes('ノート2') && ul17.lineClosed,
     JSON.stringify(ul17));
+
+  const ul20 = await page.evaluate(async () => {
+    for (const k of Object.keys(window.__fsa.files)) delete window.__fsa.files[k];
+    window.__fsa.files['q.md'] = ['---', 'status: open', 'tags: [issue]', '---', '# 確認', '', '## 論点', '',
+      '- [ ] JP1でFTP通信をしているものがあるか。 \u{1F4C5} 2026-09-30', ''].join('\n');
+    document.getElementById('f-status').value = 'open';
+    await window.issue.load();
+    const card = document.querySelector('.issue-card');
+    return { warn: !!(card && card.querySelector('.ic-warn')), ok: !!(card && card.querySelector('.ic-ok')) };
+  });
+  r.check('IS-UL20（論点の行が「〜があるか。」のカードは ✓ ではなく ⚠）', ul20.warn && !ul20.ok, JSON.stringify(ul20));
 
   // IS-U25: 初見（ノート0）は使い方が開いている・ノートがあれば強制しない
   const u25 = await page.evaluate(async () => {

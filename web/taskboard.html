@@ -1621,7 +1621,8 @@ function issueNoteMd(title, tasksName, today, project) {
     .concat(project ? ['project: ' + yamlScalar(project)] : [])   // 案件＝タスクのセクション（TB-Q62）
     .concat(['tags: [issue]', '---',
     '# ' + title, '', '← タスク: [[' + tasksName + ']]', '',
-    '## 論点', '', '- [ ] ', '',
+    // 論点の置き場所の注記。Check Issue の判定（closed / request）とテンプレと同じ文言（IS-Q22）
+    '## 論点', '', '> 論点は答えを先に置いた1行（〜ではなく〜ではないか）。確認すること・やることは `## 掘る` に `- [ ]`（論点の一覧に出ない）', '', '- [ ] ', '',
     // 掘るの止め時。Check Issue の toNote・vault のテンプレと同じ1行（IS-Q19）
     '## 掘る', '', '> 10分で論点の行が書けなければ「悩んでいる」— 型（A/B）を確かめる／人に聞く／一次情報を見る', '', '- ', '']).join('\n');
 }
