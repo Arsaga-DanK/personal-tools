@@ -9,8 +9,13 @@
 ./test/run                      # 全ハーネス
 ./test/run excel2md             # excel2md だけ
 ./test/run excel2md --shots     # スクリーンショットも書く（.playwright-mcp/・gitignore 済み）
+./test/run taskboard deps       # taskboard の deps 節だけ（節名は test/taskboard.js の SECTIONS）
 ./test/run --help
 ```
+
+1,000 行を超えたハーネスは入口（`test/<alias>.js`）と節（`test/<alias>/<節>.js`）に分ける（現在 taskboard）。
+入口が fixture・スタブ・共通ヘルパを `ctx` にまとめ、節の `run(ctx)` を元の順序で回す。
+節は前の節の状態に依存させない（各節は `session(...)` から始める）。不明な節名は exit 2 で一覧を出す。
 
 `node test/excel2md.js` でも動くが、`./test/run` は **PATH を固定してから node を呼ぶ**。
 asdf の shim を経由すると環境によって node が解決できないため（CLAUDE.md の制約と同根）、
