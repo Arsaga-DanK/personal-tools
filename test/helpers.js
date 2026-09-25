@@ -106,6 +106,11 @@ function createRunner() {
 
 const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
+/* ツール本数の固定ピン（2026-09-25 に hub.js の 9 箇所・launcher.js の 4 箇所から一元化）。
+   固定ピンは「ツールの増減を意識的な仕様変更にする関門」なので導出にはしない（coding-rules）。
+   ツールを足したら +1 する。CLAUDE.md には本数を書かない（ここと README を HUB-15 / HUB-27 が照合する） */
+const TOOL_COUNT = 17;
+
 /* バナーの検査（2026-08-07 に共通化）。
    **クラス名ではなく算出スタイルと role を見る。**
    `.banner-success` はクラスが付いていて CSS 規則だけが無く、成功バナーが中立の灰色で
@@ -154,4 +159,4 @@ async function bannerIs(page, selector, kind, expectText) {
   return { ok: ng.length === 0, detail: JSON.stringify({ ng, state: st }) };
 }
 
-module.exports = { launch, fileUrl, createRunner, eq, REPO, bannerState, bannerIs, BANNER_ROLE };
+module.exports = { launch, fileUrl, createRunner, eq, REPO, bannerState, bannerIs, BANNER_ROLE, TOOL_COUNT };

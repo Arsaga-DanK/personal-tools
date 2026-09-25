@@ -7,14 +7,14 @@
    照合するID: LA-01〜10（全ツールへの搭載・開閉・検索・パス解決・履歴・遷移）
    仕様の正本は docs/specs/launcher.md。期待値を変えるときは spec を先に直す。 */
 
-const { launch, fileUrl, createRunner, eq } = require('./helpers');
+const { launch, fileUrl, createRunner, eq, TOOL_COUNT } = require('./helpers');
 
 (async () => {
   const r = createRunner();
   const browser = await launch();
   const page = r.watch(await browser.newPage());
 
-  /* ---------- LA-01: 17本すべてに載っていて、ハブには無い ---------- */
+  /* ---------- LA-01: 全ツール（TOOL_COUNT 本）に載っていて、ハブには無い ---------- */
   await page.goto(fileUrl('index.html'));
   const tools = await page.evaluate(() => window.hub.TOOLS.map(t => ({ alias: t.alias, path: t.path })));
   const hubHasBtn = await page.evaluate(() => !!document.getElementById('launcher-btn'));
@@ -25,8 +25,8 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     const ok = await page.evaluate(() => !!document.getElementById('launcher-btn'));
     if (!ok) missing.push(t.alias);
   }
-  r.check('LA-01（17本すべてに ☰ ツールがあり、ハブには出ない）',
-    tools.length === 17 && missing.length === 0 && hubHasBtn === false,
+  r.check('LA-01（' + TOOL_COUNT + '本すべてに ☰ ツールがあり、ハブには出ない）',
+    tools.length === TOOL_COUNT && missing.length === 0 && hubHasBtn === false,
     JSON.stringify({ n: tools.length, missing, hubHasBtn }));
 
   /* ---------- LA-02/03/05: 開く・中身・検索・パス解決 ---------- */
@@ -46,7 +46,7 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     };
   });
   r.check('LA-02（開くと全17本とカテゴリ見出しが出て、現在のツールが aria-current）',
-    open1.open && open1.n === 17 && open1.groups.includes('タスク')
+    open1.open && open1.n === TOOL_COUNT && open1.groups.includes('タスク')
     && eq(open1.current, ['issue']),
     JSON.stringify({ n: open1.n, groups: open1.groups, current: open1.current }));
   r.check('LA-05（web/ 配下からは web/ を剥がした相対パス・ハブは ../index.html）',
@@ -74,7 +74,7 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
   r.check('LA-03（検索で絞れて見出しが消える・該当なし・クリアで復帰）',
     eq(search.hit.names, ['gantt']) && search.hit.groups === 0
     && search.none.n === 0 && search.none.empty === '該当なし'
-    && search.back === 17,
+    && search.back === TOOL_COUNT,
     JSON.stringify(search));
 
   /* ---------- LA-04: Cmd/Ctrl+K と Esc ---------- */
@@ -149,7 +149,7 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     };
   });
   r.check('LA-10（ToolStorage が無いページでも例外にならず開ける）',
-    noStorage.hasStorage === false && noStorage.open && noStorage.n === 17,
+    noStorage.hasStorage === false && noStorage.open && noStorage.n === TOOL_COUNT,
     JSON.stringify(noStorage));
 
   /* ---------- LA-07: 実際に別ツールへ遷移できる（最後にやる） ---------- */
