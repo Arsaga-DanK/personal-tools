@@ -149,6 +149,21 @@ if ! perl -ne '
   exit 1
 fi
 
+# 行数の警告（2026-09-25 設計 docs/audits/2026-09-25-structure.md §4-1）。
+# **落とさない** — 次に膨らむものを早く知るためのもの。1,000 行を超えたら同名フォルダに分ける
+# （coding-rules「ファイルの分割」）。既知の超過は SIZE_KNOWN に列挙し、分けたらここから消す。
+SIZE_LIMIT=1000
+typeset -a SIZE_KNOWN=(web/devpad.html web/mask.html web/gantt.html web/board.html test/mask.js test/devpad.js)
+typeset -a big
+for f in web/**/*.html web/**/*.js(N) test/**/*.js docs/specs/**/*.md; do
+  n=$(wc -l < "$f"); n=${n// /}
+  (( n > SIZE_LIMIT )) && (( ! ${SIZE_KNOWN[(Ie)$f]} )) && big+=("$n $f")
+done
+if (( ${#big} )); then
+  print -r -- "注意: ${SIZE_LIMIT} 行を超えるファイル（同名フォルダに分ける — coding-rules「ファイルの分割」）:"
+  for b in $big; do print -r -- "  $b"; done
+fi
+
 typeset -a targets
 if [[ -n "${1:-}" && "${1}" != --* ]]; then
   targets=("test/${1}.js")
