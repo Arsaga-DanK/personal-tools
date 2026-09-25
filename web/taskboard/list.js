@@ -1,0 +1,515 @@
+'use strict';
+/* web/taskboard/list.js — 一覧の描画・検索ハイライト・行の描画・インライン編集と IME ガード
+   入口: web/taskboard.html（このファイルは単独では動かない）。読み込み順は入口の <script src> の並びが正本で、
+   前のファイルの宣言だけを読み込み時に使ってよい（分割の規約: docs/coding-rules.md「ファイルの分割」）。 */
+
+/* ---------- 描画 ---------- */
+
+// 戻り値: 成功したか（呼び出し側が成功時だけ案内バナーを出せるようにする）
+// 複数 op を1回の render でまとめて適用する（バーの平行移動は setStart + setDue の2つ）。
+// 途中で失敗したら、そこまでの変更を画面に反映してから理由を出す（画面とモデルを食い違わせない）
+function applyUiOps(ops) {
+  try {
+    for (const op of ops) {
+      runOp(state.lines, op, todayStr());
+      rememberFromOp(op);
+    }
+    hideBanner();
+    render();
+    scheduleAutoSave();        // 変更の中心はここ1箇所（spec「自動保存」）
+    return true;
+  } catch (e) {
+    showBanner('error', '操作に失敗しました: ' + (e && e.message));
+    if (ops.length > 1) render();
+    return false;
+  }
+}
+function applyUiOp(op) { return applyUiOps([op]); }
+
+// 追加フォームの既定値を**すべての編集経路から**記憶する。
+// Step 6 の不具合は「記憶の入口が追加フォーム1箇所だけ」で、実運用で使われる
+// セルのポップオーバーから書かれていなかったことが原因（docs/verification-notes.md §5b 型3）
+function rememberFromOp(op) {
+  const a = state.ui.add;
+  switch (op.type) {
+    case 'setStart':    a.start = op.date || ''; break;
+    case 'setDue':      a.due = op.date || ''; break;
+    case 'setPriority': a.priority = op.value || ''; break;
+    case 'setTags':     a.tags = (op.tags || []).slice(); break;
+    case 'moveSection': a.section = op.section; break;
+    case 'addTask':
+      a.section = op.section || a.section;
+      a.start = op.start || '';
+      a.due = op.due || '';
+      a.priority = op.priority || '';
+      // タグは本文に埋め込まれるので op.tags は addTask 自身は使わない。
+      // 記憶の書き込み口を1つに保つため、記憶用にだけ運ぶ
+      if (Array.isArray(op.tags)) a.tags = op.tags.slice();
+      break;
+    default: return;
+  }
+  persistUi();
+}
+
+function fillSelect(sel, values, current, allLabel) {
+  sel.textContent = '';
+  if (allLabel !== undefined) {
+    const o = document.createElement('option');
+    o.value = '';
+    o.textContent = allLabel;
+    sel.appendChild(o);
+  }
+  for (const v of values) {
+    const o = document.createElement('option');
+    o.value = v;
+    o.textContent = v;
+    sel.appendChild(o);
+  }
+  // 「すべて」オプションが無い select（追加フォーム）は先頭値に既定化する
+  sel.value = values.includes(current) ? current
+    : (allLabel !== undefined ? '' : (values[0] || ''));
+}
+
+function render() {
+  if (!state.loaded) {
+    el('main-toolbar').hidden = true;
+    el('view-tabs').hidden = true;
+    el('viewbar').hidden = true;
+    el('table-wrap').hidden = true;
+    el('timeline-view').hidden = true;
+    el('board-view').hidden = true;
+    el('empty-msg').hidden = false;
+    el('empty-msg').textContent = 'ファイルを開くとタスクが表示されます — ブラウザから直接 tasks.md を読み書きします（初回のみ Chrome の許可ダイアログが出ます）';
+    return;
+  }
+  el('main-toolbar').hidden = false;
+  el('view-tabs').hidden = false;   // ビュー切替は常時表示（timeline のまま復帰しても戻れる）
+  el('viewbar').hidden = false;
+  const doc = parseDoc(state.lines);
+  state.doc = doc;
+
+  const allTags = [];
+  for (const t of doc.tasks) for (const tag of t.tags) if (!allTags.includes(tag)) allTags.push(tag);
+  fillSelect(el('f-section'), doc.sections, state.ui.section, 'すべて');
+  fillSelect(el('f-tag'), allTags, state.ui.tag, 'すべて');
+  state.ui.section = el('f-section').value;
+  state.ui.tag = el('f-tag').value;
+  el('f-done').checked = state.ui.showDone;
+  el('f-sort').value = state.ui.sort;
+  el('f-groupby').value = state.ui.board.groupBy;
+  el('f-zoom').value = state.ui.tlZoom;
+  // 既定値の投入は openTaskModal（モーダルを開く瞬間）の1箇所だけ。
+  // render では触らない（再描画で利用者がクリアした欄を復活させてしまうため）
+
+  // テキスト検索（Phase S）。一致したタスク＋その祖先＋その子孫を残す。
+  // タグ絞り込みがグループ全体を出すのと**意図的に違う**（→ 表示仕様に理由を記載）
+  const q = nfc(state.ui.q || '').trim().toLowerCase();
+  const haystack = (t) => nfc([t.body, t.memo.join(' '), t.tags.join(' '), t.links.join(' ')]
+    .join(' ')).toLowerCase();
+  let hitCount = 0;
+  const markHit = (t) => {                       // 自分または子孫が一致したか
+    let desc = false;
+    for (const c of t.children) desc = markHit(c) || desc;
+    t._hit = q !== '' && haystack(t).includes(q);
+    if (t._hit) hitCount++;
+    // メモが一致した行は**メモを自動で展開する**。畳んだままだと 📝 マーカーしか出ず
+    // 「なぜヒットしたのか」が読めない（ハイライトは展開したメモに付く仕様のため）。
+    // 自動で開いたものだけ memoAutoOpen で覚え、検索をやめたら畳む（手動の展開は残す）
+    if (t._hit && t.memo.length && nfc(t.memo.join(' ')).toLowerCase().includes(q)
+        && !state.memoOpen.has(t.line)) {
+      state.memoOpen.add(t.line);
+      state.memoAutoOpen.add(t.line);
+    }
+    t._sub = t._hit || desc;
+    return t._sub;
+  };
+  const spreadHit = (t, ancestorHit) => {        // 祖先が一致していれば子孫も残す
+    t._inQ = q === '' || t._sub || ancestorHit;
+    for (const c of t.children) spreadHit(c, ancestorHit || t._hit);
+  };
+
+  // 表示判定は親子グループ単位（spec 決定事項）
+  const roots = doc.tasks.filter(t => t.parentLine === null);
+  // 前回の自動展開を先に取り消してから測り直す（検索語を変えたときに開きっぱなしにしない）
+  for (const line of state.memoAutoOpen) state.memoOpen.delete(line);
+  state.memoAutoOpen.clear();
+  for (const r of roots) { markHit(r); spreadHit(r, false); }
+  const markVisible = (t) => {
+    let childVis = false;
+    for (const c of t.children) childVis = markVisible(c) || childVis;
+    // 未完了の子孫を持つ完了行は文脈表示。検索中は一致の圏内だけ
+    t._vis = ((state.ui.showDone || !t.finished) || childVis) && t._inQ;
+    return t._vis;
+  };
+  const groupHasTag = (t, tag) => t.tags.includes(tag) || t.children.some(c => groupHasTag(c, tag));
+  let groups = roots.filter(r => {
+    if (state.ui.section && r.section !== state.ui.section) return false;
+    if (state.ui.tag && !groupHasTag(r, state.ui.tag)) return false;
+    return markVisible(r);
+  });
+  const rank = t => t.priority === null ? 2 : PRI_RANK[t.priority];
+  if (state.ui.sort === 'start') {
+    // 開始日昇順（開始日なしは最後、同値は期限→ファイル順）
+    groups = groups.slice().sort((a, b) =>
+      (a.start === null) - (b.start === null) || (a.start || '').localeCompare(b.start || '') ||
+      (a.due || '9999').localeCompare(b.due || '9999') || a.line - b.line);
+  } else if (state.ui.sort === 'due') {
+    groups = groups.slice().sort((a, b) =>
+      (a.due === null) - (b.due === null) || (a.due || '').localeCompare(b.due || '') || a.line - b.line);
+  } else if (state.ui.sort === 'priority') {
+    groups = groups.slice().sort((a, b) => rank(a) - rank(b) || a.line - b.line);
+  }
+  // 終了したグループ（完了・中止）は常に最下部（ソート指定より優先）。判定は subtreeFinished
+  // なので未完了の子孫を持つ完了親は上に残る（進行中の作業が下に埋もれない）。
+  // **リストとボードだけに適用する** — visibleRows はタイムラインの行順にも使われる
+  if (state.ui.view === 'list' || state.ui.view === 'board') {
+    const doneKey = t => (subtreeFinished(t) ? 1 : 0);
+    groups = groups.slice().sort((a, b) => doneKey(a) - doneKey(b)); // 安定ソート（既存順を保つ）
+  }
+
+  const rows = [];
+  const collect = (t) => { if (t._vis) rows.push(t); for (const c of t.children) collect(c); };
+  for (const g of groups) collect(g);
+  state.visibleRows = rows;
+  // 依存グラフは**表示中の行全体**から作る（🛫 が無くて図に出ない行も含める。
+  // リスト・ボードの印と完了時の警告も同じグラフを見る）
+  state.depGraph = depGraph(rows);
+
+  const tbody = el('task-body');
+  tbody.textContent = '';
+  const today = todayStr();
+  for (const t of rows) {
+    tbody.appendChild(renderRow(t, today));
+    if (t.memo.length && state.memoOpen.has(t.line)) tbody.appendChild(renderMemoRow(t));
+  }
+
+  for (const b of el('view-tabs').querySelectorAll('button')) {
+    b.classList.toggle('active', b.dataset.view === state.ui.view);
+    // 現在の列の基準は、ボードへ入る前でも title で読める（タブの幅は変えない）
+    if (b.dataset.view === 'board') {
+      b.title = 'カードを列に並べる（列: ' + (GROUPBY_LABEL[state.ui.board.groupBy] || '') + '）';
+    }
+  }
+  el('groupby-wrap').hidden = state.ui.view !== 'board';   // 基準はボード表示中だけ出す
+  el('zoom-wrap').hidden = state.ui.view !== 'timeline';   // ズームはタイムライン表示中だけ出す
+  el('table-wrap').hidden = state.ui.view !== 'list';
+  el('board-view').hidden = state.ui.view !== 'board';
+  el('timeline-view').hidden = state.ui.view !== 'timeline';
+  if (state.ui.view === 'timeline') {
+    el('empty-msg').hidden = true;
+    renderTimeline();
+  } else if (state.ui.view === 'board') {
+    state.timeline = null;
+    el('empty-msg').hidden = true;
+    renderBoard(groups, today, q);
+  } else {
+    state.timeline = null;
+    el('empty-msg').hidden = rows.length > 0;
+    el('empty-msg').textContent = q === ''
+      ? '表示できるタスクがありません'
+      : '一致するタスクがありません（検索: ' + state.ui.q.trim() + '）';
+  }
+  updateCopyButton();
+  // 検索で行が消えたことを無言にしない
+  el('q-count').textContent = q === '' ? '' : hitCount + ' 件ヒット';
+
+  const open = doc.tasks.filter(t => !t.finished).length;
+  el('summary').textContent = '未完了 ' + open + ' / 全 ' + doc.tasks.length + ' 件 · 表示 ' + rows.length + ' 行';
+  el('btn-add-form').disabled = state.hasCRFile;
+  updateSaveButton();
+  updateArchiveButton();
+}
+
+/* ---------- 検索の一致箇所のハイライト（Phase S） ----------
+   判定は NFC 正規化後に行うが、装飾は**表示文字列に対する素の大文字小文字無視検索**。
+   NFC で長さが変わる文字（NFD の「ポ」など）では位置が対応しないため、
+   表示文字列に見つからなければ装飾なしで全文を出す（行の表示自体は正しい）。 */
+function appendHighlighted(host, text, q) {
+  const s = String(text);
+  if (!q) { host.appendChild(document.createTextNode(s)); return; }
+  const lower = s.toLowerCase();
+  let i = 0, at;
+  while ((at = lower.indexOf(q, i)) >= 0) {
+    if (at > i) host.appendChild(document.createTextNode(s.slice(i, at)));
+    const mark = document.createElement('span');
+    mark.className = 'hit';
+    mark.textContent = s.slice(at, at + q.length);
+    host.appendChild(mark);
+    i = at + q.length;
+  }
+  if (i < s.length) host.appendChild(document.createTextNode(s.slice(i)));
+}
+
+/* ---------- 行の描画（2026-09-25 にアーカイブ節から描画の隣へ戻した — todo #17） ---------- */
+function renderRow(t, today) {
+  const tr = document.createElement('tr');
+  if (t.finished) tr.className = 'row-done';
+  tr.dataset.line = t.line;
+  // 未保存の追加行を見分けられるようにする（保存すると orig が実値になり自然に消える）
+  const isAdded = state.lines[t.line - 1] && state.lines[t.line - 1].orig === null;
+  if (isAdded) tr.classList.add('row-added');
+
+  const tdSt = document.createElement('td');
+  tdSt.className = 'cell-st';
+  const cb = document.createElement('input');
+  cb.type = 'checkbox';
+  cb.checked = t.done;
+  cb.disabled = t.hasCR;
+  cb.addEventListener('change', () => {
+    const completing = cb.checked;
+    // blocked（先行が終わっていない）まま完了にしたら**警告するが止めない**（TB-Q55）。
+    // Obsidian Tasks 自身も止めも警告もしないので**記法の意味を変えない**。
+    // 8/3 のアーカイブ事故の教訓は「無言で通さない」であって「禁止する」ではない。
+    // 判定は op を出す前に取る（適用後は状態が変わって blocked ではなくなる）
+    const blockedNow = completing && !!(state.depGraph && state.depGraph.blocked.has(t.line));
+    const pending = blockedNow ? unfinishedPredecessors(t) : [];
+    // 🏁（Obsidian Tasks の On Completion。delete 等の完了時動作）はこのツールでは実行できない。
+    // blocked と同じく**警告するが止めない**（TB-R22。記法は TB-Q40 どおり書き換えない）
+    const onCompletion = completing && /🏁/u.test(t.body || '');   // 未知トークンは body に残る（TB-Q40）
+    applyUiOp({ type: completing ? 'complete' : 'uncomplete', line: t.line });
+    if (pending.length) {
+      showBanner('warn', '先行タスク' + pending.length + '件が終わっていないまま完了にしました（' +
+        pending.slice(0, 2).join('・') + (pending.length > 2 ? ' ほか' : '') + '）');
+      return;
+    }
+    if (onCompletion) {
+      showBanner('warn', '🏁（完了時動作）が付いています — Obsidian Tasks 側の動作（削除・移動など）は' +
+        'このツールでは実行されません。必要なら Obsidian 側で完了にしてください');
+      return;
+    }
+    // 「終了を含む」OFF では行が即座に消えるため、削除と誤解されない案内を出す
+    if (completing && !state.ui.showDone) {
+      showBanner('info', '完了にしました。完了行は「終了を含む」を ON にすると表示されます（ファイルへは保存時に反映）');
+    }
+  });
+  tdSt.appendChild(cb);
+  // 状態バッジ（着手中 ▶ / 保留 ⏸ / 中止 ✕ / 不明はその文字）。クリックで状態を選ぶ
+  const badge = document.createElement('button');
+  badge.className = 'st-badge';
+  // 情報を持つ印（▶ ⏸ ✕・不明の文字）は常時表示、
+  // 未着手・完了はチェックボックスで分かるのでホバー時だけ操作口を見せる（＋子 と同じ作法）
+  if (STATUS_MARK[t.status]) badge.textContent = STATUS_MARK[t.status];
+  else if (t.status === ST_OTHER) badge.textContent = t.statusChar;
+  else { badge.textContent = '▾'; badge.classList.add('st-quiet'); }
+  badge.title = '状態: ' + (STATUS_LABEL[t.status] || t.statusChar) +
+    '（クリックで ' + ST_CHOICES.map(s => STATUS_LABEL[s]).join(' / ') + ' を選ぶ）';
+  badge.disabled = t.hasCR;
+  badge.addEventListener('click', (e) => openStatusPopover(e.currentTarget, t));
+  tdSt.appendChild(badge);
+  tr.appendChild(tdSt);
+
+  const tdBody = document.createElement('td');
+  tdBody.className = 'cell-body';
+  tdBody.style.paddingLeft = (10 + t.indent * 22) + 'px';
+  const span = document.createElement('span');
+  span.className = 'body-text';
+  if (t.indent > 0) span.appendChild(document.createTextNode('└ '));
+  appendHighlighted(span, t.displayBody || t.body || '(内容なし)',
+    nfc(state.ui.q || '').trim().toLowerCase());
+  tdBody.appendChild(span);
+  const dm = depMark(t);
+  if (dm) tdBody.appendChild(dm);
+  // メモを持つ行の印。クリックで直下に展開／折り畳み（展開状態は永続化しない）
+  if (t.memo.length) {
+    const mk = document.createElement('button');
+    mk.className = 'memo-mark';
+    mk.textContent = '📝' + t.memo.length;
+    mk.title = 'クリックでメモを展開／折り畳み';
+    mk.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (state.memoOpen.has(t.line)) state.memoOpen.delete(t.line);
+      else state.memoOpen.add(t.line);
+      render();
+    });
+    tdBody.appendChild(mk);
+  }
+  if (!t.hasCR) {
+    tdBody.title = 'ダブルクリックで本文を編集';
+    tdBody.addEventListener('dblclick', () => startBodyEdit(tdBody, t));
+  }
+  tr.appendChild(tdBody);
+
+  // 開始日は色分けしない（期限の遅延警告を埋もれさせない）
+  const tdStart = document.createElement('td');
+  tdStart.className = 'cell-start';
+  const startSpan = document.createElement('span');
+  startSpan.textContent = t.start || '—';
+  if (!t.start) startSpan.classList.add('muted');
+  tdStart.appendChild(startSpan);
+  if (!t.hasCR) {
+    tdStart.title = 'クリックで開始日を設定';
+    tdStart.addEventListener('click', (e) => openDatePopover(e.currentTarget, t, 'start'));
+  }
+  tr.appendChild(tdStart);
+
+  const tdDue = document.createElement('td');
+  tdDue.className = 'cell-due';
+  const dueSpan = document.createElement('span');
+  dueSpan.textContent = t.due || '—';
+  if (!t.finished && t.due) {
+    if (t.due < today) dueSpan.className = 'due-over';
+    else if (t.due === today) dueSpan.className = 'due-today';
+    dueSpan.style.padding = '1px 6px';
+  }
+  if (!t.due) dueSpan.classList.add('muted');
+  tdDue.appendChild(dueSpan);
+  if (!t.hasCR) tdDue.addEventListener('click', (e) => openDatePopover(e.currentTarget, t, 'due'));
+  tr.appendChild(tdDue);
+
+  const tdPri = document.createElement('td');
+  tdPri.className = 'cell-pri';
+  tdPri.textContent = t.priEmoji ? t.priEmoji + ' ' + (PRI_LABEL[t.priority] || '') : '—';
+  if (!t.priEmoji) tdPri.classList.add('muted');
+  if (!t.hasCR) tdPri.addEventListener('click', (e) => openPriPopover(e.currentTarget, t));
+  tr.appendChild(tdPri);
+
+  const tdTags = document.createElement('td');
+  tdTags.className = 'cell-tags';
+  for (const tag of t.tags) {
+    const s = document.createElement('span');
+    s.className = 'chip';
+    s.textContent = '#' + tag;
+    tdTags.appendChild(s);
+  }
+  if (!t.tags.length) {
+    const s = document.createElement('span');
+    s.className = 'muted';
+    s.textContent = '—';
+    tdTags.appendChild(s);
+  }
+  if (!t.hasCR) {
+    tdTags.title = 'クリックでタグを付与・削除';
+    tdTags.addEventListener('click', (e) => openTagPopover(e.currentTarget, t));
+  }
+  tr.appendChild(tdTags);
+
+  const tdSec = document.createElement('td');
+  tdSec.textContent = t.section || '';
+  tdSec.classList.add('muted');
+  // 深さ0のタスクだけセクションを変更できる（子は親と一緒に移るため対象外）
+  if (!t.hasCR && t.indent === 0 && state.doc && state.doc.sections.length > 1) {
+    tdSec.classList.add('cell-sec');
+    tdSec.title = 'クリックでセクションを変更（移動先の末尾に移ります）';
+    tdSec.addEventListener('click', () => openSectionPopover(tdSec, t));
+  }
+  tr.appendChild(tdSec);
+
+  const tdLinks = document.createElement('td');
+  for (const name of t.links) {
+    // vault 名が未設定のときはリンクにせず名前だけ出す（押しても開かないリンクを作らない）
+    const href = obsidianHref(name);
+    const chip = document.createElement(href ? 'a' : 'span');
+    chip.className = 'chip';
+    chip.textContent = name;
+    // 一覧では16emで切るので、title の先頭に全文（TB-W3）
+    if (href) { chip.href = href; chip.title = name + ' — Obsidian で開く'; }
+    else chip.title = name + ' — Obsidian で開くにはツールバーの「vault 名」を設定してください';
+    tdLinks.appendChild(chip);
+  }
+  tr.appendChild(tdLinks);
+
+  const tdAct = document.createElement('td');
+  if (!t.hasCR) {
+    const btn = document.createElement('button');
+    btn.className = 'btn-child';
+    btn.textContent = '＋子';
+    btn.title = '子タスクを追加';
+    btn.addEventListener('click', (e) => openChildPopover(e.currentTarget, t));
+    tdAct.appendChild(btn);
+    // 内容・メモ・タグ・分類・日付・関連ノートはモーダルで1画面で編集する
+    const editBtn = document.createElement('button');
+    editBtn.className = 'btn-child';
+    editBtn.textContent = '編集';
+    editBtn.title = 'このタスクを編集（内容・メモ・タグ・日付・関連ノート）';
+    editBtn.addEventListener('click', () => openTaskModal('edit', t));
+    tdAct.appendChild(editBtn);
+    // このタスクを考える場所へ（イシューノートを開く／無ければ作る — TB-N1/N2）
+    const thinkBtn = document.createElement('button');
+    thinkBtn.className = 'btn-child';
+    thinkBtn.textContent = '🎯';
+    thinkBtn.title = '考える場所へ — 関連ノートにイシューノートがあれば開く。無ければ作ってリンクする';
+    thinkBtn.addEventListener('click', () => thinkAbout(t, false));
+    tdAct.appendChild(thinkBtn);
+  }
+  // 未保存の追加行だけ取り消せる（既存行の削除は提供しない）
+  if (isAdded && !t.hasCR) {
+    const undo = document.createElement('button');
+    undo.className = 'btn-undo';
+    undo.textContent = '↩︎';
+    if (hasAddedDescendant(state.lines, t.line - 1)) {
+      undo.disabled = true;
+      // 子が既存の行（＝新しい親でまとめた直後など）なら、親だけ消すと子が別のタスクの下に付く（TB-K11）
+      const kidsExisting = descendantLines(t, []).some(l => state.lines[l - 1] && state.lines[l - 1].orig !== null);
+      undo.title = kidsExisting ? '子タスクがあるため取り消せません（子の「親タスク」を変えてから）' : '先に子タスクを取り消してください';
+    } else {
+      undo.title = 'この追加を取り消す（未保存）';
+      undo.addEventListener('click', () => {
+        // 行が消えることを削除と誤解させない（UX監査 TB-1 と同じ配慮）。失敗時は
+        // applyUiOp のエラーバナーを潰さないよう成功時だけ出す
+        if (applyUiOp({ type: 'undoAdd', line: t.line })) showBanner('info', '追加を取り消しました');
+      });
+    }
+    tdAct.appendChild(undo);
+  }
+  tr.appendChild(tdAct);
+  return tr;
+}
+
+// 展開したメモ（表の行として出す。ダブルクリックで編集）
+function renderMemoRow(t) {
+  const tr = document.createElement('tr');
+  tr.className = 'memo-row';
+  tr.dataset.memoFor = t.line;
+  const td = document.createElement('td');
+  td.colSpan = 9;
+  const pre = document.createElement('div');
+  pre.className = 'memo-text';
+  pre.style.paddingLeft = (28 + t.indent * 22) + 'px';
+  // メモは検索対象なので、ヒット箇所はここでもハイライトする
+  appendHighlighted(pre, t.memo.join('\n'), nfc(state.ui.q || '').trim().toLowerCase());
+  td.appendChild(pre);
+  if (!t.hasCR) {
+    td.title = 'ダブルクリックでメモを編集';
+    td.addEventListener('dblclick', () => openTaskModal('edit', t, { focus: 'memo' }));
+  }
+  tr.appendChild(td);
+  return tr;
+}
+
+/* ---------- IME ガード（Phase I） ---------- */
+
+// 日本語などの変換確定・変換取り消しで押される Enter / Escape は、変換中であっても
+// keydown{key:'Enter'|'Escape'} としてページに届く（2026-08-05 に CDP で実測）。
+// ガードしないと「変換確定の Enter」がそのまま追加・編集確定を発火し、
+// 未変換の文字列でタスクが増えたり既存行が上書きされる。
+// keyCode 229 は isComposing を立てない IME への保険（deprecated だが現存する）。
+function isComposingKey(e) {
+  return e.isComposing || e.keyCode === 229;
+}
+
+function startBodyEdit(td, t) {
+  if (td.querySelector('input')) return;
+  td.textContent = '';
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'cell-edit-input';
+  input.value = t.body;
+  let done = false;
+  const commit = () => {
+    if (done) return;
+    done = true;
+    const v = input.value.trim();
+    if (v && v !== t.body) applyUiOp({ type: 'editContent', line: t.line, text: v });
+    else render();
+  };
+  input.addEventListener('keydown', (e) => {
+    if (isComposingKey(e)) return;
+    if (e.key === 'Enter') commit();
+    else if (e.key === 'Escape') { done = true; render(); }
+  });
+  input.addEventListener('blur', commit);
+  td.appendChild(input);
+  input.focus();
+  input.select();
+}
+
