@@ -401,3 +401,9 @@ const F9 = [
 | TB-S38 | `setStatus line:7 hold` → `setStatus todo` | `- [h] 未着手のタスク`（1文字だけ）→ 戻すと**出力 === F9（バイト同一）** |
 | TB-S39 | UI: F9（「終了を含む」OFF） | 3行すべて表示・保留のバッジが `⏸`・不明のバッジが `!`・**保留の期限セルに `due-over` が付く**（残務だから色を消さない）・ヘッダーが `未完了 3 / 全 3 件`・TSV の状態列に「保留」 |
 | TB-S40 | UI: F9 で「終了を含む」ON → `archive()` | `{ok:false, reason:'empty'}`（**保留も不明もアーカイブ対象にならない**・tasks.md は不変） |
+
+parse 表示チェック（`window.taskboard.test.parse(F1)`）:
+9行目 tags=[]（`#102` 除外）・links=['2026-07-07'] / 13行目 tags=[]（`#144` 除外）・
+links=['2026-07-14_TODO','2026-07-21']・due='2026-08-05'・priority='high' /
+17行目 tags=['UL業務']・priority='low' / 12行目の親=10行目 / セクション=['PEW','UL','その他']。
+
