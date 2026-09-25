@@ -38,6 +38,8 @@
   .wz-u { display: flex; gap: 6px; align-items: center; margin: 0 0 6px; flex-wrap: wrap; }
   .wz-c { display: flex; gap: 6px; align-items: center; margin: 0 0 6px; flex-wrap: wrap; }
   .wz-c-text { flex: 2 1 200px; min-width: 0; }
+  .wz-s-pic { flex: 1 1 180px; min-width: 0; }
+  .wz-kinds { display: flex; flex-wrap: wrap; gap: 4px 16px; }
   .wz-c-effect { flex: 2 1 200px; min-width: 0; }
   .wz-c-pick { flex: 0 0 auto; }
   .wz-s-what { flex: 2 1 180px; min-width: 0; }
@@ -167,7 +169,7 @@
         <label class="field">タイトル<input type="text" id="title" placeholder="本番停止手順書"></label>
         <button type="button" class="sample-btn" id="sample-btn">サンプルを入れる</button>
       </div>
-      <textarea id="input" spellcheck="false" placeholder="## 1. ゴール&#10;- いつまでに何が達成されていればいい？&#10;&#10;## 2. 論点&#10;- 答えを出すべき問いを一行で&#10;&#10;## 3. 絵コンテ&#10;- 答えが出たとき最後に何を出す？&#10;&#10;## 4. サブイシュー&#10;- 聞く / 調べる / 試す を振る"></textarea>
+      <textarea id="input" spellcheck="false" placeholder="## 1. ゴール&#10;- いつまでに何が達成されていればいい？&#10;&#10;## 2. 論点&#10;- 答えを出すべき問いを一行で&#10;&#10;## 3. 最終形&#10;- 答えが出たとき最後に何を言う・出す？&#10;&#10;## 4. サブイシュー&#10;- 聞く / 調べる / 試す を振る"></textarea>
       <ul id="verdict" class="verdict"></ul>
     </div>
   </details>
@@ -205,6 +207,7 @@
       <label class="toggle"><input type="radio" name="cm-v" value="未決"> 未決</label>
     </span></div>
     <label class="mf"><span>分かったこと</span><textarea id="cm-note" rows="2" spellcheck="false" placeholder="例: 情報不足ではなく粒度未合意が原因だった"></textarea></label>
+    <label class="mf"><span>伝えた先</span><input type="text" id="cm-told" spellcheck="false" placeholder="任意。誰に伝えて、どの判断が動いた？ 例: PM に共有 → 粒度が決まった"></label>
     <p class="wz-why">💡 立てた問い → 実際どうだったか → 次はどう立て直すか。ここが訓練のフィードバックになる</p>
     <p class="summary wz-err" id="cm-err" hidden></p>
     <div class="modal-actions">
@@ -229,10 +232,11 @@
 
 /* 5ステップの見出し。表記の揺れを許容する（docs/specs/issue.md「5ステップの見出し認識」）:
    "## 1. ゴール" / "## ゴール" / "**2. 論点**" / "3. 不明点：" / "#### リスク" */
-const HEAD_RE = /^\s*(?:#{1,6}\s*)?(?:\*\*)?\s*(?:[1-9][.．、)]?\s*)?(ゴール|論点|イシュー|絵コンテ|サブイシュー|不明点|リスク|次の一手|分かったこと|結論|掘ったログ)\s*(?:\*\*)?\s*[:：]?\s*$/;
+const HEAD_RE = /^\s*(?:#{1,6}\s*)?(?:\*\*)?\s*(?:[1-9][.．、)]?\s*)?(ゴール|論点|イシュー|最終形|絵コンテ|サブイシュー|不明点|リスク|次の一手|分かったこと|結論|掘ったログ)\s*(?:\*\*)?\s*[:：]?\s*$/;
 const KEY_OF = {
   'ゴール': 'goal', '論点': 'issue', 'イシュー': 'issue',
-  '絵コンテ': 'picture',
+  // 2026-09-25 に「絵コンテ」→「最終形」へ改名（IS-Q17）。旧名も同じ枠（既存ノートを壊さない）
+  '最終形': 'picture', '絵コンテ': 'picture',
   // 旧「不明点」は同じ枠へ（既存ノートを壊さない）
   'サブイシュー': 'subs', '不明点': 'subs',
   'リスク': 'risks',              // 旧枠。新規では作らないが内容は保持する
@@ -242,6 +246,9 @@ const KEY_OF = {
 };
 
 function nfc(s) { return String(s == null ? '' : s).normalize('NFC'); }
+
+// 掘るの止め時（本: 10分考えて埒が明かなければ止める）。テンプレ・Plan Tasks の骨格と同じ1行（IS-Q19）
+const DIG_HINT = '> 10分で論点の行が書けなければ「悩んでいる」— 型（A/B）を確かめる／人に聞く／一次情報を見る';
 
 // 行頭の箇条書き記号を落とす。**タスク記法（- [ ]）はそのまま残す**（次の一手で使うため）
 function stripBullet(raw) {
@@ -323,8 +330,8 @@ function judge(line, opts) {
   if (o.stage === 'line') return out;
   // 本で最も強い検算: 欲しい絵が描けないなら、まだイシューが定まっていない（第3章）
   if (nfc(o.picture || '').trim() === '')
-    add('picture', 'warn', '答えが出たとき何を出すかが決まっていない',
-      '絵コンテを描く — 描けないなら、まだイシューが定まっていない');
+    add('picture', 'warn', '答えが出たとき最後に何を言う・出すか（最終形）が決まっていない',
+      '最終形を描く — 描けないなら、まだイシューが定まっていない');
   return out;
 }
 
@@ -400,15 +407,45 @@ function subRows(lines) {
     const l = nfc(lines[i]).trim();
     if (l === '') continue;
     if (/^\|\s*-{2,}/.test(l)) continue;
+    if (/^>/.test(l)) continue;                    // 筋などの注記は行ではない
     if (/^\|/.test(l)) {
       const cells = l.replace(/^\|/, '').replace(/\|$/, '').split('|').map(function (c) { return c.trim(); });
       if (cells[0] === '' || cells[0] === '分からないこと') continue;
-      out.push({ what: cells[0], way: cells[1] || '', who: cells[2] || '', due: cells[3] || '' });
+      // 5列（2026-09-25〜: 2列目が「何を見れば白黒つく」）と 4列の旧行の両方を読む
+      if (cells.length >= 5) out.push({ what: cells[0], pic: cells[1], way: cells[2], who: cells[3], due: cells[4] });
+      else out.push({ what: cells[0], pic: '', way: cells[1] || '', who: cells[2] || '', due: cells[3] || '' });
     } else {
-      out.push({ what: l, way: wayOf(l), who: '', due: '' });
+      out.push({ what: l, pic: '', way: wayOf(l), who: '', due: '' });
     }
   }
   return out;
+}
+
+/* ゴール節の読み取り（IS-Q16）: 型・マイルストーン（A）・目指す姿の候補（B）・期限。
+   buildMd が書く形（> 型: … / - 目指す姿（仮）: …（仮決め: 日付）/ > 見送った候補: a ／ b）の逆変換 */
+function goalInfo(lines) {
+  const r = { kind: '', milestone: '', visions: '', due: '', headline: '' };
+  const ms = [], vs = [], others = [];
+  for (const raw of lines || []) {
+    const l = nfc(raw).trim();
+    if (l === '') continue;
+    let m;
+    if ((m = l.match(/^>?\s*型[:：]\s*(ギャップフィル|ビジョン設定)/))) { r.kind = m[1] === 'ギャップフィル' ? 'A' : 'B'; continue; }
+    if ((m = l.match(/^>?\s*見送った候補[:：]\s*(.*)$/))) {
+      m[1].split(/\s*／\s*/).forEach(function (x) { if (x.trim() !== '') others.push(x.trim()); });
+      continue;
+    }
+    if ((m = l.match(/^(?:[-*+]\s*)?目指す姿（仮）[:：]\s*(.*?)(?:（仮決め[:：]\s*(\d{4}-\d{2}-\d{2})）)?\s*$/))) {
+      vs.push(m[1].trim()); if (m[2]) r.due = m[2]; continue;
+    }
+    if (/^>/.test(l)) continue;                    // その他の注記
+    if ((m = l.match(/^(.*?)（マイルストーン[:：]\s*(\d{4}-\d{2}-\d{2})）\s*$/))) { ms.push(m[1].trim()); r.due = m[2]; continue; }
+    ms.push(l);
+  }
+  r.milestone = ms.join('\n');
+  r.visions = vs.concat(others).join('\n');
+  r.headline = (r.kind === 'B' ? vs[0] : ms[0]) || ms[0] || vs[0] || '';
+  return r;
 }
 
 // カード1枚分の要約。**判定（judge）も同じ純関数を通す**ので、一覧と入力で基準がずれない
@@ -432,7 +469,11 @@ function summarize(text, fileName) {
   return {
     file: String(fileName || ''), name: name,
     title: (p.title || name),
-    goal: (p.goal || []).filter(function (x) { return nfc(x).trim() !== ''; })[0] || '',
+    goal: goalInfo(p.goal).headline,
+    goalLines: (p.goal || []).slice(),
+    kind: goalInfo(p.goal).kind,
+    story: ((p.subs || []).map(function (x) { return nfc(x).trim(); })
+      .filter(function (x) { return /^>\s*筋[:：]/.test(x); })[0] || '').replace(/^>\s*筋[:：]\s*/, ''),
     issue: issueLine,
     picture: pic[0] || '',
     conclusion: (p.conclusion || []).map(function (x) { return nfc(x).trim(); })
@@ -664,15 +705,29 @@ function toNote(parsed, opts) {
   L.push('');
   sec('## 1. ゴール', p.goal);
   sec('## 2. 論点', p.issue);
-  sec('## 3. 絵コンテ', p.picture);
+  sec('## 3. 最終形', p.picture);
   L.push('## 4. サブイシュー');
   L.push('');
-  L.push('| 分からないこと | 聞く / 調べる / 試す | 誰に・どこで | いつまでに |');
-  L.push('| --- | --- | --- | --- |');
-  const rows = (p.subs && p.subs.length) ? p.subs : [''];
-  // ウィザードが組んだ表の行はそのまま通す（二重に表を組まない — IS-18）
-  for (const u of rows) L.push(/^\s*\|/.test(u) ? u : '| ' + u + ' | ' + wayOf(u) + ' |  |  |');
+  // 2列目「何を見れば白黒つく」が本の絵コンテ（サブイシューごとの分析イメージ — IS-Q17）
+  L.push('| 分からないこと | 何を見れば白黒つく | 聞く / 調べる / 試す | 誰に・どこで | いつまでに |');
+  L.push('| --- | --- | --- | --- | --- |');
+  const subsAll = (p.subs && p.subs.length) ? p.subs : [''];
+  const quotes = subsAll.filter(u => /^\s*>/.test(u));          // 筋などの注記は表の後に置く（表の途中だと壊れる）
+  const rows = subsAll.filter(u => !/^\s*>/.test(u));
+  if (rows.length === 0) rows.push('');
+  for (const u of rows) {
+    if (/^\s*\|/.test(u)) {
+      // 表の行は組み直さない（IS-18）。見出し・区切りは自前で出すので捨て、
+      // 4セルの旧行だけ2列目に空の「白黒」セルを挿入して5列に揃える
+      const cells = u.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim());
+      if (/^-{2,}$/.test(cells[0]) || cells[0] === '分からないこと') continue;
+      L.push(cells.length === 4 ? '| ' + [cells[0], '', cells[1], cells[2], cells[3]].join(' | ') + ' |' : u);
+    } else {
+      L.push('| ' + u + ' |  | ' + wayOf(u) + ' |  |  |');
+    }
+  }
   L.push('');
+  if (quotes.length) { for (const q of quotes) L.push(q); L.push(''); }
   L.push('## 5. 次の一手');
   L.push('');
   if (!p.next || p.next.length === 0) { L.push('- [ ] '); } else {
@@ -687,8 +742,8 @@ function toNote(parsed, opts) {
   // **ここが無いとイシューを閉じられず、振り返りの素材が残らない**（A5）
   sec('## 結論', p.conclusion);
   // 書き殴る場所。5段の器にも常設（2026-09-25）— 無いと考えをデイリーに書いてしまい、論点に育たない
-  // （9/24 の実測: デイリーのログ27行・ノートの分かったこと/結論は空）
-  sec('## 掘る', []);
+  // （9/24 の実測: デイリーのログ27行・ノートの分かったこと/結論は空）。1行目は止め時（IS-Q19・本: 10分）
+  L.push('## 掘る'); L.push(''); L.push(DIG_HINT); L.push(''); L.push('- '); L.push('');
   if (p.rest && p.rest.length) {
     L.push('## 掘ったログ');
     L.push('');
@@ -710,9 +765,19 @@ function buildMd(d0) {
     if (lines.length === 0) L.push('- '); else for (const x of lines) L.push(x);
     L.push('');
   };
-  const ms = one(d.milestone);
-  sec('## 1. ゴール', ms === '' ? []
-    : ['- ' + ms + (d.milestoneDue ? '（マイルストーン: ' + d.milestoneDue + '）' : '')]);
+  // 型（改訂版「課題解決の2つの型」— IS-Q16）。(B) はゴールの代わりに目指す姿の候補から1つ選ぶ
+  const goal = [];
+  if (d.kind === 'A') goal.push('> 型: ギャップフィル（あるべき姿は決まっている）');
+  if (d.kind === 'B') goal.push('> 型: ビジョン設定（あるべき姿を決めるところから）');
+  if (d.kind === 'B') {
+    const vs = nfc(d.visions || '').split('\n').map(x => x.trim()).filter(x => x !== '');
+    if (vs.length) goal.push('- 目指す姿（仮）: ' + vs[0] + (d.milestoneDue ? '（仮決め: ' + d.milestoneDue + '）' : ''));
+    if (vs.length > 1) goal.push('> 見送った候補: ' + vs.slice(1).join(' ／ '));
+  } else {
+    const ms = one(d.milestone);
+    if (ms !== '') goal.push('- ' + ms + (d.milestoneDue ? '（マイルストーン: ' + d.milestoneDue + '）' : ''));
+  }
+  sec('## 1. ゴール', goal);
 
   // 論点: 選んだ1行＋注記（注記は「> 」で始めるので judge の行数に数えられない）
   const cands = (d.candidates || []).map(c => ({ text: one(c.text), effect: one(c.effect) }));
@@ -725,12 +790,15 @@ function buildMd(d0) {
   sec('## 2. 論点', issueLines);
 
   const pic = one(d.picture);
-  sec('## 3. 絵コンテ', pic === '' ? []
+  sec('## 3. 最終形', pic === '' ? []
     : ['- ' + (d.pictureKind ? '【' + d.pictureKind + '】' : '') + pic]);
 
   const subs = (d.subs || []).filter(u => u && one(u.what) !== '');
   sec('## 4. サブイシュー', subs.map(u =>
-    '| ' + one(u.what) + ' | ' + one(u.way) + ' | ' + one(u.who) + ' | ' + one(u.due) + ' |'));
+    '| ' + one(u.what) + ' | ' + one(u.pic || '') + ' | ' + one(u.way) + ' | ' + one(u.who) + ' | ' + one(u.due) + ' |'));
+  // 筋（ストーリーライン — 本の2章）: この順で潰すと結論に着地する。表の後に1行
+  const story = nfc(d.story || '').split('\n').map(x => x.trim()).filter(x => x !== '');
+  if (story.length) { L.push('> 筋: ' + story.join(' → ')); L.push(''); }
 
   const nx = one(d.next);
   L.push('## 5. 次の一手'); L.push('');
@@ -1492,6 +1560,7 @@ function openCloseModal(it) {
   closing = it;
   $id('cm-target').textContent = it.title + (it.issue ? ' — ' + it.issue : '');
   $id('cm-note').value = '';
+  $id('cm-told').value = '';
   $id('cm-err').hidden = true;
   $id('cm-err').textContent = '';
   const first = document.querySelector('input[name="cm-v"]');
@@ -1507,11 +1576,15 @@ async function applyClose() {
   const picked = document.querySelector('input[name="cm-v"]:checked');
   const verdict = picked ? picked.value : '未決';
   const note = nfc($id('cm-note').value).trim();
+  // 伝えた先（IS-Q18）: 本の終点は「受け手が判断できる完成形」。判断が動いたかを残す（任意）
+  const told = nfc($id('cm-told').value).trim();
 
   if (it.kind === 'line') {
     // 行を閉じ、分かったことは**その論点の子行**に置く（ノートに複数の論点があるため）
     const ok = await writeNote(it.note, function (cur) {
       let next = replaceLine(cur, it.lineNo, closeLineRaw(it.raw, verdict, todayStr()));
+      // 先に「伝えた」を差してから「分かったこと」を差す → 並びは 分かったこと / 伝えた
+      if (told !== '') next = insertAfterLine(next, it.lineNo, '\t- 伝えた: ' + told);
       if (note !== '') next = insertAfterLine(next, it.lineNo, '\t- ' + note);
       return next;
     }, null);
@@ -1529,6 +1602,7 @@ async function applyClose() {
   const ok2 = await writeNote(it.note, function (cur) {
     let next = setFrontmatter(cur, { status: 'closed', verdict: verdict });
     if (note !== '') next = appendToSection(next, '## 結論', '- ' + note);
+    if (told !== '') next = appendToSection(next, '## 結論', '- 伝えた: ' + told);
     return next;
   }, null);
   if (!ok2) { $id('cm-err').textContent = '書き込めませんでした。Obsidian 側で変更されているかもしれません（［再読込］してからもう一度）'; $id('cm-err').hidden = false; return; }
@@ -1554,25 +1628,28 @@ $id('cm-ok').addEventListener('click', applyClose);
 
 /* ---------- 入力ウィザード（IS-Q8） ----------
    **ただの md 入力欄では Obsidian と同じ**という利用者の指摘への対処。
-   5段は本の順（マイルストーン → イシューの選別 → 絵コンテ → 分解 → 最初の一手）。
+   5段は本の順（型＋マイルストーン → イシューの選別 → 最終形 → 分解＋絵コンテ＋筋 → 最初の一手）。
    2026-09-24 に「リスク」を落として 選別・絵コンテ・分解 を入れた（本の3章分が欠けていたため）。
    ウィザードは **md を組み立てて既存の入力欄へ流すだけ** — 判定・出力・書き込みは
    parseSections → judge / toNote / createNote の既存経路をそのまま通る */
 const WZ = [
-  { title: 'いつまでに、何が達成されていればいい？',
-    why: 'ここが決まらないと、何を問うかも決まらない。まずマイルストーンを置いて、そこから降りる（本: 最終形からたどる）' },
+  { title: 'あるべき姿は決まっている？ → いつまでに、何が達成されていればいい？',
+    why: '改訂版「課題解決の2つの型」。あるべき姿が決まっていない（ビジョン設定型）のに現状分析から始めると答えが出ない。型で最初の問いが変わる（本: 最終形からたどる）' },
   { title: '答えを出すべき問いの候補を出して、1つ選ぶ',
     why: '解ける問題の中から、最もインパクトのあるものを選ぶ（本: イシュー度）。1つしか思いつかないときは、まだ選んでいない' },
-  { title: '答えが出たとき、最後に何を出す？',
-    why: '分析を始める前に、出したい形を先に決める。欲しい絵が描けないなら、まだイシューが定まっていない（本: 絵コンテ）' },
+  { title: '答えが出たとき、最後に何を言う・出す？',
+    why: '分析を始める前に、最後の形を先に決める（本: 最終形からたどる・伝えるメッセージ）。描けないなら、まだイシューが定まっていない' },
   { title: '答えが出る大きさまで割ると？',
-    why: '崩れたら全部やり直しになるものを上に。大きいイシューのままでは答えが出ない（本: イシューの分解）' },
+    why: '崩れたら全部やり直しになるものを上に。各行に「何を見れば白黒つくか」を描く（本: 絵コンテ）。並べ順が結論への筋（本: ストーリーライン）' },
   { title: '最初に潰すのはどれ？',
     why: '一つを100%にするより、60%で全体を何周も回す（本: 回転数 × スピード）' },
 ];
 
 const draft = {
+  kind: '',                         // 'A' ギャップフィル / 'B' ビジョン設定（IS-Q16）。既定なし
   milestone: '', milestoneDue: '',
+  visions: '',                      // (B) 目指す姿の候補（1行1つ・1行目が本命）
+  story: '',                        // 筋（ストーリーライン）1行1段
   candidates: [{ text: '', effect: '' }, { text: '', effect: '' }],
   chosen: 0, issueDue: '',
   pictureKind: '表', picture: '',
@@ -1617,6 +1694,17 @@ function wzBind(el, key) {
 function pickedText() {
   const c = draft.candidates[draft.chosen];
   return c ? c.text : '';
+}
+
+// Step 1 (B): 目指す姿の候補が2つ未満なら info（拒否はしない — IS-Q5）
+function wzVisionHint() {
+  const host = $id('wz-judge');
+  host.textContent = ''; host.className = '';
+  if (wzStep !== 0 || draft.kind !== 'B') return;
+  const n = nfc(draft.visions).split('\n').map(x => x.trim()).filter(x => x !== '').length;
+  if (n >= 2) return;
+  renderVerdict([{ id: 'visions', level: 'info', msg: '候補が1つだけ',
+    fix: 'もう1つ立てて並べる。ビジョン設定型は現状分析からは出ない — 目指す姿を選ぶところから' }], host);
 }
 
 // Step 2 の判定は本体と同じ純関数を通す（二重実装しない）
@@ -1669,6 +1757,10 @@ function wzSubs(list) {
     const what = mkText('', u.what, '答えが出る大きさまで割ったもの');
     what.className = 'wz-s-what';
     what.addEventListener('input', () => { u.what = what.value; });
+    // 本の絵コンテ: このサブイシューは何を見れば白黒つくか（表・ログ・画面・一言）
+    const pic = mkText('', u.pic, '何を見れば白黒つく（表・ログ・画面・一言）');
+    pic.className = 'wz-s-pic';
+    pic.addEventListener('input', () => { u.pic = pic.value; });
     const way = document.createElement('select');
     way.className = 'wz-s-way';
     [['', '（未定）'], ['聞く', '聞く'], ['調べる', '調べる'], ['試す', '試す']].forEach(pair => {
@@ -1689,7 +1781,7 @@ function wzSubs(list) {
     const del = document.createElement('button');
     del.type = 'button'; del.textContent = '×'; del.title = 'この行を削除';
     del.addEventListener('click', () => { draft.subs.splice(i, 1); wzSubs(list); });
-    row.appendChild(what); row.appendChild(way); row.appendChild(who);
+    row.appendChild(what); row.appendChild(pic); row.appendChild(way); row.appendChild(who);
     row.appendChild(due); row.appendChild(del);
     list.appendChild(row);
   });
@@ -1715,15 +1807,49 @@ function wzRender() {
   if (wzTarget) $id('wz-source-text').textContent = wzTarget.text || '';
 
   if (wzStep === 0) {
-    const t = mkArea('wz-milestone', draft.milestone,
-      '例: 運営チームが自分たちだけで本番を停止できる手順書が出ていて、「これで実行できます」と言われている', 3);
-    wzBind(t, 'milestone');
-    body.appendChild(wzField('達成されている状態', t));
-    const d = mkDate('wz-milestone-due', draft.milestoneDue);
-    wzBind(d, 'milestoneDue');
-    body.appendChild(wzField('いつまでに', d));
-    chipsAfter(d);
-    draft.milestoneDue = d.value;          // 既定（今日）を下書きにも反映
+    // 型（改訂版「課題解決の2つの型」— IS-Q16）。既定なし: 選ばないと進めない。型で下の欄が変わる
+    const row = document.createElement('div');
+    row.className = 'mf';
+    const lab = document.createElement('span');
+    lab.textContent = 'あるべき姿は';
+    row.appendChild(lab);
+    const kinds = document.createElement('div');
+    kinds.className = 'mf-body wz-kinds';
+    [['A', 'wz-kind-a', '決まっている（ギャップフィル型）— 現状とのギャップを埋める'],
+     ['B', 'wz-kind-b', 'まだ（ビジョン設定型）— 目指す姿を決めるところから']].forEach(([v, id, text]) => {
+      const l = document.createElement('label');
+      l.className = 'toggle';
+      const r = document.createElement('input');
+      r.type = 'radio'; r.name = 'wz-kind'; r.id = id; r.value = v; r.checked = draft.kind === v;
+      r.addEventListener('change', () => { draft.kind = v; wzRender(); });
+      l.appendChild(r); l.appendChild(document.createTextNode(' ' + text));
+      kinds.appendChild(l);
+    });
+    row.appendChild(kinds);
+    body.appendChild(row);
+    if (draft.kind === 'B') {
+      const v = mkArea('wz-visions', draft.visions,
+        '例:\n10月末に検証環境で全機能が動いている\n本番切替まで含めて10月末に終わる', 4);
+      wzBind(v, 'visions');
+      v.addEventListener('input', wzVisionHint);
+      body.appendChild(wzField('目指す姿の候補（1行1つ・2つ以上・1行目が本命）', v));
+      const d = mkDate('wz-milestone-due', draft.milestoneDue);
+      wzBind(d, 'milestoneDue');
+      body.appendChild(wzField('いつまでに仮決めする', d));
+      chipsAfter(d);
+      draft.milestoneDue = d.value;
+      wzVisionHint();
+    } else {
+      const t = mkArea('wz-milestone', draft.milestone,
+        '例: 運営チームが自分たちだけで本番を停止できる手順書が出ていて、「これで実行できます」と言われている', 3);
+      wzBind(t, 'milestone');
+      body.appendChild(wzField('達成されている状態', t));
+      const d = mkDate('wz-milestone-due', draft.milestoneDue);
+      wzBind(d, 'milestoneDue');
+      body.appendChild(wzField('いつまでに', d));
+      chipsAfter(d);
+      draft.milestoneDue = d.value;          // 既定（今日）を下書きにも反映
+    }
   } else if (wzStep === 1) {
     const list = document.createElement('div');
     list.id = 'wz-cands';
@@ -1761,15 +1887,20 @@ function wzRender() {
     const list = document.createElement('div');
     list.id = 'wz-subs';
     body.appendChild(list);
-    if (draft.subs.length === 0) draft.subs.push({ what: '', way: '', who: '', due: '' });
+    if (draft.subs.length === 0) draft.subs.push({ what: '', pic: '', way: '', who: '', due: '' });
     wzSubs(list);
     const add = document.createElement('button');
     add.type = 'button'; add.id = 'wz-add-sub'; add.textContent = '＋ 行を追加';
     add.addEventListener('click', () => {
-      draft.subs.push({ what: '', way: '', who: '', due: '' });
+      draft.subs.push({ what: '', pic: '', way: '', who: '', due: '' });
       wzSubs(list);
     });
     body.appendChild(add);
+    // 筋（ストーリーライン — 本の2章）: サブイシューをどの順で潰すと結論に着地するか。1行1段
+    const st = mkArea('wz-story', draft.story,
+      '例:\n粒度が決まる\n停止対象の量が決まる\n手順書の形が決まる', 3);
+    wzBind(st, 'story');
+    body.appendChild(wzField('筋（この順で潰すと結論に着地する・1行1段）', st));
   } else {
     const t = mkText('wz-next-what', draft.next, '例: 運営チームに求める完成度（粒度）を確認する');
     wzBind(t, 'next');
@@ -1791,12 +1922,16 @@ function wzRender() {
    絵コンテを必須にしたのは、本で最も強い検算がここだから
    （描けない＝まだイシューが定まっていない）。候補が1つだけでも**進める**（info のみ） */
 function wzValidate(step) {
-  if (step === 0 && (nfc(draft.milestone).trim() === '' || !draft.milestoneDue))
+  if (step === 0 && draft.kind === '')
+    return 'まず型を選んでください — あるべき姿が決まっているかで、最初の問いが変わります（改訂版: 課題解決の2つの型）';
+  if (step === 0 && draft.kind === 'B' && (nfc(draft.visions).trim() === '' || !draft.milestoneDue))
+    return '目指す姿の候補を1つ以上と、仮決めの期限を埋めてください — ビジョン設定型は現状分析から始めても答えが出ません';
+  if (step === 0 && draft.kind === 'A' && (nfc(draft.milestone).trim() === '' || !draft.milestoneDue))
     return 'マイルストーン（達成されている状態）と期限の両方を埋めてください — ここを飛ばすと、何を問うかが決まりません';
   if (step === 1 && (nfc(pickedText()).trim() === '' || !draft.issueDue))
     return '論点（選んだ候補）と、その問いを決着させる期限を埋めてください — いつ白黒つくか書けないものは、まだイシューではありません';
   if (step === 2 && nfc(draft.picture).trim() === '')
-    return '答えが出たとき最後に何を出すかを書いてください — 欲しい絵が描けないなら、まだイシューが定まっていません';
+    return '答えが出たとき最後に何を言う・出すかを書いてください — 最終形が描けないなら、まだイシューが定まっていません';
   return '';
 }
 function wzError(msg) {
@@ -1809,6 +1944,9 @@ function wzError(msg) {
 function wzOpenFor(it) {
   wzTarget = it;
   if (it.kind === 'line') {                    // 切り出し: 新しいノートを作って元の行にリンクを残す
+    draft.kind = '';
+    draft.visions = '';
+    draft.story = '';
     draft.milestone = '';
     draft.milestoneDue = '';
     /* **同じノートに書いてある他の論点を候補に並べる**（R1: 選別を実質にする）。
@@ -1832,15 +1970,19 @@ function wzOpenFor(it) {
     return;
   }
   const kind = (String(it.picture).match(/^【([^】]*)】/) || [])[1] || '表';
-  draft.milestone = it.goal || '';
-  draft.milestoneDue = '';
+  const gi = goalInfo(it.goalLines || (it.goal ? [it.goal] : []));
+  draft.kind = gi.kind;
+  draft.milestone = gi.milestone;
+  draft.visions = gi.visions;
+  draft.milestoneDue = gi.due;
+  draft.story = String(it.story || '').split(/\s*→\s*/).filter(Boolean).join('\n');
   draft.candidates = [{ text: it.issue || '', effect: '' }, { text: '', effect: '' }];
   draft.chosen = 0;
   draft.issueDue = it.deadline || '';
   draft.pictureKind = kind;
   draft.picture = String(it.picture).replace(/^【[^】]*】/, '');
   draft.subs = (it.rows || []).map(function (x) {
-    return { what: x.what, way: x.way, who: x.who || '', due: x.due || '' };
+    return { what: x.what, pic: x.pic || '', way: x.way, who: x.who || '', due: x.due || '' };
   });
   const nx = String(it.next || '');
   draft.next = nx.replace(/^-\s*\[[^\]]\]\s*/, '').replace(/\s*\u{1F4C5}.*$/u, '').trim();

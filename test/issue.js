@@ -194,9 +194,9 @@ const SAMPLE_MD = [
       && n.note.indexOf('## 掘る') > n.note.indexOf('## 結論') && n.note.indexOf('## 結論') > 0
       && n.note.includes('deadline: 2026-09-30') && n.note.includes('status: open')
       && n.note.includes('tags: [issue]') && n.note.includes('# 本番停止手順書')
-      && ['## 1. ゴール', '## 2. 論点', '## 3. 絵コンテ', '## 4. サブイシュー', '## 5. 次の一手']
+      && ['## 1. ゴール', '## 2. 論点', '## 3. 最終形', '## 4. サブイシュー', '## 5. 次の一手']
         .every(h => n.note.includes(h))
-      && ['## 1. ゴール', '## 3. 絵コンテ', '## 4. サブイシュー', '## 5. 次の一手']
+      && ['## 1. ゴール', '## 3. 最終形', '## 4. サブイシュー', '## 5. 次の一手']
         .every(h => n.bare.includes(h)),
       n.note.slice(0, 200));
 
@@ -220,8 +220,8 @@ const SAMPLE_MD = [
       n.dug);
 
     r.check('IS-13（不明点は表の行になり「聞く/調べる」を2列目に検出）',
-      /\|\s*どの粒度なら実行できるかを聞く\s*\|\s*聞く\s*\|/.test(n.note)
-      && /\|\s*サービス一覧を調べる\s*\|\s*調べる\s*\|/.test(n.note),
+      /\|\s*どの粒度なら実行できるかを聞く\s*\|\s*\|\s*聞く\s*\|/.test(n.note)
+      && /\|\s*サービス一覧を調べる\s*\|\s*\|\s*調べる\s*\|/.test(n.note),
       (n.note.split('## 4. サブイシュー')[1] || '').slice(0, 300));
 
     /* ========== IS-14〜15: toTasks ========== */
@@ -430,7 +430,7 @@ const SAMPLE_MD = [
                      { text: '見送った方の問い', effect: '' }],
         chosen: 0, issueDue: '2026-09-30',
         pictureKind: '表', picture: '粒度ごとに実行できたかの表',
-        subs: [{ what: '粒度', way: '聞く', who: '柳葉さん', due: '2026-09-30' }],
+        subs: [{ what: '粒度', pic: '', way: '聞く', who: '柳葉さん', due: '2026-09-30' }],
         next: '粒度を確認する', nextDue: '2026-10-02',
       });
       const through = window.issue.toNote(
@@ -439,20 +439,59 @@ const SAMPLE_MD = [
       return { md: md, through: through };
     });
     r.check('IS-17（buildMd: 5見出し・マイルストーンの期限・不明点は表の行・次の一手はタスク記法）',
-      ['## 1. ゴール', '## 2. 論点', '## 3. 絵コンテ', '## 4. サブイシュー', '## 5. 次の一手']
+      ['## 1. ゴール', '## 2. 論点', '## 3. 最終形', '## 4. サブイシュー', '## 5. 次の一手']
         .every(h => w.md.includes(h))
       && w.md.includes('- 運営チームが本番を止められる状態（マイルストーン: 2026-10-02）')
       && w.md.includes('- 情報不足ではなく合意が無いからではないか')
       && w.md.includes('> 答えが出たら: 依頼内容が変わる')
       && w.md.includes('> 見送った候補: 見送った方の問い')
       && w.md.includes('- 【表】粒度ごとに実行できたかの表')
-      && w.md.includes('| 粒度 | 聞く | 柳葉さん | 2026-09-30 |')
+      && w.md.includes('| 粒度 |  | 聞く | 柳葉さん | 2026-09-30 |')
       && w.md.includes('- [ ] 粒度を確認する \u{1F4C5} 2026-10-02'),
       w.md);
-    r.check('IS-18（toNote は「|」始まりの不明点をそのまま通す — ウィザードの行を壊さない）',
-      w.through.includes('| a | 聞く | b | c |')
+    r.check('IS-18（toNote は「|」始まりの不明点を表に組み直さない — 4セルの旧行は空の白黒セルを挿入して5列に揃える）',
+      w.through.includes('| a |  | 聞く | b | c |')
       && (w.through.match(/\| a \|/g) || []).length === 1,
       (w.through.split('## 4. サブイシュー')[1] || '').slice(0, 220));
+
+    /* ========== IS-22/23/L10（2026-09-25 監査: 型・最終形・白黒列・筋・掘るの止め時） ========== */
+    const a25 = await page.evaluate(() => {
+      const I = window.issue;
+      const alias = I.parseSections('## 3. 最終形\n- 【表】最終形の表\n## 4. サブイシュー\n| a | ログ | 調べる | b | c |\n> 筋: a → b');
+      const note = I.toNote(alias, { deadline: '', today: '2026-09-25', title: 'x' });
+      const legacy = I.toNote(I.parseSections('## 4. サブイシュー\n| a | 聞く | b | c |'), { today: '2026-09-25', title: 'x' });
+      const mdA = I.buildMd({ kind: 'A', milestone: 'M', milestoneDue: '2026-10-02',
+        candidates: [{ text: 'X ではなく Y ではないか', effect: '' }], chosen: 0, pictureKind: '表', picture: 'P',
+        subs: [{ what: '粒度', pic: '粒度別の○×表', way: '聞く', who: '柳葉さん', due: '2026-09-30' }],
+        story: '粒度が決まる\n量が決まる\n', next: 'N', nextDue: '' });
+      const mdB = I.buildMd({ kind: 'B', visions: '10月末に検証環境で全機能が動く\n本番切替まで含めて終わる\n', milestoneDue: '2026-09-30',
+        candidates: [{ text: 'X', effect: '' }], chosen: 0, pictureKind: '一文', picture: 'P', subs: [], story: '', next: '', nextDue: '' });
+      return { alias: alias.picture, note, legacy, mdA, mdB,
+        rows5: I.subRows(['| 分からないこと | 何を見れば白黒つく | 聞く / 調べる / 試す | 誰に・どこで | いつまでに |',
+          '| --- | --- | --- | --- | --- |', '| 粒度 | ○×表 | 聞く | 柳葉さん | 2026-09-30 |', '> 筋: a → b']),
+        rows4: I.subRows(['| 一覧 | 調べる |  |  |']) };
+    });
+    r.check('IS-22（「最終形」は picture・toNote は「## 3. 最終形」・5列の表・4セルの旧行に空セル・「> 筋」は表の後・掘るの1行目に止め時）',
+      eq(a25.alias, ['【表】最終形の表'])
+      && a25.note.includes('## 3. 最終形') && !a25.note.includes('## 3. 絵コンテ')
+      && a25.note.includes('| 分からないこと | 何を見れば白黒つく | 聞く / 調べる / 試す | 誰に・どこで | いつまでに |')
+      && a25.note.includes('| a | ログ | 調べる | b | c |')
+      && a25.note.indexOf('> 筋: a → b') > a25.note.indexOf('| a | ログ |')
+      && a25.legacy.includes('| a |  | 聞く | b | c |')
+      && /## 掘る\n\n> 10分/.test(a25.note),
+      (a25.note.split('## 3.')[1] || '').slice(0, 400));
+    r.check('IS-23（buildMd: ゴールに「> 型:」・ビジョン設定型は目指す姿と見送った候補・表に白黒列・「> 筋: a → b」）',
+      a25.mdA.includes('> 型: ギャップフィル') && a25.mdA.includes('- M（マイルストーン: 2026-10-02）')
+      && a25.mdA.includes('| 粒度 | 粒度別の○×表 | 聞く | 柳葉さん | 2026-09-30 |')
+      && a25.mdA.includes('> 筋: 粒度が決まる → 量が決まる')
+      && a25.mdB.includes('> 型: ビジョン設定')
+      && a25.mdB.includes('- 目指す姿（仮）: 10月末に検証環境で全機能が動く（仮決め: 2026-09-30）')
+      && a25.mdB.includes('> 見送った候補: 本番切替まで含めて終わる') && !a25.mdB.includes('> 筋:'),
+      a25.mdA.split('## 2. 論点')[0] + '\n…\n' + a25.mdB.split('## 2. 論点')[0]);
+    r.check('IS-L10（subRows: 5列は what/pic/way/who/due・4列の旧行は pic 空・「>」行は拾わない）',
+      a25.rows5.length === 1 && a25.rows5[0].pic === '○×表' && a25.rows5[0].way === '聞く' && a25.rows5[0].due === '2026-09-30'
+      && a25.rows4.length === 1 && a25.rows4[0].pic === '' && a25.rows4[0].way === '調べる',
+      JSON.stringify([a25.rows5, a25.rows4]));
   }
 
   /* ========== UI 経路 ========== */
@@ -619,12 +658,13 @@ const SAMPLE_MD = [
     const n = document.getElementById('cm-note');
     n.value = '粒度ではなく体制が原因だった';
     n.dispatchEvent(new Event('input', { bubbles: true }));
+    { const t = document.getElementById('cm-told'); if (t) t.value = 'PM に共有 → 体制の相談になった'; }
     document.getElementById('cm-ok').click();
     await new Promise(d => setTimeout(d, 400));
     const after = window.__fsa.files['b.md'];
     // frontmatter を除いた本文が、追記した1行以外は同一か
     const bodyOf = t => t.split('\n---\n').slice(1).join('\n---\n');
-    const strip = t => bodyOf(t).split('\n').filter(l => l !== '- 粒度ではなく体制が原因だった').join('\n');
+    const strip = t => bodyOf(t).split('\n').filter(l => l !== '- 粒度ではなく体制が原因だった' && l !== '- 伝えた: PM に共有 → 体制の相談になった').join('\n');
     return {
       closedModal: document.getElementById('close-modal').hidden,
       status: /^status: closed$/m.test(after),
@@ -632,6 +672,7 @@ const SAMPLE_MD = [
       conclusion: after.indexOf('## 結論') >= 0
         && after.slice(after.indexOf('## 結論')).includes('- 粒度ではなく体制が原因だった'),
       bodyOtherwiseSame: strip(after) === bodyOf(before),
+      told: after.slice(after.indexOf('## 結論')).includes('- 伝えた: PM に共有 → 体制の相談になった'),
       nowClosedInList: Array.from(document.querySelectorAll('.issue-card'))
         .every(c => c.querySelector('.ic-title').textContent !== '急ぐ方'),
     };
@@ -701,6 +742,7 @@ const SAMPLE_MD = [
       const el = document.querySelector(sel);
       el.value = v; el.dispatchEvent(new Event('input', { bubbles: true }));
     };
+    { const k = document.getElementById('wz-kind-a'); if (k) k.click(); }
     set('#wz-milestone', '運営チームが本番を止められる状態');
     set('#wz-milestone-due', '2026-10-02');
     const prefilled = document.getElementById('wz-milestone').value;
@@ -720,7 +762,7 @@ const SAMPLE_MD = [
       ...opened, prefilled, cand, hasTitleField,
       files: Object.keys(window.__fsa.files).length,
       frameFirst: after.indexOf('## 1. ゴール') < after.indexOf('## 1. イシューを見極める'),
-      hasFive: ['## 1. ゴール', '## 2. 論点', '## 3. 絵コンテ', '## 4. サブイシュー', '## 5. 次の一手']
+      hasFive: ['## 1. ゴール', '## 2. 論点', '## 3. 最終形', '## 4. サブイシュー', '## 5. 次の一手']
         .every(h => after.includes(h)),
       kept: after.includes('TODO') && after.includes('## 12月本番運用開始(2019 )'),
       deadline: /^deadline: 2026-09-30$/m.test(after),
@@ -813,6 +855,7 @@ const SAMPLE_MD = [
     const n = document.getElementById('cm-note');
     n.value = '粒度未合意が原因だった';
     n.dispatchEvent(new Event('input', { bubbles: true }));
+    { const t = document.getElementById('cm-told'); if (t) t.value = '柳葉さんに共有 → 粒度が決まった'; }
     document.getElementById('cm-ok').click();
     await new Promise(d => setTimeout(d, 400));
     const after = window.__fsa.files['lines.md'];
@@ -820,6 +863,7 @@ const SAMPLE_MD = [
       closedLine: /- \[x\] 手順書が書けないのは粒度の合意が無いからではないか .*当たり/.test(after),
       hasDone: /\u{2705}\s*\d{4}-\d{2}-\d{2}/u.test(after.split('\n').find(l => l.includes('粒度の合意')) || ''),
       child: after.includes('\t- 粒度未合意が原因だった'),
+      toldOrder: after.indexOf('\t- 伝えた: 柳葉さんに共有 → 粒度が決まった') === after.indexOf('\t- 粒度未合意が原因だった') + '\t- 粒度未合意が原因だった\n'.length,
       otherLineIntact: after.includes('- [ ] V13 は再受領の可否が未確認だからではないか \u{1F4C5} 2026-10-02'),
       scribble: after.includes('TODO') && after.includes('- 富士通に確認'),
       frontmatterIntact: /^status: open$/m.test(after),   // ノートの状態は触らない
@@ -830,6 +874,8 @@ const SAMPLE_MD = [
     ul10.closedLine && ul10.hasDone && ul10.child && ul10.otherLineIntact
     && ul10.scribble && ul10.frontmatterIntact && ul10.gone,
     JSON.stringify(ul10));
+  r.check('IS-UL15（閉じるの「伝えた先」: 行は分かったことの子行の直後に `\\t- 伝えた: …`・ノートは `## 結論` に `- 伝えた: …`）',
+    ul10.toldOrder && ul3.told, JSON.stringify({ toldOrder: ul10.toldOrder, told: ul3.told }));
 
   const ul11 = await page.evaluate(async () => {
     const card = Array.from(document.querySelectorAll('.issue-card'))
@@ -837,6 +883,7 @@ const SAMPLE_MD = [
     card.querySelector('.ic-frame').click();
     const label = document.getElementById('wz-create').textContent;
     const set = (sel, v) => { const el = document.querySelector(sel); el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); };
+    { const k = document.getElementById('wz-kind-a'); if (k) k.click(); }
     set('#wz-milestone', 'V13 を期限内に再受領できている');
     set('#wz-milestone-due', '2026-10-02');
     document.getElementById('wz-next').click();
@@ -857,7 +904,7 @@ const SAMPLE_MD = [
       label, cand, made,
       linked: src.includes('[[' + String(made).replace(/\.md$/, '') + ']]'),
       backLink: made ? window.__fsa.files[made].includes('← [[lines]]') : false,
-      hasFive: made ? ['## 1. ゴール', '## 3. 絵コンテ', '## 5. 次の一手'].every(h => window.__fsa.files[made].includes(h)) : false,
+      hasFive: made ? ['## 1. ゴール', '## 3. 最終形', '## 5. 次の一手'].every(h => window.__fsa.files[made].includes(h)) : false,
       spunBtn: !!Array.from(document.querySelectorAll('.ic-spun')).find(e => e.textContent.includes('V13再受領')),
     };
   });
@@ -905,6 +952,7 @@ const SAMPLE_MD = [
       .find(c => c.querySelector('.ic-issue').textContent.includes('粒度の合意'));
     card.querySelector('.ic-frame').click();
     const set = (sel, v) => { const el = document.querySelector(sel); el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); };
+    { const k = document.getElementById('wz-kind-a'); if (k) k.click(); }
     set('#wz-milestone', 'M'); set('#wz-milestone-due', '2026-10-02');
     document.getElementById('wz-next').click();
     const cands = Array.from(document.querySelectorAll('.wz-c-text')).map(i => i.value);
@@ -1099,13 +1147,35 @@ const SAMPLE_MD = [
       step: document.getElementById('wz-step').textContent,
       dots: document.getElementById('wz-dots').textContent,
       hasField: !!document.getElementById('wz-milestone'),
+      hasKind: !!document.getElementById('wz-kind-a') && !!document.getElementById('wz-kind-b')
+        && !document.getElementById('wz-kind-a').checked && !document.getElementById('wz-kind-b').checked,
       why: document.getElementById('wz-why').textContent,
     };
   });
-  r.check('IS-U13（［イシューを書く］で Step 1/5 が開く・進捗と「なぜ聞くか」が出る）',
+  r.check('IS-U13（［イシューを書く］で Step 1/5 が開く・進捗と「なぜ聞くか」・型のラジオ（既定なし）が出る）',
     u13.open && u13.step.includes('1') && u13.step.includes('5')
-    && u13.dots.startsWith('●') && u13.hasField && u13.why.length > 0,
+    && u13.dots.startsWith('●') && u13.hasField && u13.hasKind && u13.why.length > 0,
     JSON.stringify(u13));
+
+  /* IS-U27: 型（改訂版）。選ばないと進めない・(B) で欄が変わる・(A) に戻せる */
+  const u27 = await page.evaluate(() => {
+    const set = (sel, v) => { const el = document.querySelector(sel); el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); };
+    set('#wz-milestone', 'M'); set('#wz-milestone-due', '2026-10-02');
+    document.getElementById('wz-next').click();
+    const blocked = !!document.getElementById('wz-milestone') && !document.getElementById('wz-err').hidden;
+    const err = document.getElementById('wz-err').textContent;
+    { const k = document.getElementById('wz-kind-b'); if (k) k.click(); }
+    const bField = !!document.getElementById('wz-visions') && !document.getElementById('wz-milestone');
+    const bLabel = document.getElementById('wz-body').textContent;
+    { const k = document.getElementById('wz-kind-a'); if (k) k.click(); }
+    const aField = !!document.getElementById('wz-milestone') && !document.getElementById('wz-visions');
+    // 未実装で Step 2 へ進んでしまった場合は戻す（RED をハーネス落ちにしない）。U14（空で止まる）のために空へ
+    if (!document.getElementById('wz-milestone')) document.getElementById('wz-prev').click();
+    if (document.getElementById('wz-milestone')) set('#wz-milestone', '');
+    return { blocked, err, bField, bLabel: bLabel.includes('目指す姿'), aField };
+  });
+  r.check('IS-U27（型を選ばないと Step 1 から進めず理由に「型」・(B) で欄が「目指す姿の候補」に変わる・(A) で戻る）',
+    u27.blocked && u27.err.includes('型') && u27.bField && u27.bLabel && u27.aField, JSON.stringify(u27));
 
   /* IS-U14: Step 1 は必須（マイルストーンを飛ばせない） */
   const u14 = await page.evaluate(() => {
@@ -1124,6 +1194,13 @@ const SAMPLE_MD = [
   /* IS-U15: Step 2（論点の候補）でその場判定 */
   const setV = (sel, val) => page.evaluate(([s2, v]) => {
     const el = document.querySelector(s2);
+    el.value = v;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  }, [sel, val]);
+  // 要素が無ければ何もしない（未実装のときにハーネスごと落とさず fail として数える）
+  const setIf = (sel, val) => page.evaluate(([s2, v]) => {
+    const el = document.querySelector(s2);
+    if (!el) return;
     el.value = v;
     el.dispatchEvent(new Event('input', { bubbles: true }));
   }, [sel, val]);
@@ -1194,7 +1271,7 @@ const SAMPLE_MD = [
     };
   });
   r.check('IS-U20（絵コンテが空だと進めず、理由が出る＝描けない間はイシューが定まっていない）',
-    u20.stillStep3 && !u20.errHidden && u20.err.includes('絵'),
+    u20.stillStep3 && !u20.errHidden && u20.err.includes('最終形'),
     JSON.stringify(u20));
 
   /* IS-U16: 最後まで進んで作成 */
@@ -1202,9 +1279,11 @@ const SAMPLE_MD = [
   await page.click('#wz-next');                       // → Step 4
   await page.click('#wz-add-sub');
   await setV('.wz-s-what', 'どの粒度なら実行できるか');
+  await setIf('.wz-s-pic', '粒度別の○×表');
   await page.selectOption('.wz-s-way', '聞く');
   await setV('.wz-s-who', '柳葉さん経由');
   await setV('.wz-s-due', '2026-09-30');
+  await setIf('#wz-story', '粒度が決まる\n量が決まる');
   await page.click('#wz-next');                       // → Step 5
   await setV('#wz-next-what', '粒度を確認する');
   await setV('#wz-next-due', '2026-10-02');
@@ -1223,16 +1302,22 @@ const SAMPLE_MD = [
   });
   r.check('IS-U16（最後まで進んで作成: 5段の md が入り、閉じられる器のノートが作られる）',
     u16.closed
-    && ['## 1. ゴール', '## 2. 論点', '## 3. 絵コンテ', '## 4. サブイシュー', '## 5. 次の一手']
+    && ['## 1. ゴール', '## 2. 論点', '## 3. 最終形', '## 4. サブイシュー', '## 5. 次の一手']
       .every(h => u16.input.includes(h))
+    && u16.input.includes('> 型: ギャップフィル')
     && u16.input.includes('（マイルストーン: 2026-10-02）')
     && u16.input.includes('> 見送った候補: レビュー体制を増やすべきか')
     && u16.deadline === '2026-09-30'
     && u16.names.some(n => n.includes('ウィザード検証'))
-    && u16.body.includes('| どの粒度なら実行できるか | 聞く | 柳葉さん経由 | 2026-09-30 |')
+    && u16.body.includes('| どの粒度なら実行できるか | 粒度別の○×表 | 聞く | 柳葉さん経由 | 2026-09-30 |')
     && u16.body.includes('## 結論'),
     JSON.stringify({ closed: u16.closed, deadline: u16.deadline, names: u16.names,
       head: u16.input.slice(0, 140) }));
+  r.check('IS-U28（Step 4 の「何を見れば白黒つく」が表の2列目に、筋が表の後に `> 筋: a → b` で入る）',
+    u16.body.includes('| どの粒度なら実行できるか | 粒度別の○×表 |')
+    && u16.body.includes('> 筋: 粒度が決まる → 量が決まる')
+    && u16.body.indexOf('> 筋:') > u16.body.indexOf('| どの粒度なら'),
+    (u16.body.split('## 4. サブイシュー')[1] || '').slice(0, 300));
 
   /* IS-U12: FSA 非対応では作成ボタンを無効にして理由を出す（Check Vault と同型） */
   const page2 = r.watch(await browser.newPage());
