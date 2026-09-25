@@ -492,6 +492,13 @@ const SAMPLE_MD = [
       a25.rows5.length === 1 && a25.rows5[0].pic === '○×表' && a25.rows5[0].way === '聞く' && a25.rows5[0].due === '2026-09-30'
       && a25.rows4.length === 1 && a25.rows4[0].pic === '' && a25.rows4[0].way === '調べる',
       JSON.stringify([a25.rows5, a25.rows4]));
+    const a24 = await page.evaluate(() => ({
+      with: window.issue.toNote(window.issue.parseSections('## 2. 論点\n- x'), { today: '2026-09-25', title: 'x', project: 'ITK' }),
+      without: window.issue.toNote(window.issue.parseSections('## 2. 論点\n- x'), { today: '2026-09-25', title: 'x' }),
+    }));
+    r.check('IS-24（toNote: project を渡すと status の直後に project: ITK・渡さなければ project 行は無い）',
+      a24.with.includes('\nstatus: open\nproject: ITK\n') && !/^project:/m.test(a24.without),
+      a24.with.split('---')[1]);
   }
 
   /* ========== UI 経路 ========== */
@@ -778,7 +785,7 @@ const SAMPLE_MD = [
 
   /* ========== IS-UL8〜UL11: 論点＝行（1ノート : N論点） ========== */
   const LINES_MD = [
-    '---', 'created: 2026-09-24', 'status: open', 'tags: [issue]', '---',
+    '---', 'created: 2026-09-24', 'status: open', 'project: PEW', 'tags: [issue]', '---',
     '# 20260924_現状整理', '',
     '## 論点', '',
     '- [ ] 手順書が書けないのは粒度の合意が無いからではないか \u{1F4C5} 2026-09-30',
@@ -895,6 +902,9 @@ const SAMPLE_MD = [
     document.getElementById('wz-next').click();
     set('#wz-next-what', 'ITK 経由で富士通に聞く');
     set('#wz-note-title', 'V13再受領');
+    const pj = document.getElementById('wz-project');
+    const projInit = pj ? pj.value : null;
+    const projList = Array.from(document.querySelectorAll('#wz-project-list option')).map(o => o.value);
     document.getElementById('wz-create').click();
     await new Promise(d => setTimeout(d, 500));
     const names = Object.keys(window.__fsa.files);
@@ -906,16 +916,21 @@ const SAMPLE_MD = [
       backLink: made ? window.__fsa.files[made].includes('← [[lines]]') : false,
       hasFive: made ? ['## 1. ゴール', '## 3. 最終形', '## 5. 次の一手'].every(h => window.__fsa.files[made].includes(h)) : false,
       spunBtn: !!Array.from(document.querySelectorAll('.ic-spun')).find(e => e.textContent.includes('V13再受領')),
+      projInit, projList,
+      madeProject: made ? /^project: PEW$/m.test(window.__fsa.files[made]) : false,
     };
   });
   r.check('IS-UL11（切り出し: 新ノート（5段）ができ、元の行に [[リンク]]、新ノートに ← 逆リンク）',
     ul11.label === '切り出して作成' && ul11.cand.includes('V13')
     && !!ul11.made && ul11.linked && ul11.backLink && ul11.hasFive && ul11.spunBtn,
     JSON.stringify(ul11));
+  r.check('IS-UL18a（切り出し: Step 5 の案件欄は元ノートの project（PEW）が初期値・候補に PEW・作ったノートに project: PEW）',
+    ul11.projInit === 'PEW' && (ul11.projList || []).includes('PEW') && ul11.madeProject,
+    JSON.stringify({ projInit: ul11.projInit, projList: ul11.projList, madeProject: ul11.madeProject }));
 
   /* ========== IS-UL12〜UL14 / IS-U24〜U25: 監査（R1/R6/R7/R8/R10）で足したもの ========== */
   const AUD = [
-    '---', 'created: 2026-09-24', 'status: open', 'tags: [issue]', '---',
+    '---', 'created: 2026-09-24', 'status: open', 'project: ITK', 'tags: [issue]', '---',
     '# 20260924_現状整理', '',
     '## 論点', '',
     '- [ ] 手順書が書けないのは粒度の合意が無いからではないか \u{1F4C5} 2026-09-30',
@@ -945,6 +960,8 @@ const SAMPLE_MD = [
     && ul12.text.issue.includes('粒度の合意') && ul12.text.memo.startsWith('論点: ')
     && ul12.text.link === 'aud' && ul12.text.due === '2026-09-30' && ul12.text.content === '',
     JSON.stringify(ul12));
+  r.check('IS-UL19（タスクにする: ノートの project（ITK）も Plan Tasks へ渡す）',
+    !!ul12 && ul12.text.project === 'ITK', JSON.stringify(ul12 && ul12.text));
 
   // IS-UL13: 切り出しのウィザードに、同じノートの他の開いている論点が候補として入る
   const ul13 = await page.evaluate(() => {
@@ -1172,6 +1189,8 @@ const SAMPLE_MD = [
     && u10.body.includes('status: open') && u10.body.includes('## 2. 論点')
     && !u10.hidden && u10.kind.includes('banner-success') && u10.banner.includes(u10.expected),
     JSON.stringify({ picked: u10.picked, names: u10.names, banner: u10.banner, kind: u10.kind }));
+  r.check('IS-U10b（ボタンから作ったノートに project 行が入らない — クリックイベントを案件として書かない）',
+    u10.body !== '' && !/^project:/m.test(u10.body), (u10.body.split('---')[1] || '').trim());
 
   /* IS-U11: 同名は上書きしない */
   const u11 = await page.evaluate(async () => {
@@ -1354,6 +1373,7 @@ const SAMPLE_MD = [
   await setV('#wz-next-what', '粒度を確認する');
   await setV('#wz-next-due', '2026-10-02');
   await setV('#wz-note-title', 'ウィザード検証');
+  await setIf('#wz-project', 'ITK');
   const u16 = await page.evaluate(async () => {
     document.getElementById('wz-create').click();
     await new Promise(d => setTimeout(d, 400));
@@ -1384,6 +1404,8 @@ const SAMPLE_MD = [
     && u16.body.includes('> 筋: 粒度が決まる → 量が決まる')
     && u16.body.indexOf('> 筋:') > u16.body.indexOf('| どの粒度なら'),
     (u16.body.split('## 4. サブイシュー')[1] || '').slice(0, 300));
+  r.check('IS-UL18b（［新しく立てる］で案件に ITK → 作ったノートに project: ITK）',
+    /^project: ITK$/m.test(u16.body), (u16.body.split('---')[1] || '').slice(0, 200));
 
   /* IS-U12: FSA 非対応では作成ボタンを無効にして理由を出す（Check Vault と同型） */
   const page2 = r.watch(await browser.newPage());

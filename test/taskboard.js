@@ -6,7 +6,7 @@
 
    照合するID: TB-01〜20・parse チェック / TB-S1〜S11（セクション移動）/
    TB-A1〜A7（事故防止）/ TB-I1〜I7（IME ガード）/ TB-U1〜U7（追加の取り消し）/
-   TB-P1〜P19（計画ビュー: 🛫 とタイムライン）/ TB-M1〜M2（モード切替と共通モーダル）/ TB-AS1〜AS4（自動保存）/ TB-T1〜T3（ツールバー整理・モード切替）/ TB-H2〜H3（Check Issue からの受け取り）/ TB-D4〜D5・W2〜W3（日付の既定と チップ・モーダル幅・長い関連ノート）/ TB-N1〜N6（タスクを考える場所へ — イシューノートを開く／作る）
+   TB-P1〜P19（計画ビュー: 🛫 とタイムライン）/ TB-M1〜M2（モード切替と共通モーダル）/ TB-AS1〜AS4（自動保存）/ TB-T1〜T3（ツールバー整理・モード切替）/ TB-H2〜H4（Check Issue からの受け取り・案件）/ TB-D4〜D5・W2〜W3（日付の既定と チップ・モーダル幅・長い関連ノート）/ TB-N1〜N8（タスクを考える場所へ — イシューノートを開く／作る・案件）
    仕様の正本は docs/specs/taskboard.md。期待値を変えるときは spec を先に直す。 */
 
 const path = require('path');
@@ -3774,6 +3774,25 @@ const F5 = [
     JSON.stringify(h2));
   await page.evaluate(() => { document.getElementById('modal').hidden = true; });
 
+  /* ---------- TB-H4: 受け取りの project で追加モーダルのセクションを選んでおく ---------- */
+  const h4 = [];
+  for (const proj of ['UL', 'その他', '存在しない案件']) {
+    await page.evaluate(() => localStorage.clear());
+    await page.evaluate((pj) => sessionStorage.setItem('tools:handoff', JSON.stringify({
+      to: 'taskboard', kind: 'task', at: Date.now(),
+      text: JSON.stringify({ content: 'H4', issue: '論点', memo: '論点: 論点', due: '', link: 'n', project: pj }),
+    })), proj);
+    await page.goto(fileUrl('web/taskboard.html'));
+    h4.push(await page.evaluate((f1) => {
+      window.taskboard.test.newSession(f1);
+      const v = document.getElementById('modal-section').value;
+      document.getElementById('modal').hidden = true;
+      return v;
+    }, F1));
+  }
+  r.check('TB-H4（受け取りに project があれば同じ名前のセクションを選ぶ・無い名前なら既定のまま）',
+    eq(h4, ['UL', 'その他', 'PEW']), JSON.stringify(h4));
+
   /* ---------- TB-D4/D5/W2: 日付は今日が既定・チップ・モーダルが横にはみ出さない ---------- */
   await page.goto(fileUrl('web/taskboard.html'));
   await page.evaluate(() => localStorage.clear());
@@ -3920,7 +3939,7 @@ const F5 = [
   }, [bodyText, waitMs]);
   // #102 は数字だけなのでタグではなく内容の一部（modalContentOf）。ノート名では # が - になる（Obsidian の禁止文字）
   const N_NOTE = TODAY + '_資料作成 -102';
-  const N_MD = ['---', 'created: ' + TODAY, 'status: open', 'tags: [issue]', '---', '# 資料作成 #102', '',
+  const N_MD = ['---', 'created: ' + TODAY, 'status: open', 'project: PEW', 'tags: [issue]', '---', '# 資料作成 #102', '',
     '← タスク: [[tasks]]', '', '## 論点', '', '- [ ] ', '', '## 掘る', '',
     '> 10分で論点の行が書けなければ「悩んでいる」— 型（A/B）を確かめる／人に聞く／一次情報を見る', '', '- ', ''].join('\n');
   const N_LINE9 = '- [ ] 資料作成 #102 [[2026-07-07]] [[' + N_NOTE + ']]';
@@ -3939,6 +3958,27 @@ const F5 = [
   r.check('TB-N2（関連ノートがイシューフォルダに実在する行の［🎯］: 作らず・tasks は不変・開くだけ）',
     !n2.noBtn && eq(n2.files, ['2026-07-14_TODO.md']) && n2.text === F1 && n2.banner.includes('2026-07-14_TODO'),
     JSON.stringify([n2.noBtn, n2.files, n2.text === F1, n2.banner]));
+  r.check('TB-N7（開くだけのときも project が無ければ足す: frontmatter なしのノートに project: <セクション>・tasks は不変）',
+    !n2.noBtn && n2.md['2026-07-14_TODO.md'] === '---\nproject: PEW\n---\n# 既存' && n2.text === F1,
+    JSON.stringify(n2.md && n2.md['2026-07-14_TODO.md']));
+  const n8 = await page.evaluate(() => {
+    const f = window.taskboard.test.fillProject;
+    if (!f) return null;
+    return [
+      f('# 本文', 'PEW'),
+      f('---\ncreated: 2026-09-14\nstatus: closed\ntags:\n  - issue\n---\n# 本文', 'PEW'),
+      f('---\nstatus: open\nproject: ITK\n---\n# 本文', 'PEW'),
+      f('---\nstatus: open\nproject: \ntags: [issue]\n---\n# 本文', 'PEW'),
+      f('# 本文', 'a: b'),
+    ];
+  });
+  r.check('TB-N8（fillProject: 無ければ作る・status の直後に挿入・既存の値は上書きしない・空は埋める・YAML の記号は引用）',
+    eq(n8, ['---\nproject: PEW\n---\n# 本文',
+      '---\ncreated: 2026-09-14\nstatus: closed\nproject: PEW\ntags:\n  - issue\n---\n# 本文',
+      '---\nstatus: open\nproject: ITK\n---\n# 本文',
+      '---\nstatus: open\nproject: PEW\ntags: [issue]\n---\n# 本文',
+      '---\nproject: "a: b"\n---\n# 本文']),
+    JSON.stringify(n8));
 
   await session(F1); await fsaReset();
   const n3 = await page.evaluate(async () => {

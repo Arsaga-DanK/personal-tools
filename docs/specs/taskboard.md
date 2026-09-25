@@ -1891,6 +1891,7 @@ links=['2026-07-14_TODO','2026-07-21']・due='2026-08-05'・priority='high' /
 |---|---|---|
 | TB-H2 | `tools:handoff` に task を置いて開く → tasks.md 読込 | 起動時に消費され、読込後に追加モーダルが 内容・論点メモ・期限・関連ノート つきで開く |
 | TB-H3 | ふつうに［＋タスク追加］ | `#modal-why` に「どの論点のため？」と Check Issue への導線が出る（強調なし） |
+| TB-H4 | 受け取りに `project: 'UL'` ／ `'その他'` ／ 存在しない名前 | 追加モーダルのセクションが UL ／ その他 ／ 既定のまま |
 
 ## タスクを考える場所へ（TB-N1〜N6 — 2026-09-25。利用者「tasks と issue を交互に作る」・TB-Q61）
 
@@ -1898,13 +1899,17 @@ links=['2026-07-14_TODO','2026-07-21']・due='2026-08-05'・priority='high' /
   1ボタン＝「このタスクを考える場所（イシューノート）へ」:
   1. 関連ノートのうち**イシューフォルダに実在するノート**があれば **開くだけ**（作らない）
   2. 無ければ `<今日>_<内容>.md` を作る（`ToolEdit.noteFileName` — Check Issue の IS-16 と同じ規則）。
-     骨は `99_Templates/issue.md` の見出しだけ: frontmatter（created / status: open / tags）・`# <内容>`・
+     骨は `99_Templates/issue.md` の見出しだけ: frontmatter（created / status: open / **project: <そのタスクのセクション>** / tags）・`# <内容>`・
      `← タスク: [[<tasks のファイル名>]]`・`## 論点` `- [ ] `・`## 掘る`（1行目に止め時の注記 `> 10分で…`・IS-Q19 と同じ1行）`- `。
      **論点は空のまま**（書き殴って見つける — 利用者「書き殴らないと論点が見えない」）。同名があれば作らない（上書きしない）
   3. `[[ノート]]` を関連ノートに足して保存する（行: `editContent` → 自動保存を **await** / モーダル: 保存の流儀のまま —
      編集は閉じる、新規は続けて足せるよう開いたまま）
   4. vault 名があれば `obsidian://` で開く。バナーにノート名（vault 名があれば「Obsidian で開く」リンクも）。
      **保存を待ってから開く** — 外部スキームへの遷移でも `beforeunload` は発火し、未保存なら離脱確認が出る（実測・verification-notes §11）
+- **案件（`project`）**（TB-Q62・2026-09-25。利用者「後でどの案件のタスクだったのかを振り返るときに、ノート内にこのセクションの設定が欲しい」）:
+  新しく作るノートには `project: <セクション名>`。**開くだけのときも `project` が無い／空なら足す**（値があれば上書きしない）。
+  足す位置は `status:` の直後（無ければ frontmatter の末尾・frontmatter が無ければ作る）。値に YAML の記号があれば `"…"` で囲む
+- **Check Issue からの受け取り**に `project` があり、同じ名前のセクションがあれば追加モーダルのセクションをそれにする（TB-H4）
 - イシューフォルダは**初回だけ** `showDirectoryPicker` で選ぶ（IDB `issuedir`。Check Issue と同じフォルダを選ぶ）。
   Check Issue と IDB を共有しない（各ツールが自分のハンドルを持つ現行の作法）
 - 断る: 未読込・デモ → warn。内容が空（新規モーダル）→ warn（保存と同じ文言）。FSA なし → warn。ピッカーのキャンセルは無言
@@ -1921,6 +1926,8 @@ links=['2026-07-14_TODO','2026-07-21']・due='2026-08-05'・priority='high' /
 | TB-N4 | 編集モーダルの［🎯 考える場所へ］ | ノートが作られ、関連ノートに足されて保存され、モーダルが閉じる |
 | TB-N5 | `ToolEdit.noteFileName('a/b: c','2026-08-04')` / 空 / `資料 #102 [x]` | `2026-08-04_a-b- c.md` / `2026-08-04_無題.md` / `2026-08-04_資料 -102 -x-.md`（Obsidian が禁じる `# ^ [ ]` も `-`） |
 | TB-N6 | vault 名あり で TB-N2 | バナーに `obsidian://open?vault=…&file=<ノート名>` のリンク。headless では外部スキームは起動せずページも離れない |
+| TB-N7 | 関連ノート（frontmatter なし）が実在する行の［🎯］ | 開くだけだが、ノートに `project: <セクション>` の frontmatter が足される（tasks は不変） |
+| TB-N8 | `fillProject(text, 'PEW')`: frontmatter なし／`status:` と複数行 tags あり／`project: ITK` あり／`project:` 空／`a: b` を含む値 | 作る／`status:` の直後に挿入／**不変**／埋める／`project: "a: b"` |
 
 ## モード切替（`Check Issue` と対）
 

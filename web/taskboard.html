@@ -1592,13 +1592,38 @@ async function issueDirHandle() {
 async function dirHasFile(dir, name) {
   try { await dir.getFileHandle(name); return true; } catch (_) { return false; }
 }
+// YAML の値として安全に書く。記号を含むなら "…"（JSON の文字列は YAML の二重引用として有効）
+function yamlScalar(v) {
+  const t = String(v);
+  return /[:#\[\]{},&*!|>'"%@`]|^\s|\s$|^-/.test(t) ? JSON.stringify(t) : t;
+}
+/* 既存ノートに案件を足す（TB-N7/N8）。**値があれば上書きしない**・空なら埋める。
+   位置は status: の直後、無ければ frontmatter の末尾。frontmatter が無ければ作る。本文は1文字も変えない */
+function fillProject(text, project) {
+  const t = String(text);
+  const line = 'project: ' + yamlScalar(project);
+  const m = t.match(/^---\r?\n([\s\S]*?)\r?\n---(\r?\n|$)/);
+  if (!m) return '---\n' + line + '\n---\n' + t;
+  const ls = m[1].split(/\r?\n/);
+  const at = ls.findIndex(l => /^project:/.test(l));
+  if (at >= 0) {
+    if (ls[at].replace(/^project:\s*/, '').trim() !== '') return t;   // 既にある → 触らない
+    ls[at] = line;
+  } else {
+    const st = ls.findIndex(l => /^status:/.test(l));
+    if (st >= 0) ls.splice(st + 1, 0, line); else ls.push(line);
+  }
+  return '---\n' + ls.join('\n') + '\n---' + m[2] + t.slice(m[0].length);
+}
 // 骨は 99_Templates/issue.md の見出しだけ。**論点は空のまま** — 書き殴って見つける（利用者の前提）
-function issueNoteMd(title, tasksName, today) {
-  return ['---', 'created: ' + today, 'status: open', 'tags: [issue]', '---',
+function issueNoteMd(title, tasksName, today, project) {
+  return ['---', 'created: ' + today, 'status: open']
+    .concat(project ? ['project: ' + yamlScalar(project)] : [])   // 案件＝タスクのセクション（TB-Q62）
+    .concat(['tags: [issue]', '---',
     '# ' + title, '', '← タスク: [[' + tasksName + ']]', '',
     '## 論点', '', '- [ ] ', '',
     // 掘るの止め時。Check Issue の toNote・vault のテンプレと同じ1行（IS-Q19）
-    '## 掘る', '', '> 10分で論点の行が書けなければ「悩んでいる」— 型（A/B）を確かめる／人に聞く／一次情報を見る', '', '- ', ''].join('\n');
+    '## 掘る', '', '> 10分で論点の行が書けなければ「悩んでいる」— 型（A/B）を確かめる／人に聞く／一次情報を見る', '', '- ', '']).join('\n');
 }
 // tasks ファイルの名前（拡張子なし）。メモリ／フォールバックなど .md でなければ tasks
 function tasksBaseName() {
@@ -1633,12 +1658,26 @@ async function thinkAbout(t, fromModal) {
     return;
   }
   const links = (fromModal ? modalState.links : t.links).slice();
+  // 案件＝そのタスクのセクション（TB-Q62）
+  const project = fromModal ? el('modal-section').value : (t.section || '');
   let dir;
   try { dir = await issueDirHandle(); }
   catch (_) { showBanner('error', 'イシューのフォルダを開けませんでした'); return; }
   if (!dir) return;
   for (const l of links) {
-    if (await dirHasFile(dir, l + '.md')) { openIssueNote(l, '📝 このタスクのノート'); return; }
+    if (await dirHasFile(dir, l + '.md')) {
+      // 開くだけ。ただし案件が無ければ足す（上書きはしない — TB-N7）
+      if (project) {
+        try {
+          const fh = await dir.getFileHandle(l + '.md');
+          const cur = await (await fh.getFile()).text();
+          const next = fillProject(cur, project);
+          if (next !== cur) { const w = await fh.createWritable(); await w.write(next); await w.close(); }
+        } catch (_) { /* 足せなくても開くのは止めない */ }
+      }
+      openIssueNote(l, '📝 このタスクのノート');
+      return;
+    }
   }
   const file = ToolEdit.noteFileName(content, todayStr());
   const name = file.replace(/\.md$/, '');
@@ -1646,7 +1685,7 @@ async function thinkAbout(t, fromModal) {
     try {
       const fh = await dir.getFileHandle(file, { create: true });
       const w = await fh.createWritable();
-      await w.write(issueNoteMd(content, tasksBaseName(), todayStr()));
+      await w.write(issueNoteMd(content, tasksBaseName(), todayStr(), project));
       await w.close();
     } catch (_) { showBanner('error', 'ノートを作れませんでした: ' + file); return; }
   }
@@ -3685,6 +3724,8 @@ function openTaskModal(mode, t, opts) {
     if (pf.content) el('modal-content').value = pf.content;
     if (pf.memo) el('modal-memo').value = pf.memo;
     if (pf.due) el('modal-due').value = pf.due;
+    // 案件と同じ名前のセクションがあれば選んでおく（TB-H4）。無い名前なら既定のまま
+    if (pf.project && sections.includes(pf.project)) el('modal-section').value = pf.project;
     if (pf.link && !modalState.links.includes(pf.link)) modalState.links.push(pf.link);
     refreshModalLinks();
     why.textContent = pf.issue ? '🎯 論点: ' + pf.issue : '🎯 Check Issue から';
@@ -4208,6 +4249,7 @@ window.taskboard = {
       window.taskboard.test.lastSession = sess;   // 直前のセッションへの参照（TB-AS4）
       return sess;
     },
+    fillProject,
     setToday: (ymd) => { state.todayOverride = ymd; if (state.loaded) render(); },
     forceFallback: () => { state.fsaOff = true; state.loaded = false; state.resumeHandle = null; enterFallbackUi(); render(); },
   },

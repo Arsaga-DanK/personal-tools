@@ -248,6 +248,12 @@ const KEY_OF = {
 
 function nfc(s) { return String(s == null ? '' : s).normalize('NFC'); }
 
+// YAML の値として安全に書く。記号を含むなら "…"（Plan Tasks の yamlScalar と同じ規則）
+function yamlScalar(v) {
+  const t = nfc(v).trim();
+  return /[:#\[\]{},&*!|>'"%@`]|^-/.test(t) ? JSON.stringify(t) : t;
+}
+
 // 掘るの止め時（本: 10分考えて埒が明かなければ止める）。テンプレ・Plan Tasks の骨格と同じ1行（IS-Q19）
 const DIG_HINT = '> 10分で論点の行が書けなければ「悩んでいる」— 型（A/B）を確かめる／人に聞く／一次情報を見る';
 
@@ -364,7 +370,7 @@ function parseFrontmatter(text) {
 }
 
 /* frontmatter のキーだけを差し替える（無ければ frontmatter の末尾に足す）。
-   **本文は1文字も変えない。** frontmatter が無いノート（手書き）には何もしない */
+   **本文は1文字も変えない。** frontmatter が無いノートには先頭に作る（IS-Q20） */
 function setFrontmatter(text, patch) {
   const t = nfc(text).replace(/\r\n?/g, '\n');
   const m = t.match(/^---\n([\s\S]*?)\n---\n?/);
@@ -474,6 +480,7 @@ function summarize(text, fileName) {
   return {
     file: String(fileName || ''), name: name,
     title: (p.title || name),
+    project: fm.data.project || '',
     goal: goalInfo(p.goal).headline,
     goalLines: (p.goal || []).slice(),
     kind: goalInfo(p.goal).kind,
@@ -700,6 +707,7 @@ function toNote(parsed, opts) {
   L.push('created: ' + (o.today || todayStr()));
   L.push('deadline: ' + (o.deadline || ''));
   L.push('status: open');
+  if (o.project) L.push('project: ' + yamlScalar(o.project));   // 案件（IS-Q21・Plan Tasks の TB-Q62 と同じキー）
   L.push('verdict: ');            // 閉じるとき「当たり / 外れ / 未決」を書く（振り返りの素材）
   L.push('tags: [issue]');
   L.push('---');
@@ -882,9 +890,10 @@ function renderVerdict(list, into, base) {
 }
 
 // 貼った内容から作るノートの md。**プレビューは持たない**（必要なときに組む — IS-Q10）
-function noteMd() {
+// project はウィザードの「案件」から来たときだけ（貼る欄には案件の入力が無い）
+function noteMd(project) {
   return toNote(lastParsed, {
-    deadline: $id('deadline').value, today: todayStr(), title: $id('title').value,
+    deadline: $id('deadline').value, today: todayStr(), title: $id('title').value, project: project || '',
   });
 }
 
@@ -1047,7 +1056,8 @@ async function ensureDir() {
   return dirHandle;
 }
 
-async function createNote() {
+async function createNote(project) {
+  if (typeof project !== 'string') project = '';   // 文字列以外（イベント等）は案件なし
   settle();                                   // デバウンス中の古い md を書かない
   const name = noteFileName($id('title').value, todayStr());
   let dir;
@@ -1074,7 +1084,7 @@ async function createNote() {
     }
     const fh = await dir.getFileHandle(name, { create: true });
     const w = await fh.createWritable();
-    await w.write(noteMd());
+    await w.write(noteMd(project));
     await w.close();
     ToolUI.banner($id('banner'), 'success', name + ' を作成しました');
     await loadIssues(false);          // 作った直後に一覧へ出す
@@ -1082,7 +1092,8 @@ async function createNote() {
     ToolUI.banner($id('banner'), 'error', '作成できませんでした: ' + errText(e));
   }
 }
-$id('create-btn').addEventListener('click', createNote);
+// 引数を渡さない（直接渡すとクリックイベントが project に入る — IS-U10b）
+$id('create-btn').addEventListener('click', function () { createNote(); });
 
 $id('sample-btn').addEventListener('click', () => {
   $id('input').value = SAMPLE;
@@ -1108,7 +1119,7 @@ function noteOf(text, fileName) {
   base.text = text;
   const items = issueLines(text);
   const note = {
-    file: base.file, name: base.name, title: base.title,
+    file: base.file, name: base.name, title: base.title, project: base.project,
     text: text, hasFrontmatter: base.hasFrontmatter, base: base, cards: [],
   };
   if (items.length === 0) {
@@ -1287,6 +1298,7 @@ function sendToTasks(it) {
     memo: it.issue ? '論点: ' + it.issue : '',
     due: nextDue || it.deadline || '',
     link: it.name || '',
+    project: (it.note && it.note.project) || it.project || '',   // Plan Tasks が同じ名前のセクションを選ぶ（TB-H4）
   };
   ToolHandoff.send('taskboard', 'task', JSON.stringify(payload), 'taskboard.html');
 }
@@ -1686,6 +1698,7 @@ const draft = {
   milestone: '', milestoneDue: '',
   visions: '',                      // (B) 目指す姿の候補（1行1つ・1行目が本命）
   story: '',                        // 筋（ストーリーライン）1行1段
+  project: '',                      // 案件（IS-Q21）。新しいノートを作るときだけ聞く
   candidates: [{ text: '', effect: '' }, { text: '', effect: '' }],
   chosen: 0, issueDue: '',
   pictureKind: '表', picture: '',
@@ -1950,6 +1963,16 @@ function wzRender() {
       const n = mkText('wz-note-title', draft.title, '例: 本番停止手順書');
       wzBind(n, 'title');
       body.appendChild(wzField('ノートの名前', n));
+      // 案件（tasks.md のセクション名）。候補は読み込んだノートの project の値。空でも作れる
+      const pj = mkText('wz-project', draft.project, '例: ITK（tasks.md のセクション名・空でも可）');
+      pj.setAttribute('list', 'wz-project-list');
+      wzBind(pj, 'project');
+      const dl = document.createElement('datalist');
+      dl.id = 'wz-project-list';
+      Array.from(new Set(notes.map(function (x) { return x.project; }).filter(Boolean))).sort()
+        .forEach(function (v) { const o = document.createElement('option'); o.value = v; dl.appendChild(o); });
+      body.appendChild(wzField('案件', pj));
+      body.appendChild(dl);
     }
   }
 }
@@ -1980,6 +2003,7 @@ function wzError(msg) {
 function wzOpenFor(it) {
   wzTarget = it;
   if (it.kind === 'line') {                    // 切り出し: 新しいノートを作って元の行にリンクを残す
+    draft.project = (it.note && it.note.project) || '';   // 元ノートの案件を引き継ぐ（IS-UL18）
     draft.kind = '';
     draft.visions = '';
     draft.story = '';
@@ -2040,7 +2064,7 @@ async function wzSpinOff(it) {
     }
     if (exists) { wzError(name + ' は既にあります — ノートの名前を変えてください'); return; }
     const md = toNote(parseSections(buildMd(draft)), {
-      deadline: draft.issueDue, today: todayStr(), title: draft.title, from: it.name,
+      deadline: draft.issueDue, today: todayStr(), title: draft.title, from: it.name, project: draft.project,
     });
     const fh = await dirHandle.getFileHandle(name, { create: true });
     const w = await fh.createWritable();
@@ -2107,7 +2131,7 @@ $id('wz-create').addEventListener('click', async () => {
   updateSampleBtn();
   scheduleSave();
   wzClose();
-  await createNote();
+  await createNote(draft.project);
 });
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
