@@ -221,6 +221,7 @@
 
 <script src="../lib/ui.js"></script>
 <script src="../lib/storage.js"></script>
+<script src="../lib/fsa.js"></script>
 <script src="../lib/config.js"></script>
 <script src="../lib/tools.js"></script>
 <script src="../lib/launcher.js"></script>
@@ -1000,43 +1001,12 @@ document.addEventListener('keydown', e => {
 /* ---------- 04_Issues への書き込み（File System Access・Chrome 系） ----------
    **フォルダ名をコードに書かない**（coding-rules「vault 連携」）— 利用者にピッカーで選ばせ、
    ハンドルを IndexedDB に覚える。既存ノートは書き換えない（同名なら止める — IS-Q2 改訂） */
-const IDB_NAME = 'tools-issue';
-const IDB_STORE = 'handles';
 const IDB_KEY = 'issueDir';
-
-function idbOpen() {
-  return new Promise((res, rej) => {
-    const r = indexedDB.open(IDB_NAME, 1);
-    r.onupgradeneeded = () => r.result.createObjectStore(IDB_STORE);
-    r.onsuccess = () => res(r.result);
-    r.onerror = () => rej(r.error);
-  });
-}
-async function idbGet(key) {
-  const db = await idbOpen();
-  try {
-    return await new Promise((res, rej) => {
-      const g = db.transaction(IDB_STORE, 'readonly').objectStore(IDB_STORE).get(key);
-      g.onsuccess = () => res(g.result);
-      g.onerror = () => rej(g.error);
-    });
-  } finally { db.close(); }
-}
-async function idbSet(key, val) {
-  const db = await idbOpen();
-  try {
-    await new Promise((res, rej) => {
-      const tx = db.transaction(IDB_STORE, 'readwrite');
-      tx.objectStore(IDB_STORE).put(val, key);
-      tx.oncomplete = res;
-      tx.onerror = () => rej(tx.error);
-    });
-  } finally { db.close(); }
-}
+const handles = ToolFsa.handles('tools-issue');   // lib/fsa.js（db 名は従来どおり — 選び直させない）
 
 let dirHandle = null;
 
-function fsaAvailable() { return typeof window.showDirectoryPicker === 'function'; }
+function fsaAvailable() { return ToolFsa.available('dir'); }
 
 // FSA 非対応（Safari / Firefox）では作成を無効にして理由を出す（Check Vault と同型）
 function updateEnvNote() {
@@ -1057,14 +1027,12 @@ const errText = e => (e && e.message ? e.message : String(e));
 
 async function ensureDir() {
   if (dirHandle) {
-    const q = await dirHandle.queryPermission({ mode: 'readwrite' });
-    if (q === 'granted') return dirHandle;
-    if ((await dirHandle.requestPermission({ mode: 'readwrite' })) === 'granted') return dirHandle;
-    dirHandle = null;   // 拒否された: 選び直させる
+    if (await ToolFsa.ensurePermission(dirHandle)) return dirHandle;
+    dirHandle = null;   // 拒否された（問い合わせの失敗も含む）: 選び直させる
   }
   dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
   // ハンドルの保存は **best-effort**（できなくても毎回選べば動く — IS-Q7）
-  try { await idbSet(IDB_KEY, dirHandle); } catch (_) { /* 構造化複製できない環境 */ }
+  try { await handles.set(IDB_KEY, dirHandle); } catch (_) { /* 構造化複製できない環境 */ }
   return dirHandle;
 }
 
@@ -2160,7 +2128,7 @@ applyVaultCfg();
 renderCards();
 /* 前回選んだフォルダを思い出して**自動で一覧を出す**（選び直させない）。
    権限が prompt のときはピッカーがジェスチャ必須なので読まず、［📂］に委ねる */
-idbGet(IDB_KEY).then(async h => {
+handles.get(IDB_KEY).then(async h => {
   if (!h) return;
   dirHandle = h;
   try {

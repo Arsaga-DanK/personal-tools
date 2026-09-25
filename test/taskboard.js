@@ -3755,6 +3755,18 @@ const F5 = [
   r.check('TB-AS4（自動保存をスキップしても［今すぐ保存］なら確認のうえ保存できる）',
     as4.asked === 1 && as4.ok === true && as4.saved === true, JSON.stringify(as4));
 
+  /* ---------- TB-FS1: ハンドル保存の db 名が変わっていない（lib/fsa.js への移行の回帰・2026-09-25） ---------- */
+  const fsDb = await page.evaluate(async () => {
+    try {
+      const h = ToolFsa.handles('tools-taskboard');
+      await h.set('probe', 1);
+      const dbs = await indexedDB.databases();
+      return { listed: dbs.some(d => d.name === 'tools-taskboard'), back: await h.get('probe') };
+    } catch (e) { return { error: String(e) }; }   // ToolFsa が無ければ FAIL として出す（ハーネスを止めない）
+  });
+  r.check('TB-FS1（ToolFsa.handles が従来の db 名 tools-taskboard に書き、読み戻せる）',
+    fsDb.listed && fsDb.back === 1, JSON.stringify(fsDb));
+
   /* ---------- TB-H2/H3: Check Issue からの受け取り（R8: タスクは論点の下に生まれる） ---------- */
   await page.goto(fileUrl('web/taskboard.html'));
   const h3 = await page.evaluate((f1) => {

@@ -321,6 +321,9 @@ Safari / Firefox では**唯一の経路**なので消さない。`Cmd/Ctrl+Ente
   pagehide / visibilitychange(hidden) フラッシュ）
 - 1フィールド 100KB 超は `{omitted: true}` にして次回起動時に info バナー
 
+- フォルダのハンドルは IndexedDB `tools-issue` に持つ（実装は `lib/fsa.js`・2026-09-25 に Plan Tasks と共有化。db 名は不変）。
+  権限の問い合わせが例外を投げたときは「選び直させる」に倒す（従来は例外がそのまま出ていた。`ToolFsa.ensurePermission` が false を返す）
+
 ## 純関数・フック
 
 ```

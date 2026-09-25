@@ -1270,6 +1270,14 @@ ToolStorage には原理的に保存できない。よって **taskboard.html �
 `granted` なら即読込。`prompt` なら［前回のファイルを開く: tasks.md］ボタンを表示し、
 **クリック1回**で `requestPermission` → 読込（Chrome 側の許可ダイアログは Chrome の仕様）。
 
+実装は `lib/fsa.js`（2026-09-25 に Check Issue とバイト一致していた 30 行を共有化）。
+**db 名 `tools-taskboard`・store 名 `handles`・version 1 は変えない** — 変えると利用者のブラウザに
+残っているハンドルが見えなくなり、tasks.md を選び直すことになる。
+
+| ID | 操作 | 期待 |
+|---|---|---|
+| TB-FS1 | `ToolFsa.handles('tools-taskboard').set('probe', 1)` | `indexedDB.databases()` に `tools-taskboard` があり、`get('probe')` が 1 を返す（共有化しても db 名が変わらない） |
+
 ## フォールバック仕様（FSA 非対応 = Safari/Firefox）
 
 `'showOpenFilePicker' in window` で判定。非対応時:
