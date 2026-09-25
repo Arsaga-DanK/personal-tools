@@ -102,8 +102,8 @@ if ! perl -MEncode -ne '
         return "許可範囲外";
       }
       END { exit($bad ? 1 : 0) }' \
-      test/*.js web/*.html index.html lib/*.js test/run \
-      docs/specs/*.md docs/*.md CLAUDE.md .cursor/rules/*.mdc(N); then
+      test/**/*.js web/**/*.html web/**/*.js(N) index.html lib/*.js test/run \
+      docs/**/*.md CLAUDE.md README.md test/README.md .cursor/rules/*.mdc(N); then
   print -r -- "使ってよい範囲外の文字が混入しています（上記の行）。" >&2
   print -r -- "意図した文字なら test/run の @ALLOW に範囲を追加してください" >&2
   exit 1
@@ -141,7 +141,7 @@ if ! perl -ne '
       want_kind("ToolUI.banner の第2引数が種別ではありません", $1)
         if /\bToolUI\.banner\(\s*[^,]+,\s*([^,)]*)/;
       close ARGV if eof;
-      END { exit($bad ? 1 : 0) }' web/*.html lib/*.js test/*.js; then
+      END { exit($bad ? 1 : 0) }' web/**/*.html web/**/*.js(N) lib/*.js test/**/*.js; then
   print -r -- "バナー API の引数順が統一形と違います（上記の行）。" >&2
   print -r -- "showBanner(kind, text)／devpad だけ showBanner(id, kind, text)／" >&2
   print -r -- "ToolUI.banner(el, kind, text) に揃えてください" >&2
@@ -166,7 +166,9 @@ failed=0
 for harness in $targets; do
   print                      # -r は \n を解釈しないため空行は独立して出す
   print -r -- "### $harness"
+  t0=$SECONDS
   node "$harness" "$@" || failed=1
+  print -r -- "（所要 $(( SECONDS - t0 ))秒）"
 done
 
 print
