@@ -338,15 +338,19 @@ function renderRow(t, today) {
       const z = dropZone(tr, e.clientY);
       state.drag = null;
       clearDropMarks();
+      // 最上位の前後だけは、並び順がファイル順でないと画面の位置が並び順に従う — そう伝える（TB-K22）
+      const sorted = state.ui.sort !== 'file' && z !== 'child' && t.indent === 0;
+      const sortName = (el('f-sort').selectedOptions[0] || {}).textContent || '';
       applyUndoable({ type: 'moveTask', line: from, target: t.line, position: z },
-        z === 'child' ? '子にしました' : '移動しました');
+        z === 'child' ? '子にしました'
+          : (sorted ? '移動しました。並び順が「' + sortName + '」なので、表示の位置は並び順どおりです' : '移動しました'));
     });
   }
 
   const tdSt = document.createElement('td');
   tdSt.className = 'cell-st';
-  // つかむところ（TB-K19）。並び順がファイル順のときだけ動く（期限順などでは画面とファイルの上下が一致しない）
-  const canDrag = !t.hasCR && state.ui.sort === 'file' && state.ui.view === 'list';
+  // つかむところ（TB-K19）。**どの並び順でも動かせる**（TB-K22 — ファイル順に限ったら、ふだん優先度順の利用者が一度も使えなかった）
+  const canDrag = !t.hasCR && state.ui.view === 'list';
   const grip = document.createElement('span');
   grip.className = 'drag-handle' + (canDrag ? '' : ' is-off');
   grip.textContent = '⋮⋮';

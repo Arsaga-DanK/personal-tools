@@ -402,3 +402,12 @@ vault の「ファイル名の罠」を Python の heredoc で再現したとき
   初めて落ちる（taskboard は `window.__h` のインストールと fixture の置き場、issue は `ul3` と入力・クリップボードの状態）。
   節は必ず1本ずつ単独で回してから全体を回す
 - 対処: 断片を元の順に `cat` して元の `<script>` 本体と `diff`（空であること）。手順は docs/audits/2026-09-25-structure-plan.md Task 7
+
+## 13. ドラッグ＆ドロップは本物のマウス操作でも確かめる（2026-09-30 実測）
+
+- `DragEvent` を行に直接 `dispatchEvent` するテストは、**つかむところが `draggable=false` のときも drop の処理を呼べてしまう**ことがある
+  （合成イベントは `draggable` を見ない経路がある）。Plan Tasks で「ファイル順のときだけ動かせる」制限が、ふだん優先度順の利用者に
+  「動かせない」として出たが、合成イベントのテストは通っていた
+- Playwright の `page.mouse.down → move（steps 付き）→ up` は、headless Chromium でも本物の `dragstart → dragover → drop` を起こす。
+  ドラッグの受け入れテストは**この経路を1本は持つ**（TB-K23）
+

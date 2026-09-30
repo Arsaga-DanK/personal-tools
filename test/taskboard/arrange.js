@@ -1,10 +1,10 @@
 'use strict';
 /* test/taskboard/arrange.js — 節: 並べ替え（moveTask・ドラッグ）・削除（deleteTask）・親子の見た目（たたむ・縦線）
    入口: test/taskboard.js（ctx を受け取る。単独実行は node test/taskboard.js arrange）
-   照合する ID: TB-K12〜K21・TB-DEL1〜DEL7・TB-V1〜V3。期待値の正本は docs/specs/taskboard/engine.md */
+   照合する ID: TB-K12〜K23・TB-DEL1〜DEL7・TB-V1〜V3。期待値の正本は docs/specs/taskboard/engine.md */
 module.exports = {
   name: 'arrange',
-  ids: 'TB-K12〜K21・DEL1〜DEL7・V1〜V3',
+  ids: 'TB-K12〜K23・DEL1〜DEL7・V1〜V3',
   async run(ctx) {
     const { page, r, eq, F1, F5, TODAY, withDialogs, session } = ctx;
     const F1L = F1.split('\n'), F5L = F5.split('\n');
@@ -110,8 +110,39 @@ module.exports = {
       return { draggableInDue: hs.length, backInFile: Array.from(document.querySelectorAll('#task-table .drag-handle')).filter(h => h.draggable).length };
     });
     await showDone(false);
-    r.check('TB-K21（UI: 自分の子の上に落としても何も変わらない／期限順では ⋮⋮ でつかめない・ファイル順に戻すとつかめる）',
-      !k21a.noHandle && k21a.text === F1 && k21b.draggableInDue === 0 && k21b.backInFile > 0, JSON.stringify([k21a.noHandle, k21a.text === F1, k21b]));
+    r.check('TB-K21（UI: 自分の子の上に落としても何も変わらない／期限順でも ⋮⋮ でつかめる）',
+      !k21a.noHandle && k21a.text === F1 && k21b.draggableInDue > 0 && k21b.backInFile > 0, JSON.stringify([k21a.noHandle, k21a.text === F1, k21b]));
+
+    // 並び順を優先度順にしても動かせる（TB-K22 — 利用者のふだんの並び順で動かなかった）
+    const setSort = (v) => page.evaluate((x) => { const e = document.getElementById('f-sort'); e.value = x; e.dispatchEvent(new Event('change', { bubbles: true })); }, v);
+    await session(F1);
+    await setSort('priority');
+    const k22a = await dragTo('資料Rv', '資料作成', 'child');
+    await session(F1);
+    await setSort('priority');
+    const k22b = await dragTo('資料Rv', '資料作成', 'before');
+    const k22bn = await bannerNow();
+    await setSort('file');
+    r.check('TB-K22（UI: 優先度順でも真ん中＝子になる／最上位の前後はファイル上は前に入り、バナーに「表示の位置は並び順どおり」）',
+      !k22a.noHandle && k22a.text === k17b && !k22b.noHandle && k22b.text === K12 && k22bn.text.includes('並び順どおり'),
+      JSON.stringify({ a: k22a.noHandle || k22a.text === k17b, b: k22b.noHandle || k22b.text === K12, banner: k22bn.text }));
+
+    // 本物のマウス操作（押す→動かす→離す）。DragEvent を直接送るだけでは「つかめない」状態を見逃した（TB-K23）
+    await session(F1);
+    const k23 = await (async () => {
+      const src = page.locator('#task-table tbody tr', { hasText: '資料Rv' }).first().locator('.drag-handle');
+      const dst = page.locator('#task-table tbody tr', { hasText: '資料作成' }).first();
+      const sb = await src.boundingBox(), db = await dst.boundingBox();
+      if (!sb || !db) return { noBox: true };
+      await page.mouse.move(sb.x + sb.width / 2, sb.y + sb.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(db.x + 300, db.y + db.height / 2, { steps: 8 });
+      await page.mouse.move(db.x + 305, db.y + db.height / 2, { steps: 2 });
+      await page.mouse.up();
+      await page.waitForTimeout(150);
+      return { text: await page.evaluate(() => window.__s.getText()) };
+    })();
+    r.check('TB-K23（UI: 本物のマウス操作で資料Rv を資料作成の真ん中へ → 子になる）', !k23.noBox && k23.text === k17b, JSON.stringify(k23.noBox ? k23 : lines(k23.text, 7, 12)));
 
     /* ---------- TB-DEL4〜DEL7: 削除の UI ---------- */
     const clickTrash = (txt) => page.evaluate(async (t) => {
