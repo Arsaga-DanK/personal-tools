@@ -1,10 +1,10 @@
 'use strict';
 /* test/taskboard/arrange.js — 節: 並べ替え（moveTask・ドラッグ）・削除（deleteTask）・親子の見た目（たたむ・縦線）
    入口: test/taskboard.js（ctx を受け取る。単独実行は node test/taskboard.js arrange）
-   照合する ID: TB-K12〜K23・TB-DEL1〜DEL7・TB-V1〜V3。期待値の正本は docs/specs/taskboard/engine.md */
+   照合する ID: TB-K12〜K25・TB-DEL1〜DEL7・TB-V1〜V3。期待値の正本は docs/specs/taskboard/engine.md */
 module.exports = {
   name: 'arrange',
-  ids: 'TB-K12〜K23・DEL1〜DEL7・V1〜V3',
+  ids: 'TB-K12〜K25・DEL1〜DEL7・V1〜V3',
   async run(ctx) {
     const { page, r, eq, F1, F5, TODAY, withDialogs, session } = ctx;
     const F1L = F1.split('\n'), F5L = F5.split('\n');
@@ -143,6 +143,39 @@ module.exports = {
       return { text: await page.evaluate(() => window.__s.getText()) };
     })();
     r.check('TB-K23（UI: 本物のマウス操作で資料Rv を資料作成の真ん中へ → 子になる）', !k23.noBox && k23.text === k17b, JSON.stringify(k23.noBox ? k23 : lines(k23.text, 7, 12)));
+
+    // 行のどこでもつかめる（TB-K24）。ボタンから始めた操作と、本文の編集中はドラッグにしない（TB-K25）
+    const realDrag = async (srcLoc, dstTxt) => {
+      const dst = page.locator('#task-table tbody tr', { hasText: dstTxt }).first();
+      const sb = await srcLoc.boundingBox(), db = await dst.boundingBox();
+      if (!sb || !db) return { noBox: true };
+      await page.mouse.move(sb.x + Math.min(12, sb.width / 2), sb.y + sb.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(db.x + 300, db.y + db.height / 2, { steps: 8 });
+      await page.mouse.move(db.x + 305, db.y + db.height / 2, { steps: 2 });
+      await page.mouse.up();
+      await page.waitForTimeout(150);
+      return { text: await page.evaluate(() => window.__s.getText()) };
+    };
+    await session(F1);
+    const k24 = await realDrag(page.locator('#task-table tbody tr', { hasText: '資料Rv' }).first().locator('.body-text'), '資料作成');
+    r.check('TB-K24（UI: 本物のマウス操作で本文をつかんで資料作成の真ん中へ → 子になる）', !k24.noBox && k24.text === k17b,
+      JSON.stringify(k24.noBox ? k24 : lines(k24.text, 7, 12)));
+    await session(F1);
+    await page.hover('#task-table tbody tr:has-text("資料Rv")');
+    const k25a = await realDrag(page.locator('#task-table tbody tr', { hasText: '資料Rv' }).first().locator('.btn-child', { hasText: '編集' }), '資料作成');
+    await page.evaluate(() => { const m = document.getElementById('modal'); if (!m.hidden) { document.getElementById('modal-cancel').click(); } });
+    const k25b = await page.evaluate(async () => {
+      const tr = Array.from(document.querySelectorAll('#task-table tbody tr')).find(x => x.textContent.includes('資料Rv'));
+      tr.querySelector('td.cell-body').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+      await new Promise(res => setTimeout(res, 50));
+      const tr2 = document.querySelector('td.cell-body input').closest('tr');
+      const res = { editing: !!tr2, draggable: tr2 ? tr2.draggable : null };
+      document.querySelector('td.cell-body input').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      return res;
+    });
+    r.check('TB-K25（UI: ［編集］ボタンから押して動かしても何も動かない／本文の編集中の行はつかめない）',
+      !k25a.noBox && k25a.text === F1 && k25b.editing && k25b.draggable === false, JSON.stringify({ a: k25a.noBox || k25a.text === F1, b: k25b }));
 
     /* ---------- TB-DEL4〜DEL7: 削除の UI ---------- */
     const clickTrash = (txt) => page.evaluate(async (t) => {

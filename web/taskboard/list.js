@@ -357,13 +357,24 @@ function renderRow(t, today) {
   grip.draggable = canDrag;
   grip.title = canDrag ? 'ドラッグで移動（行の上端＝前・真ん中＝子・下端＝後）'
     : '並び順を「ファイル順」にするとドラッグで動かせます';
+  // **行のどこでもつかめる**（TB-K24。⋮⋮ だけでは小さすぎた）。ボタン・チェックボックス・入力・リンクから
+  // 始めた操作はドラッグにしない（クリックとして生かす — TB-K25）。押した場所は mousedown で覚える
+  // （dragstart の target は一番近い draggable＝行になり、押した部品が分からないため）
   if (canDrag) {
-    grip.addEventListener('dragstart', (e) => {
+    tr.draggable = true;
+    let downOn = null;
+    tr.addEventListener('mousedown', (e) => { downOn = e.target; });
+    tr.addEventListener('dragstart', (e) => {
+      const from = downOn || e.target;
+      if (from.closest && from.closest('input, textarea, select, button, a') && !from.closest('.drag-handle')) {
+        e.preventDefault();
+        return;
+      }
       state.drag = { line: t.line, banned: new Set([t.line].concat(descendantLines(t, []))) };
       if (e.dataTransfer) { e.dataTransfer.setData('text/plain', String(t.line)); e.dataTransfer.effectAllowed = 'move'; }
       tr.classList.add('dragging');
     });
-    grip.addEventListener('dragend', () => { state.drag = null; clearDropMarks(); tr.classList.remove('dragging'); });
+    tr.addEventListener('dragend', () => { state.drag = null; downOn = null; clearDropMarks(); tr.classList.remove('dragging'); });
   }
   tdSt.appendChild(grip);
   const cb = document.createElement('input');
@@ -470,7 +481,7 @@ function renderRow(t, today) {
     tdBody.appendChild(mk);
   }
   if (!t.hasCR) {
-    tdBody.title = 'ダブルクリックで本文を編集';
+    tdBody.title = canDrag ? 'ドラッグで移動・ダブルクリックで本文を編集' : 'ダブルクリックで本文を編集';
     tdBody.addEventListener('dblclick', () => startBodyEdit(tdBody, t));
   }
   tr.appendChild(tdBody);
@@ -642,6 +653,9 @@ function isComposingKey(e) {
 
 function startBodyEdit(td, t) {
   if (td.querySelector('input')) return;
+  // 編集中はその行をつかめなくする（文字を選ぶ操作がドラッグになるため — TB-K25）。描き直しで元に戻る
+  const rowEl = td.closest('tr');
+  if (rowEl) rowEl.draggable = false;
   td.textContent = '';
   const input = document.createElement('input');
   input.type = 'text';
