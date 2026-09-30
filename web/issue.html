@@ -84,6 +84,34 @@
   .note-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
     margin: 14px 0 -2px; padding: 0 2px; font-size: 12px; color: var(--muted); }
   .note-head:first-child { margin-top: 0; }
+  /* 一覧（IS-Q23）: 案件の見出し → ノート＝1枚 → 中に論点の行 */
+  .proj-head { font-size: 12.5px; font-weight: 700; letter-spacing: .06em; color: var(--muted);
+    margin: 12px 2px -2px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+  .proj-head:first-child { margin-top: 0; }
+  .note-card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 12px 16px 10px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 4px; }
+  .note-card.is-closed { opacity: .72; }
+  .note-card .note-head { margin: 0; padding: 0; font-size: 12px; }
+  .note-card .note-name { font-size: 16px; font-weight: 700; color: var(--text); margin: 0; overflow-wrap: anywhere; }
+  .note-card .note-add { margin-left: auto; }
+  .note-stats { font-size: 12px; color: var(--muted); }
+  .note-card .issue-card { background: transparent; border: 0; border-top: 1px solid var(--border);
+    border-radius: 0; box-shadow: none; padding: 8px 0 2px; margin-top: 4px; }
+  .ic-line { display: flex; align-items: baseline; gap: 8px; }
+  .ic-line .ic-issue { flex: 1 1 auto; margin: 0; }
+  .ic-line .ic-due { margin-left: 0; }
+  .ic-line .ic-ok { flex: 0 0 auto; }
+  .ic-line .ic-warn { flex: 0 0 auto; padding: 0 6px; }
+  .ic-why { font-size: 12px; color: var(--error); margin: 2px 0 0 1.9em; }
+  .ic-more, .note-more { position: relative; }
+  .ic-more > summary, .note-more > summary { list-style: none; cursor: pointer; padding: 0 7px; border-radius: 6px;
+    color: var(--muted); border: 1px solid transparent; user-select: none; }
+  .ic-more > summary::-webkit-details-marker, .note-more > summary::-webkit-details-marker { display: none; }
+  .ic-more > summary:hover, .note-more > summary:hover { border-color: var(--border); color: var(--text); }
+  .ic-menu { position: absolute; right: 0; top: 1.7em; z-index: 5; background: var(--panel);
+    border: 1px solid var(--border); border-radius: 8px; padding: 6px; box-shadow: var(--shadow);
+    display: flex; flex-direction: column; align-items: stretch; gap: 4px; min-width: 12em; }
+  .ic-menu button { text-align: left; margin: 0; }
   .note-name { font-weight: 700; }
   .note-open { color: var(--accent); text-decoration: none; font-size: 11.5px; }
   .note-open:hover { text-decoration: underline; }
@@ -152,9 +180,9 @@
     <ol>
       <li><strong>書き殴る</strong> — Obsidian で QuickAdd の <code>Issue</code> を作り、<code>## 掘る</code> に何でも書く。整えない。論点は書いているうちに見えてくる</li>
       <li><strong>1行足す</strong> — 「これ論点かも」と思ったら <code>## 論点</code> に1行（ここの［＋ 論点を足す］でも。その場で判定が出る）</li>
-      <li><strong>育てる・閉じる</strong> — 本命は［ちゃんと立てる…］で5段に切り出す。決着したら［閉じる…］で 当たり／外れ を残す</li>
+      <li><strong>育てる・閉じる</strong> — 論点の行の <code>⋯</code> から、本命は［ちゃんと立てる…］で5段に切り出す。決着したら［閉じる…］で 当たり／外れ を残す</li>
     </ol>
-    <p>タスクは論点の下に生まれる — カードの［タスクにする…］で Plan Tasks が論点つきで開く（Cmd/Ctrl+Shift+E で往復）</p>
+    <p>タスクは論点の下に生まれる — 論点の行の <code>⋯</code> →［タスクにする…］で Plan Tasks が論点つきで開く（Cmd/Ctrl+Shift+E で往復）</p>
   </details>
 
   <div id="cards"></div>
@@ -258,7 +286,7 @@ ToolEdit.dateChips($id('deadline'));
 ToolUI.mountModeSwitch();        // Cmd/Ctrl+Shift+E でタスク ⇔ イシュー
 
 // テスト用フック（docs/specs/issue.md）
-window.issue = { parseSections: parseSections, judge: judge, toNote: toNote,
+window.issue = { parseSections: parseSections, judge: judge, toNote: toNote, noteStats: noteStats,
                  toTasks: toTasks, noteFileName: noteFileName, buildMd: buildMd,
                  parseFrontmatter: parseFrontmatter, setFrontmatter: setFrontmatter,
                  appendToSection: appendToSection, subRows: subRows, summarize: summarize,

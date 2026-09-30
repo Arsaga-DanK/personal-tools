@@ -1,10 +1,10 @@
 'use strict';
 /* test/issue/ui.js — 節: UI 経路（貼る→判定→コピー・保存）・一覧（画面の主）・書き殴りノートに問いを立てる・論点＝行・ノートを閉じる・ウィザードと作成の実機経路（1つの連続したシナリオ。状態を引き継ぐので分けない）
    入口: test/issue.js（ctx を受け取る。単独実行は node test/issue.js ui）
-   照合する ID: IS-U1〜U28・UL1〜UL17。期待値の正本は docs/specs/issue.md */
+   照合する ID: IS-U1〜U28・UL1〜UL20（UL21〜 は cards 節）。期待値の正本は docs/specs/issue.md */
 module.exports = {
   name: 'ui',
-  ids: 'IS-U1〜U28・UL1〜UL17',
+  ids: 'IS-U1〜U28・UL1〜UL20',
   async run(ctx) {
     const { page, browser, r, eq, fileUrl, SAMPLE_MD, ready, setValue } = ctx;
   /* ========== UI 経路 ========== */
@@ -84,7 +84,8 @@ module.exports = {
     await window.issue.load();
     const cards = Array.from(document.querySelectorAll('.issue-card'));
     return {
-      order: cards.map(c => c.querySelector('.ic-title').textContent),
+      // ノート名は見出しにある（IS-Q23）。並びはノートのカードの順
+      order: Array.from(document.querySelectorAll('.note-card .note-name')).map(e => e.textContent),
       issue0: cards[0].querySelector('.ic-issue').textContent,
       meta0: Array.from(cards[0].querySelectorAll('.ic-meta li')).map(li => li.textContent),
       due0: cards[0].querySelector('.ic-due').textContent,
@@ -158,8 +159,9 @@ module.exports = {
   const ul3 = await page.evaluate(async () => {
     document.getElementById('cm-cancel').click();
     await window.issue.load();                       // 外部変更を取り込み直す
-    const card = Array.from(document.querySelectorAll('.issue-card'))
-      .find(c => c.querySelector('.ic-title').textContent === '急ぐ方');
+    const card = Array.from(document.querySelectorAll('.note-card'))
+      .find(c => c.querySelector('.note-name').textContent === '急ぐ方');
+    if (!card) return { noCard: true };
     const before = window.__fsa.files['b.md'];
     card.querySelector('.ic-close').click();
     document.querySelector('input[name="cm-v"][value="外れ"]').checked = true;
@@ -181,8 +183,8 @@ module.exports = {
         && after.slice(after.indexOf('## 結論')).includes('- 粒度ではなく体制が原因だった'),
       bodyOtherwiseSame: strip(after) === bodyOf(before),
       told: after.slice(after.indexOf('## 結論')).includes('- 伝えた: PM に共有 → 体制の相談になった'),
-      nowClosedInList: Array.from(document.querySelectorAll('.issue-card'))
-        .every(c => c.querySelector('.ic-title').textContent !== '急ぐ方'),
+      nowClosedInList: Array.from(document.querySelectorAll('.note-card .note-name'))
+        .every(e => e.textContent !== '急ぐ方'),
     };
   });
   r.check('IS-UL3（閉じると status/verdict が変わり結論に1行入る・本文の他は不変・一覧から外れる）',
@@ -314,7 +316,9 @@ module.exports = {
       firstIssue: document.querySelector('.issue-card .ic-issue').textContent,
       // **1枚目（行カード）だけ**を見る。plain.md のノートカードには正しく .ic-title がある
       noTitleOnLine: !document.querySelector('.issue-card').querySelector('.ic-title'),
-      titleOnNoteCard: !!document.querySelectorAll('.issue-card')[2].querySelector('.ic-title'),
+      // ノート名は見出し（.note-name）にだけある。plain.md のノートカードの行にも .ic-title は無い（IS-Q23）
+      titleOnNoteCard: !document.querySelectorAll('.issue-card')[2].querySelector('.ic-title')
+        && document.querySelectorAll('.note-card').length === 2,
       addBtns: document.querySelectorAll('.note-add').length,
     };
   }, { lines: LINES_MD, plain: PLAIN_MD });
@@ -323,7 +327,7 @@ module.exports = {
     && ul8.all === 4                // 閉じた行を含めて4枚
     && ul8.open.heads.length === 2  // ノート見出しが2つ
     && ul8.firstIssue.includes('粒度の合意')
-    && ul8.noTitleOnLine && ul8.titleOnNoteCard   // 行カードは名前を持たず、ノートカードは持つ
+    && ul8.noTitleOnLine && ul8.titleOnNoteCard   // 行は名前を持たず、ノートのカードの見出しが持つ
     && ul8.addBtns === 2,
     JSON.stringify(ul8));
 
@@ -585,6 +589,7 @@ module.exports = {
     return { warn: !!(card && card.querySelector('.ic-warn')), ok: !!(card && card.querySelector('.ic-ok')) };
   });
   r.check('IS-UL20（論点の行が「〜があるか。」のカードは ✓ ではなく ⚠）', ul20.warn && !ul20.ok, JSON.stringify(ul20));
+
 
   // IS-U25: 初見（ノート0）は使い方が開いている・ノートがあれば強制しない
   const u25 = await page.evaluate(async () => {

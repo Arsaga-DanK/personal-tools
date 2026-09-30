@@ -448,5 +448,21 @@ module.exports = {
       && ['hy1', 'hy2', 'hy3', 'wh1', 'wh2'].every(k => !a25j[k].includes('closed') && !a25j[k].includes('request'))
       && a25j.why.includes('why') && !a25j.why.includes('closed'),
       JSON.stringify(a25j));
+
+    /* ========== IS-L11 / IS-26（2026-09-30: 一覧の見せ方・判定の体言止め） ========== */
+    const l11 = await page.evaluate(() => (window.issue.noteStats ? window.issue.noteStats([
+      '---', 'status: open', '---', '# t', '', '## 論点', '', '- [ ] 甲は A ではなく B ではないか', '- [x] 乙は C ではないか', '',
+      '## 掘る', '', '> 10分で論点の行が書けなければ「悩んでいる」', '', '- ', '- 中身1', '\t- 中身2', '![[shot.png]]', '',
+      '## 分かったこと', '- 別の節', '![](a/b.jpg)', ''].join('\n')) : null));
+    r.check('IS-L11（noteStats: 掘るは注記・空の「- 」を除いた行数（画像の行も数える）・画像は全体・論点は行数）',
+      eq(l11, { dig: 3, images: 2, lines: 2 }), JSON.stringify(l11));
+    const i26 = await page.evaluate(() => {
+      const ids = l => window.issue.judge([l], { stage: 'line', deadline: '2026-10-01' }).filter(v => v.level === 'warn').map(v => v.id);
+      return [ids('検証環境作成をゴールにして再度タスクの洗い出しと現場確認'), ids('手順書の粒度の確認。'),
+        ids('手順書が書けないのは情報不足ではなく合意が無いからではないか'), ids('何を話す必要があるか')];
+    });
+    r.check('IS-26（体言止めの作業（〜確認・〜洗い出し）は worktheme／仮説・WHAT の問いは出ない）',
+      i26[0].includes('worktheme') && i26[1].includes('worktheme') && !i26[2].includes('worktheme') && !i26[3].includes('worktheme'),
+      JSON.stringify(i26));
   },
 };

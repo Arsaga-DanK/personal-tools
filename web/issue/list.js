@@ -154,7 +154,9 @@ function openIssueEdit(art, btn, it) {
   row.appendChild(line); row.appendChild(due); row.appendChild(ok); row.appendChild(no);
   box.appendChild(row);
   box.appendChild(vl);
-  art.insertBefore(box, btn.nextSibling);
+  // 論点は行（.ic-line）の中にあるので、箱は行の直後へ（IS-Q23）
+  const lineRow = btn.closest('.ic-line') || btn;
+  lineRow.parentNode.insertBefore(box, lineRow.nextSibling);
   chipsAfter(due);
   live();
   line.focus();
@@ -206,14 +208,7 @@ function card(it) {
   art.className = 'issue-card' + (it.status === 'closed' ? ' is-closed' : '');
   art.dataset.file = it.file;
 
-  const head = document.createElement('header');
-  head.className = 'ic-head';
-  if (it.kind !== 'line') {          // 行カードはノート名をグループ見出しが出す
-    const h = document.createElement('h2');
-    h.className = 'ic-title';
-    h.textContent = it.title;
-    head.appendChild(h);
-  }
+  // ノート名は行に出さない — ノートのカードの見出しにある（IS-Q23）
   const due = document.createElement('span');
   const d = dayDiff(it.deadline);
   const closed = it.status === 'closed';
@@ -226,8 +221,6 @@ function card(it) {
       ? '📅 ' + it.deadline + (d === null ? '' : (d < 0 ? '（' + (-d) + '日超過）' : d === 0 ? '（今日）' : '（あと' + d + '日）'))
       : '📅 締切なし';
   }
-  head.appendChild(due);
-  art.appendChild(head);
 
   /* **論点の一行はその場で書ける**（軽い入口 — IS-Q11）。
      書き殴りノートに1行足すだけでカードが意味を持つ。5段フルはウィザードに任せる */
@@ -237,7 +230,6 @@ function card(it) {
   q.textContent = it.issue || '＋ 論点を一行で書く';
   q.title = 'クリックして論点を書く／直す';
   q.addEventListener('click', function () { openIssueEdit(art, q, it); });
-  art.appendChild(q);
 
   const ul = document.createElement('ul');
   ul.className = 'ic-meta';
@@ -254,24 +246,24 @@ function card(it) {
     meta(ul, (it.verdict ? '判定: ' + it.verdict : '判定: 未記入')
       + (it.conclusion ? '　—　' + it.conclusion : '　—　（分かったことが書かれていない）'));
   }
-  art.appendChild(ul);
 
-  const acts = document.createElement('div');
-  acts.className = 'ic-actions';
+  // 1行: ✓／⚠・論点・（切り出し先）・締切・⋯（IS-Q23）
+  const row = document.createElement('div');
+  row.className = 'ic-line';
   const vlist = document.createElement('ul');
   vlist.className = 'ic-verdicts';
   vlist.hidden = true;
-
   if (it.warn > 0) {
     const wb = document.createElement('button');
     wb.type = 'button';
     wb.className = 'ic-warn';
-    wb.textContent = '⚠ 引っかかり ' + it.warn + '件';
+    wb.textContent = '⚠ ' + it.warn;
+    wb.title = '引っかかり ' + it.warn + '件（押すと直し方を出す）';
     wb.addEventListener('click', function () {
       vlist.hidden = !vlist.hidden;
       wb.setAttribute('aria-expanded', String(!vlist.hidden));
     });
-    acts.appendChild(wb);
+    row.appendChild(wb);
     for (let i = 0; i < it.verdicts.length; i++) {
       const v = it.verdicts[i];
       const li = document.createElement('li');
@@ -280,22 +272,15 @@ function card(it) {
       li.textContent = (v.level === 'warn' ? '⚠ ' : '· ') + v.msg + ' — ' + v.fix;
       vlist.appendChild(li);
     }
-  }
-  if (it.warn === 0) {
+  } else {
     // 何も出ないと「判定されたのか」が分からない。通ったことも言う（IS-Q5 の2段表示と同じ考え）
     const ok = document.createElement('span');
     ok.className = 'ic-ok';
-    ok.textContent = '✓ 引っかかりなし';
-    acts.appendChild(ok);
+    ok.textContent = '✓';
+    ok.title = '引っかかりなし';
+    row.appendChild(ok);
   }
-  const href = obsidianHref(it.name);
-  if (href) {
-    const a = document.createElement('a');
-    a.className = 'ic-obsidian';
-    a.href = href;
-    a.textContent = 'Obsidian で開く';
-    acts.appendChild(a);
-  }
+  row.appendChild(q);
   if (it.kind === 'line' && it.link) {
     const lh = obsidianHref(it.link);
     const la = document.createElement(lh ? 'a' : 'span');
@@ -303,8 +288,18 @@ function card(it) {
     la.textContent = '↗ ' + it.link;
     la.title = 'この論点から切り出したノート';
     if (lh) la.href = lh;
-    acts.appendChild(la);
+    row.appendChild(la);
   }
+  row.appendChild(due);
+  // 行の操作は ⋯ にしまう（ボタンが中身より多かった — IS-Q23）
+  const more = document.createElement('details');
+  more.className = 'ic-more';
+  const sm = document.createElement('summary');
+  sm.textContent = '⋯';
+  sm.title = 'この論点の操作（タスクにする・ちゃんと立てる・閉じる）';
+  more.appendChild(sm);
+  const menu = document.createElement('div');
+  menu.className = 'ic-menu';
   if (it.status !== 'closed') {
     /* **タスクは論点の下に生まれる**（R8）。Plan Tasks の追加モーダルを
        論点・関連ノート・期限を入れた状態で開く。「この一手はどの論点のため？」を
@@ -314,24 +309,34 @@ function card(it) {
     tb.className = 'ic-task';
     tb.textContent = 'タスクにする…';
     tb.title = 'Plan Tasks の追加画面を、この論点を添えて開く';
-    tb.addEventListener('click', function () { sendToTasks(it); });
-    acts.appendChild(tb);
+    tb.addEventListener('click', function () { more.open = false; sendToTasks(it); });
+    menu.appendChild(tb);
   }
   if (it.status !== 'closed' && !(it.kind === 'line' && it.link)) {
     const fb = document.createElement('button');
     fb.type = 'button';
     fb.className = 'ic-frame';
     fb.textContent = it.kind === 'line' ? 'ちゃんと立てる…' : 'このノートに問いを立てる…';
-    fb.addEventListener('click', function () { wzOpenFor(it); });
-    acts.appendChild(fb);
+    fb.addEventListener('click', function () { more.open = false; wzOpenFor(it); });
+    menu.appendChild(fb);
     const cb = document.createElement('button');
     cb.type = 'button';
     cb.className = 'ic-close';
     cb.textContent = '閉じる…';
-    cb.addEventListener('click', function () { openCloseModal(it); });
-    acts.appendChild(cb);
+    cb.addEventListener('click', function () { more.open = false; openCloseModal(it); });
+    menu.appendChild(cb);
   }
-  art.appendChild(acts);
+  if (menu.childNodes.length) { more.appendChild(menu); row.appendChild(more); }
+  art.appendChild(row);
+  // ⚠ の1つ目の理由は押さなくても読めるように行のすぐ下へ（訓練）
+  const firstWarn = (it.verdicts || []).filter(function (v) { return v.level === 'warn'; })[0];
+  if (it.warn > 0 && firstWarn) {
+    const why = document.createElement('p');
+    why.className = 'ic-why';
+    why.textContent = '└ ' + firstWarn.msg;
+    art.appendChild(why);
+  }
+  if (ul.childNodes.length) art.appendChild(ul);   // 空の一覧で余白を作らない
   art.appendChild(vlist);
   return art;
 }
@@ -350,33 +355,45 @@ function visibleCards(note) {
 function noteHeader(n) {
   const row = document.createElement('div');
   row.className = 'note-head';
-  const t = document.createElement('span');
+  // 主役はノート名（何の話か — IS-Q23）。絵文字は付けない
+  const t = document.createElement('h3');
   t.className = 'note-name';
-  t.textContent = '📄 ' + n.title;
+  t.textContent = n.title;
   row.appendChild(t);
-  const href = obsidianHref(n.name);
-  if (href) {
-    const a = document.createElement('a');
-    a.className = 'note-open';
-    a.href = href;
-    a.textContent = 'Obsidian で開く';
-    row.appendChild(a);
-  }
   const add = document.createElement('button');
   add.type = 'button';
   add.className = 'note-add';
   add.textContent = '＋ 論点を足す';
   add.addEventListener('click', function () { openAddIssue(row, n); });
   row.appendChild(add);
-  // ノート単位の閉じる（IS-Q20）。閉じたノートには出さない
+  // Obsidian で開く はノートに1つ（行ごとには出さない）。vault 名が未設定なら作らない
+  const href = obsidianHref(n.name);
+  if (href) {
+    const a = document.createElement('a');
+    a.className = 'note-open ic-obsidian';
+    a.href = href;
+    a.textContent = 'Obsidian で開く';
+    row.appendChild(a);
+  }
+  // ノート単位の閉じる（IS-Q20）は ⋯ にしまう。閉じたノートには出さない
   if (n.base && n.base.status !== 'closed') {
+    const more = document.createElement('details');
+    more.className = 'note-more';
+    const sm = document.createElement('summary');
+    sm.textContent = '⋯';
+    sm.title = 'このノートの操作';
+    more.appendChild(sm);
+    const menu = document.createElement('div');
+    menu.className = 'ic-menu';
     const cl = document.createElement('button');
     cl.type = 'button';
     cl.className = 'note-close';
     cl.textContent = 'ノートを閉じる…';
     cl.title = 'このノート全体を閉じる（frontmatter に status: closed と閉じた日を書く。片づけは Check Vault）';
-    cl.addEventListener('click', function () { openCloseModal(noteCardOf(n)); });
-    row.appendChild(cl);
+    cl.addEventListener('click', function () { more.open = false; openCloseModal(noteCardOf(n)); });
+    menu.appendChild(cl);
+    more.appendChild(menu);
+    row.appendChild(more);
   }
   return row;
 }
@@ -456,10 +473,42 @@ function renderCards() {
     host.appendChild(p);
     return;
   }
+  // 案件ごとにまとめる（IS-Q23）。並びはノートの並び（締切順）で最初に出た順・案件なしは最後
+  const order = [], byProj = {};
   for (let i = 0; i < groups.length; i++) {
-    host.appendChild(noteHeader(groups[i].n));
-    for (let k = 0; k < groups[i].cards.length; k++) host.appendChild(card(groups[i].cards[k]));
+    const k = groups[i].n.project || '';
+    if (!byProj[k]) { byProj[k] = []; if (k !== '') order.push(k); }
+    byProj[k].push(groups[i]);
   }
+  if (byProj['']) order.push('');
+  for (let i = 0; i < order.length; i++) {
+    const k = order[i];
+    const ph = document.createElement('h2');
+    ph.className = 'proj-head';
+    ph.textContent = (k || '案件なし') + '（' + byProj[k].length + '）';
+    host.appendChild(ph);
+    for (let j = 0; j < byProj[k].length; j++) host.appendChild(noteCard(byProj[k][j]));
+  }
+}
+
+// ノート＝1枚（IS-Q23）: 見出し（ノート名・＋論点・Obsidian・⋯）→ 量（掘る・論点・画像）→ 論点の行
+function noteCard(g) {
+  const sec = document.createElement('section');
+  sec.className = 'note-card' + (g.n.base && g.n.base.status === 'closed' ? ' is-closed' : '');
+  sec.appendChild(noteHeader(g.n));
+  const st = noteStats(g.n.text);
+  const parts = [];
+  if (st.dig) parts.push('掘る ' + st.dig + '行');
+  if (st.lines) parts.push('論点 ' + st.lines);
+  if (st.images) parts.push('画像 ' + st.images);
+  if (parts.length) {
+    const p = document.createElement('div');
+    p.className = 'note-stats';
+    p.textContent = parts.join('・');
+    sec.appendChild(p);
+  }
+  for (let k = 0; k < g.cards.length; k++) sec.appendChild(card(g.cards[k]));
+  return sec;
 }
 
 /* ノートへの書き込みの共通経路。**書き込む直前に再読して NFC 比較**（鮮度チェック） */

@@ -80,8 +80,8 @@ MCP 側の制約（`browser_navigate` が `file:` を拒否する等）も受け
 | `helpers.js` | playwright-core / Chromium 実体の探索、合否集計、`file://` URL 組み立て、`TOOL_COUNT`（本数の固定ピン） |
 | `hub.js` / `launcher.js` | index.html（HUB-1〜27: 表示順・検索・README 照合・3点セット）/ 引き出しメニュー（LA-01〜10） |
 | `<alias>.js`（17 本） | 各ツール。`docs/specs/<alias>.md` のテストケースを照合する |
-| `taskboard.js` + `taskboard/*.js` | 入口＋節 10 本（fixtures.js・engine・input・timeline-model・edit・board-search・deps・status・timeline-ui・flows・parent） |
-| `issue.js` + `issue/*.js` | 入口＋節 2 本（pure・ui。ui は状態を引き継ぐ連続シナリオなので1節） |
+| `taskboard.js` + `taskboard/*.js` | 入口＋節 11 本（fixtures.js・engine・input・timeline-model・edit・board-search・deps・status・timeline-ui・flows・arrange・parent） |
+| `issue.js` + `issue/*.js` | 入口＋節 3 本（pure・ui・cards。ui は状態を引き継ぐ連続シナリオなので1節。cards は自分でファイルを入れ直す一覧の見せ方で、ui が 1,000 行を超えたときに切り出した） |
 
 `taskboard.js` の TB-I6 は **CDP で実際の IME composition を張る**（`Input.imeSetComposition` →
 `Input.dispatchKeyEvent`）。MCP 経由ではなく playwright-core を直接起動しているので

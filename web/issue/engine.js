@@ -83,6 +83,10 @@ function judge(line, opts) {
     if (/(整理|確認|検討|調査|把握|対応|共有)(する|します|を行う|を実施|をする)/.test(first))
       add('worktheme', 'warn', '作業テーマであって論点ではない',
         '「整理する・確認する」は犬の道の症状。答えが出たら何が変わるかを問いにする');
+    // 体言止めの作業（IS-26・2026-09-30）。実例「…洗い出しと現場確認」が ✓ になっていた
+    else if (/(確認|検討|調査|把握|対応|共有|洗い出し|作成|準備|調整|整備)$/.test(first.replace(/[。．.！!\s]+$/, '')))
+      add('worktheme', 'warn', '作業テーマであって論点ではない',
+        '「〜確認」「〜洗い出し」で止まるのは作業。答えが出たら何が変わるかを問いにする');
     if (/^(なぜ|何故|どうして|why)/i.test(first))
       add('why', 'warn', 'WHY で始まっている',
         '「どこを / 何を / どう」に置き換える（本: WHY ではなく WHERE・WHAT・HOW）');
@@ -618,5 +622,23 @@ function toTasks(nextLines, opts) {
     const body = has ? x : '- [ ] ' + x.replace(/^[-*+]\s+/, '');
     return /\u{1F4C5}/u.test(body) ? body : body + dl;
   }).join('\n');
+}
+
+/* 一覧の見出しに出す量（IS-L11・IS-Q23）: 掘るの中身の行数・画像の埋め込み数・論点の行数。
+   掘るは空・「>」の注記・中身の無い「- 」を数えない（テンプレの骨だけで「掘る 3行」と出さない） */
+function noteStats(text) {
+  const t = nfc(text).replace(/\r\n?/g, '\n');
+  let dig = 0, inDig = false;
+  for (const l of t.split('\n')) {
+    const h = l.match(/^#{1,6}\s+(.*?)\s*$/);
+    if (h) { inDig = h[1].trim() === '掘る'; continue; }
+    if (!inDig) continue;
+    const x = l.trim();
+    if (x === '' || /^>/.test(x) || /^[-*+]\s*$/.test(x)) continue;
+    dig++;
+  }
+  const images = (t.match(/!\[\[[^\]]+\.(?:png|jpe?g|gif|webp|svg)(?:\|[^\]]*)?\]\]/gi) || []).length
+    + (t.match(/!\[[^\]]*\]\([^)]+\)/g) || []).length;
+  return { dig: dig, images: images, lines: issueLines(t).length };
 }
 
