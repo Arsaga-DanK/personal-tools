@@ -443,13 +443,13 @@ function opMoveSection(lines, op) {
 /* ---------- 親子の付け替え（TB-K・TB-Q64）。書き換えるのは移る行の先頭のタブだけ ---------- */
 // 部分木 [i..end] を動かしてよいか。CR 行と、直後に「タスクでもメモでもない字下げ行」が続く場合は断る
 // （移すとその行が別のタスクの下に付いてしまう）
-function assertMovable(lines, i, end) {
+function assertMovable(lines, i, end, verb) {
   for (let k = i; k <= end; k++) {
     if (lines[k].raw.includes('\r')) throw new Error((k + 1) + '行目は CR 改行のため編集できません');
   }
   const next = lines[end + 1];
   if (next && /^[ \t]+\S/.test(next.raw) && !TASK_RE.test(next.raw)) {
-    throw new Error((end + 2) + '行目に字下げされた行（タスクでもメモでもない）が続くため動かせません。Obsidian で直してから');
+    throw new Error((end + 2) + '行目に字下げされた行（タスクでもメモでもない）が続くため' + (verb || '動かせません') + '。Obsidian で直してから');
   }
 }
 function reindent(block, delta) {
@@ -505,6 +505,43 @@ function opSetParent(lines, op) {
   lines.splice(subtreeEnd(lines, p2) + 1, 0, ...block);
 }
 // この位置に同じ深さの親を作り、自分の部分木を1段下げてその下に入れる
+// 並べ替え（TB-K12〜K18）。position: before（target の直前・同じ深さ）/ after（target の部分木の直後・同じ深さ）/
+// child（= setParent）。部分木（子・メモ）ごと動き、変わるのは先頭のタブだけ。セクションは落とした先に従う
+function opMoveTask(lines, op) {
+  if (op.position === 'child') { opSetParent(lines, { line: op.line, parent: op.target }); return; }
+  if (op.position !== 'before' && op.position !== 'after') throw new Error('不明な位置: ' + op.position);
+  const i = op.line - 1;
+  const m = lines[i] && TASK_RE.exec(lines[i].raw);
+  if (!m) throw new Error(op.line + '行目はタスク行ではありません');
+  const end = subtreeEnd(lines, i);
+  const ti = op.target - 1;
+  if (ti >= i && ti <= end) throw new Error('自分や自分の子の前後には動かせません');
+  const tm = lines[ti] && TASK_RE.exec(lines[ti].raw);
+  if (!tm) throw new Error(op.target + '行目はタスク行ではありません');
+  if (lines[ti].raw.includes('\r')) throw new Error(op.target + '行目は CR 改行のため編集できません');
+  assertMovable(lines, i, end);
+  if (op.position === 'after') {
+    // 入れる先（target の部分木の末尾）の直後に字下げ行が続くなら、そこへは入れない（その行が別のタスクの下に付く）
+    const tEnd = subtreeEnd(lines, ti);
+    const nx = lines[tEnd + 1];
+    if (nx && nx !== lines[i] && /^[ \t]+\S/.test(nx.raw) && !TASK_RE.test(nx.raw)) {
+      throw new Error((tEnd + 2) + '行目に字下げされた行（タスクでもメモでもない）があるため、その後ろへは入れられません');
+    }
+  }
+  const block = lines.splice(i, end - i + 1);
+  const t2 = ti > end ? ti - block.length : ti;
+  reindent(block, tm[1].length - m[1].length);
+  lines.splice(op.position === 'before' ? t2 : subtreeEnd(lines, t2) + 1, 0, ...block);
+}
+// 削除（TB-DEL1〜DEL3）。部分木（子・メモ）ごと行を取り除く。他の行は1バイトも変えない
+function opDeleteTask(lines, op) {
+  const i = op.line - 1;
+  const m = lines[i] && TASK_RE.exec(lines[i].raw);
+  if (!m) throw new Error(op.line + '行目はタスク行ではありません');
+  const end = subtreeEnd(lines, i);
+  assertMovable(lines, i, end, '削除できません');
+  lines.splice(i, end - i + 1);
+}
 function opWrapParent(lines, op) {
   const i = op.line - 1;
   const m = lines[i] && TASK_RE.exec(lines[i].raw);
@@ -584,6 +621,8 @@ function runOp(lines, op, today) {
     case 'undoAdd':     opUndoAdd(lines, op); break;
     case 'moveSection': opMoveSection(lines, op); break;
     case 'setParent':   opSetParent(lines, op); break;
+    case 'moveTask':    opMoveTask(lines, op); break;
+    case 'deleteTask':  opDeleteTask(lines, op); break;
     case 'wrapParent':  opWrapParent(lines, op); break;
     case 'setMemo':     opSetMemo(lines, op); break;
     case 'setTags':     opSetTags(lines, op); break;

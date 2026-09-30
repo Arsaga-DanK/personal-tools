@@ -14,7 +14,29 @@
     padding: 6px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
   #task-table td { padding: 5px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
   #task-table tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
-  #task-table .col-st { width: 56px; }   /* チェックボックス＋状態バッジ */
+  /* 親子（TB-V1〜V3）: 親は太字＋背景を少し色づけ、子は深さごとの縦線（--rail） */
+  #task-table { --rail: color-mix(in srgb, var(--accent) 40%, transparent); }
+  #task-table tbody tr.row-parent { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+  #task-table tbody tr.row-parent:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+  #task-table tr.row-parent .body-text { font-weight: 700; }
+  .fold-btn { border: 0; background: none; padding: 0; margin: 0 4px 0 0; width: 1.1em; cursor: pointer;
+    color: var(--text); font-size: 13px; line-height: 1; vertical-align: baseline; }
+  .fold-btn:hover { color: var(--text); }
+  .fold-space { display: inline-block; width: 1.1em; margin-right: 4px; }
+  .child-count { font-size: 11px; color: var(--muted); border: 1px solid var(--border); border-radius: 999px;
+    padding: 0 6px; margin-left: 6px; font-weight: 400; }
+  /* ドラッグ（TB-K19〜K21） */
+  .drag-handle { cursor: grab; opacity: .35; user-select: none; font-size: 12px; letter-spacing: -3px;
+    padding-right: 4px; vertical-align: 1px; }
+  #task-table tbody tr:hover .drag-handle { opacity: .9; }
+  .drag-handle.is-off, #task-table tbody tr:hover .drag-handle.is-off { cursor: not-allowed; opacity: .15; }
+  #task-table tr.dragging { opacity: .45; }
+  #task-table tr.drop-before td { box-shadow: inset 0 2px 0 var(--accent); }
+  #task-table tr.drop-after td { box-shadow: inset 0 -2px 0 var(--accent); }
+  #task-table tbody tr.drop-child { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+  #task-table tr.drop-child td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+  .btn-danger { color: var(--error); }
+  #task-table .col-st { width: 66px; }   /* つかむところ＋チェックボックス＋状態バッジ */
   #task-table td.cell-st { white-space: nowrap; }
   .st-badge { font-size: 11px; padding: 0 3px; min-width: 20px; margin-left: 2px;
     vertical-align: 1px; }
@@ -45,9 +67,10 @@
   a.chip:hover { text-decoration: underline; }
   /* 一覧の関連ノート: チップは折り返さないので、長いノート名だと列がその幅まで伸びて内容の列が潰れる
      （利用者のスクリーンショット・2026-09-25 — 🎯 が作るノート名は <日付>_<内容> で長い）。
-     16em で切って全文は title（TB-W3）。モーダルのチップは ✕ を隠さないよう切らない */
-  #task-table td .chip { max-width: 16em; overflow: hidden; text-overflow: ellipsis; vertical-align: top; }
-  .btn-child { opacity: 0; font-size: 12px; padding: 1px 7px; }
+     14em で切って全文は title（TB-W3。2026-09-30 に 16em→14em — 行のボタンが4つになり内容の列を守るため）。モーダルのチップは ✕ を隠さないよう切らない */
+  #task-table td .chip { max-width: 14em; overflow: hidden; text-overflow: ellipsis; vertical-align: top; }
+  /* 行のボタンは4つ（＋子・編集・🎯・🗑）。内容の列を削らないよう余白は詰める（TB-W3） */
+  .btn-child { opacity: 0; font-size: 12px; padding: 1px 5px; }
   #task-table tbody tr:hover .btn-child { opacity: 1; }
   /* 入力欄の列に揃える（.modal-why と同じ 5.5em＋10px） */
   .modal-think { margin: -2px 0 10px 5.5em; padding-left: 10px; }
@@ -384,6 +407,7 @@
     </details>
     <div class="modal-actions">
       <span class="muted" id="modal-hint">内容以外はすべて任意です（Cmd/Ctrl+Enter で保存）</span>
+      <button type="button" id="modal-delete" class="btn-danger" hidden title="このタスクを子・メモごと削除（直後なら元に戻せます）">削除</button>
       <span class="spacer"></span>
       <button type="button" id="modal-cancel">キャンセル</button>
       <button type="button" id="modal-save" class="primary">保存</button>
@@ -496,6 +520,7 @@ window.taskboard = {
     },
     fillProject,
     archiveMerge,
+    undoLast,
     setToday: (ymd) => { state.todayOverride = ymd; if (state.loaded) render(); },
     forceFallback: () => { state.fsaOff = true; state.loaded = false; state.resumeHandle = null; enterFallbackUi(); render(); },
   },

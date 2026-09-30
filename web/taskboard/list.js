@@ -26,6 +26,71 @@ function applyUiOps(ops) {
 }
 function applyUiOp(op) { return applyUiOps([op]); }
 
+/* 削除・移動は直前の1回だけ戻せる（TB-Q65。汎用 undo ではない — TB-Q8 の例外）。
+   戻すのは操作の直前の行そのもの。そのあとに別の変更があれば戻さない */
+function applyUndoable(op, msg) {
+  const snap = state.lines.map(l => ({ raw: l.raw, orig: l.orig }));
+  const savedAt = state.snapshot;
+  if (!applyUiOp(op)) return false;
+  state.collapsed.clear();          // 行番号がずれるので、たたみは解く
+  state.lastUndo = { snap, savedAt, after: joinLines(state.lines) };
+  showBanner('info', msg + '（直前の1回だけ戻せます）', [{ label: '元に戻す', onClick: undoLast }]);
+  return true;
+}
+function undoLast() {
+  const u = state.lastUndo;
+  if (!u) { showBanner('warn', '戻せる操作がありません'); return false; }
+  if (joinLines(state.lines) !== u.after) {
+    state.lastUndo = null;
+    showBanner('warn', 'そのあとに別の変更があるため戻せません');
+    return false;
+  }
+  // 操作のあとに自動保存されていたら、戻した行はすべて保存済みの扱い（追加行の印を復活させない）
+  const saved = state.snapshot !== u.savedAt;
+  state.lines = u.snap.map(l => ({ raw: l.raw, orig: saved ? l.raw : l.orig }));
+  state.lastUndo = null;
+  state.collapsed.clear();
+  render();
+  scheduleAutoSave();
+  showBanner('info', '元に戻しました');
+  return true;
+}
+
+// 削除の確認文（TB-DEL4）。子・メモの数と、このタスクを先行にしているタスクの数を出す
+function deleteMessage(t) {
+  const sub = [];
+  (function walk(x) { sub.push(x); for (const c of x.children) walk(c); })(t);
+  const kids = sub.length - 1;
+  const i = t.line - 1;
+  const memos = (subtreeEnd(state.lines, i) - i + 1) - sub.length;
+  const inSub = new Set(sub.map(x => x.line));
+  const ids = sub.map(x => x.id).filter(Boolean);
+  const dependents = state.doc.tasks.filter(x => !inSub.has(x.line) && x.dependsOn.some(id => ids.includes(id))).length;
+  const parts = [];
+  if (kids) parts.push('子タスク ' + kids + ' 件');
+  if (memos) parts.push('メモ ' + memos + ' 行');
+  return '「' + (t.displayBody || t.body || '(内容なし)') + '」を削除します' +
+    (parts.length ? '（' + parts.join('・') + 'も一緒に）' : '') + '。' +
+    (dependents ? 'このタスクを先行にしているタスクが ' + dependents + ' 件あります（⛔ の印は残ります）。' : '') +
+    'よろしいですか？';
+}
+function confirmDeleteTask(t) {
+  if (!confirm(deleteMessage(t))) return false;
+  return applyUndoable({ type: 'deleteTask', line: t.line }, '削除しました');
+}
+
+// ドラッグの落とし先: 行の上 1/4＝前・下 1/4＝後・真ん中＝子（TB-K19・K20）
+function dropZone(tr, y) {
+  const rc = tr.getBoundingClientRect();
+  const k = (y - rc.top) / (rc.height || 1);
+  return k < 0.25 ? 'before' : (k > 0.75 ? 'after' : 'child');
+}
+function clearDropMarks() {
+  for (const x of document.querySelectorAll('#task-table tr.drop-before, #task-table tr.drop-child, #task-table tr.drop-after')) {
+    x.classList.remove('drop-before', 'drop-child', 'drop-after');
+  }
+}
+
 // 追加フォームの既定値を**すべての編集経路から**記憶する。
 // Step 6 の不具合は「記憶の入口が追加フォーム1箇所だけ」で、実運用で使われる
 // セルのポップオーバーから書かれていなかったことが原因（docs/verification-notes.md §5b 型3）
@@ -168,7 +233,9 @@ function render() {
   }
 
   const rows = [];
-  const collect = (t) => { if (t._vis) rows.push(t); for (const c of t.children) collect(c); };
+  // たたんだ親の子はリストでだけ隠す（タイムラインの行順は変えない）。検索中はたたみを無視して一致を出す（TB-V2）
+  const folded = t => state.ui.view === 'list' && q === '' && state.collapsed.has(t.line);
+  const collect = (t) => { if (t._vis) rows.push(t); if (folded(t)) return; for (const c of t.children) collect(c); };
   for (const g of groups) collect(g);
   state.visibleRows = rows;
   // 依存グラフは**表示中の行全体**から作る（🛫 が無くて図に出ない行も含める。
@@ -248,9 +315,53 @@ function renderRow(t, today) {
   // 未保存の追加行を見分けられるようにする（保存すると orig が実値になり自然に消える）
   const isAdded = state.lines[t.line - 1] && state.lines[t.line - 1].orig === null;
   if (isAdded) tr.classList.add('row-added');
+  // 子を持つ行（TB-V1）: 太字・背景を少し色づけ・子の数・▾
+  if (t.children.length) tr.classList.add('row-parent');
+  // ドラッグで落とされる側（TB-K19〜K21）。自分と自分の子孫の上には落とせない
+  if (!t.hasCR) {
+    tr.addEventListener('dragover', (e) => {
+      if (!state.drag || state.drag.banned.has(t.line)) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+      const z = dropZone(tr, e.clientY);
+      tr.classList.toggle('drop-before', z === 'before');
+      tr.classList.toggle('drop-child', z === 'child');
+      tr.classList.toggle('drop-after', z === 'after');
+    });
+    tr.addEventListener('dragleave', (e) => {
+      if (!tr.contains(e.relatedTarget)) tr.classList.remove('drop-before', 'drop-child', 'drop-after');
+    });
+    tr.addEventListener('drop', (e) => {
+      if (!state.drag || state.drag.banned.has(t.line)) return;
+      e.preventDefault();
+      const from = state.drag.line;
+      const z = dropZone(tr, e.clientY);
+      state.drag = null;
+      clearDropMarks();
+      applyUndoable({ type: 'moveTask', line: from, target: t.line, position: z },
+        z === 'child' ? '子にしました' : '移動しました');
+    });
+  }
 
   const tdSt = document.createElement('td');
   tdSt.className = 'cell-st';
+  // つかむところ（TB-K19）。並び順がファイル順のときだけ動く（期限順などでは画面とファイルの上下が一致しない）
+  const canDrag = !t.hasCR && state.ui.sort === 'file' && state.ui.view === 'list';
+  const grip = document.createElement('span');
+  grip.className = 'drag-handle' + (canDrag ? '' : ' is-off');
+  grip.textContent = '⋮⋮';
+  grip.draggable = canDrag;
+  grip.title = canDrag ? 'ドラッグで移動（行の上端＝前・真ん中＝子・下端＝後）'
+    : '並び順を「ファイル順」にするとドラッグで動かせます';
+  if (canDrag) {
+    grip.addEventListener('dragstart', (e) => {
+      state.drag = { line: t.line, banned: new Set([t.line].concat(descendantLines(t, []))) };
+      if (e.dataTransfer) { e.dataTransfer.setData('text/plain', String(t.line)); e.dataTransfer.effectAllowed = 'move'; }
+      tr.classList.add('dragging');
+    });
+    grip.addEventListener('dragend', () => { state.drag = null; clearDropMarks(); tr.classList.remove('dragging'); });
+  }
+  tdSt.appendChild(grip);
   const cb = document.createElement('input');
   cb.type = 'checkbox';
   cb.checked = t.done;
@@ -290,7 +401,8 @@ function renderRow(t, today) {
   // 未着手・完了はチェックボックスで分かるのでホバー時だけ操作口を見せる（＋子 と同じ作法）
   if (STATUS_MARK[t.status]) badge.textContent = STATUS_MARK[t.status];
   else if (t.status === ST_OTHER) badge.textContent = t.statusChar;
-  else { badge.textContent = '▾'; badge.classList.add('st-quiet'); }
+  // 未着手・完了の操作口は「◌」（2026-09-30 に ▾ から変更 — 親の行のたたむ ▾ と同じ行に並んで紛らわしかった）
+  else { badge.textContent = '◌'; badge.classList.add('st-quiet'); }
   badge.title = '状態: ' + (STATUS_LABEL[t.status] || t.statusChar) +
     '（クリックで ' + ST_CHOICES.map(s => STATUS_LABEL[s]).join(' / ') + ' を選ぶ）';
   badge.disabled = t.hasCR;
@@ -301,12 +413,42 @@ function renderRow(t, today) {
   const tdBody = document.createElement('td');
   tdBody.className = 'cell-body';
   tdBody.style.paddingLeft = (10 + t.indent * 22) + 'px';
+  // 子の行は「└」ではなく深さごとの縦線でつなぐ（TB-V1）。線は字下げの余白に描く
+  if (t.indent > 0) {
+    const xs = [];
+    for (let k = 0; k < t.indent; k++) xs.push((10 + k * 22 + 6) + 'px 0');
+    tdBody.style.backgroundImage = new Array(t.indent).fill('linear-gradient(var(--rail), var(--rail))').join(', ');
+    tdBody.style.backgroundSize = '2px 100%';
+    tdBody.style.backgroundPosition = xs.join(', ');
+    tdBody.style.backgroundRepeat = 'no-repeat';
+  }
+  // ▾／▸（子を持つ行だけ。押すとたたむ）。子を持たない行は同じ幅だけ空けて字の位置をそろえる
+  const fold = document.createElement(t.children.length ? 'button' : 'span');
+  fold.className = t.children.length ? 'fold-btn' : 'fold-space';
+  if (t.children.length) {
+    const closed = state.collapsed.has(t.line);
+    fold.type = 'button';
+    fold.textContent = closed ? '▸' : '▾';
+    fold.title = closed ? '子を開く' : '子をたたむ';
+    fold.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (state.collapsed.has(t.line)) state.collapsed.delete(t.line); else state.collapsed.add(t.line);
+      render();
+    });
+  }
+  tdBody.appendChild(fold);
   const span = document.createElement('span');
   span.className = 'body-text';
-  if (t.indent > 0) span.appendChild(document.createTextNode('└ '));
   appendHighlighted(span, t.displayBody || t.body || '(内容なし)',
     nfc(state.ui.q || '').trim().toLowerCase());
   tdBody.appendChild(span);
+  if (t.children.length) {
+    const cc = document.createElement('span');
+    cc.className = 'child-count';
+    cc.textContent = String(t.children.length);
+    cc.title = '子タスク ' + t.children.length + ' 件';
+    tdBody.appendChild(cc);
+  }
   const dm = depMark(t);
   if (dm) tdBody.appendChild(dm);
   // メモを持つ行の印。クリックで直下に展開／折り畳み（展開状態は永続化しない）
@@ -401,7 +543,7 @@ function renderRow(t, today) {
     const chip = document.createElement(href ? 'a' : 'span');
     chip.className = 'chip';
     chip.textContent = name;
-    // 一覧では16emで切るので、title の先頭に全文（TB-W3）
+    // 一覧では14emで切るので、title の先頭に全文（TB-W3）
     if (href) { chip.href = href; chip.title = name + ' — Obsidian で開く'; }
     else chip.title = name + ' — Obsidian で開くにはツールバーの「vault 名」を設定してください';
     tdLinks.appendChild(chip);
@@ -430,8 +572,15 @@ function renderRow(t, today) {
     thinkBtn.title = '考える場所へ — 関連ノートにイシューノートがあれば開く。無ければ作ってリンクする';
     thinkBtn.addEventListener('click', () => thinkAbout(t, false));
     tdAct.appendChild(thinkBtn);
+    // 削除（TB-DEL4。子・メモごと・必ず確認・直後に［元に戻す］）
+    const delBtn = document.createElement('button');
+    delBtn.className = 'btn-child';
+    delBtn.textContent = '🗑';
+    delBtn.title = '削除（子・メモごと。直後なら元に戻せます）';
+    delBtn.addEventListener('click', () => confirmDeleteTask(t));
+    tdAct.appendChild(delBtn);
   }
-  // 未保存の追加行だけ取り消せる（既存行の削除は提供しない）
+  // 未保存の追加行の取り消し（既存行の削除は 🗑 — TB-DEL）
   if (isAdded && !t.hasCR) {
     const undo = document.createElement('button');
     undo.className = 'btn-undo';

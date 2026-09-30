@@ -267,6 +267,11 @@ function syncModalParent() {
     : '子・メモごとその親の下へ移ります。セクションも親に合わせます';
 }
 el('modal-parent').addEventListener('change', syncModalParent);
+el('modal-delete').addEventListener('click', () => {
+  if (!modalState || modalState.mode !== 'edit') return;
+  const t = state.doc.tasks.find(x => x.line === modalState.line);
+  if (t && confirmDeleteTask(t)) closeModal();
+});
 
 function refreshModalDeps() {
   const lineOfName = (line) => {
@@ -379,6 +384,8 @@ function openTaskModal(mode, t, opts) {
   // 親タスク欄も編集モーダル限定（TB-K）。セクション欄の無効化は毎回解く
   el('modal-section').disabled = false;
   el('modal-parent-field').hidden = mode !== 'edit';
+  // 削除も編集モーダル限定（TB-DEL6）
+  el('modal-delete').hidden = mode !== 'edit' || !!(t && t.hasCR);
   if (mode === 'edit') refreshModalParent(t);
   else { el('modal-parent').textContent = ''; el('modal-parent-new').value = ''; syncModalParent(); }
   refreshModalLinks();

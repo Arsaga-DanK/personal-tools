@@ -65,6 +65,10 @@ const state = {
   // メモ・ボードの子タスクの展開状態。**永続化しない**
   // （行番号は編集で動くため、保存すると別の行が開く）
   memoOpen: new Set(),
+  // リストでたたんだ親の行（TB-V2）。**永続化しない**（メモの展開と同じ理由）
+  collapsed: new Set(),
+  drag: null,        // ドラッグ中の { line, banned }（TB-K19）
+  lastUndo: null,    // 直前の削除・移動（TB-Q65 — 1回だけ戻せる）
   // 検索で自動的に開いたメモの行（手動で開いたものと区別して、検索をやめたら畳む）
   memoAutoOpen: new Set(),
   boardKidsOpen: new Set(),

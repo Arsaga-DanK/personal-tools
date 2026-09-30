@@ -352,8 +352,8 @@ module.exports = {
     document.getElementById('modal-cancel').click();
     return out;
   }, [W3, W3NOTE]);
-  r.check('TB-W3（長い関連ノート名: 内容の列が関連ノートの列より広く表の3割以上・チップは16em以内で全文は title・横スクロールなし・モーダルのチップもはみ出さず ✕ が見える）',
-    w3.bodyW > w3.linksW && w3.bodyW >= w3.tableW * 0.3 && w3.chipEm <= 16.5 && w3.fullTitle && w3.docNoScroll
+  r.check('TB-W3（長い関連ノート名: 内容の列が関連ノートの列より広く表の3割以上・チップは14em以内で全文は title・横スクロールなし・モーダルのチップもはみ出さず ✕ が見える）',
+    w3.bodyW > w3.linksW && w3.bodyW >= w3.tableW * 0.3 && w3.chipEm <= 14.5 && w3.fullTitle && w3.docNoScroll
     && w3.modalNoScroll && w3.modalChipFits && w3.delVisible,
     JSON.stringify(w3));
 
