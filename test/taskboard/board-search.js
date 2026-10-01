@@ -209,12 +209,12 @@ module.exports = {
     inp.value = '外部IF';
     inp.dispatchEvent(new InputEvent('input', { bubbles: true }));
     await new Promise(d => setTimeout(d, 350));
-    const withUl = Array.from(document.querySelectorAll('#task-table tbody tr:not(.memo-row)'))
+    const withUl = Array.from(document.querySelectorAll('#task-table tbody tr:not(.memo-row):not(.sec-row)'))
       .map(tr => Number(tr.dataset.line));
     sec.value = '';
     sec.dispatchEvent(new Event('change', { bubbles: true }));
     await new Promise(d => setTimeout(d, 50));
-    const withAll = Array.from(document.querySelectorAll('#task-table tbody tr:not(.memo-row)'))
+    const withAll = Array.from(document.querySelectorAll('#task-table tbody tr:not(.memo-row):not(.sec-row)'))
       .map(tr => Number(tr.dataset.line));
     return { withUl, withAll };
   });

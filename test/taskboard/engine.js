@@ -223,38 +223,32 @@ module.exports = {
     && BLANKS(s8) === BLANKS(F1) + 2 && s8 !== F1,
     JSON.stringify([eq(NB(s8), F1NB), BLANKS(s8), BLANKS(F1)]));
 
-  // TB-S9: UI 経路（クリック → 保存 → 永続）
-  const s9 = await withDialogs('accept', () => page.evaluate(([f1, today]) => {
+  // TB-S9: UI 経路（見出しへドラッグ → 保存 → 永続）。2026-10-01 にセクションの列を消して見出しへ落とす形に（TB-SH5）
+  const s9 = await withDialogs('accept', () => page.evaluate(async ([f1, today]) => {
     window.taskboard.test.setToday(today);
     const s = window.taskboard.test.newSession(f1);
     window.__s = s;
-    const rows = Array.from(document.querySelectorAll('#task-table tbody tr'));
-    const target = rows.find(tr => tr.children[1].textContent.includes('目標管理'));
-    const secCell = target.children[6];
-    const clickable = secCell.classList.contains('cell-sec');
-    secCell.click();
-    const btn = Array.from(document.querySelectorAll('#popover button'))
-      .find(b => b.textContent === 'その他');
-    const disabledCurrent = Array.from(document.querySelectorAll('#popover button'))
-      .some(b => b.textContent === 'UL' && b.disabled);
-    btn.click();
+    const src = Array.from(document.querySelectorAll('#task-table tbody tr[data-line]'))
+      .find(tr => tr.children[1].textContent.includes('目標管理'));
+    const head = Array.from(document.querySelectorAll('#task-table tbody tr.sec-row'))
+      .find(h => ((h.querySelector('.sec-name') || {}).textContent || '').replace(/^[▾▸]\s*/, '') === 'その他');
+    if (!src || !head) return { missing: true };
+    const dt = new DataTransfer();
+    const h = src.querySelector('.drag-handle');
+    h.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dt }));
+    const rc = head.getBoundingClientRect();
+    const o = { bubbles: true, cancelable: true, dataTransfer: dt, clientX: rc.left + 80, clientY: rc.top + rc.height / 2 };
+    head.dispatchEvent(new DragEvent('dragover', o));
+    head.dispatchEvent(new DragEvent('drop', o));
+    h.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: dt }));
     const banner = document.getElementById('banner').textContent;
-    const saveEnabled = !document.getElementById('btn-save').disabled;
-    return s.save().then(res => ({
-      clickable, disabledCurrent, banner, saveEnabled, res,
-      adapter: s.getAdapterText(),
-      successBanner: document.getElementById('banner').textContent,
-    }));
+    const res = await s.save();
+    return { banner, res, adapter: s.getAdapterText(), successBanner: document.getElementById('banner').textContent };
   }, [F1, TODAY]));
-  r.check('TB-S9（UI: クリックで移動・保存ボタン有効・保存で永続）',
-    s9.result.clickable === true && s9.result.disabledCurrent === true
-    && s9.result.banner === '「その他」の末尾へ移動しました（ファイルへは保存時に反映）'
-    && s9.result.saveEnabled === true && s9.result.res.ok === true
-    && s9.result.adapter === s1
-    // 空セクションへの移動は空行が1行増えるので「追加1行」が正しい
-    && s9.result.successBanner === '保存しました（変更0行・追加1行）',
-    JSON.stringify([s9.result.clickable, s9.result.disabledCurrent, s9.result.banner,
-      s9.result.saveEnabled, s9.result.adapter === s1, s9.result.successBanner]));
+  r.check('TB-S9（UI: 「その他」の見出しへドラッグで移動・保存で永続・空セクションへの挿入は「追加1行」）',
+    !s9.result.missing && s9.result.banner.includes('「その他」へ移しました') && s9.result.res.ok === true
+    && s9.result.adapter === s1 && s9.result.successBanner === '保存しました（変更0行・追加1行）',
+    JSON.stringify(s9.result.missing ? s9.result : [s9.result.banner, s9.result.adapter === s1, s9.result.successBanner]));
 
   // TB-S11: タスクがあるセクションへの移動は行が増えないため「（行の移動）」と表示される
   const s11 = await withDialogs('accept', () => page.evaluate(([f1, today]) => {
@@ -273,23 +267,14 @@ module.exports = {
     && s11.result.successBanner === '保存しました（行の移動）',
     JSON.stringify([s11.result.saveEnabled, s11.result.adapter === s2mid, s11.result.successBanner]));
 
-  // TB-S10: 子タスクの行と、セクションが1つだけのファイルではクリックできない
-  const s10 = await page.evaluate(([f1, today]) => {
-    window.taskboard.test.setToday(today);
-    const cb = document.getElementById('f-done');
-    cb.checked = true;
-    cb.dispatchEvent(new Event('change', { bubbles: true }));
-    window.taskboard.test.newSession(f1);
-    const rows = Array.from(document.querySelectorAll('#task-table tbody tr'));
-    const child = rows.find(tr => tr.children[1].textContent.includes('PRODUCTS_DETAIL'));
-    const childClickable = child ? child.children[6].classList.contains('cell-sec') : null;
-    // セクションが1つだけのファイル
+  // TB-S10: 子タスクは見出しへ落とせない（TB-SH5 で照合）／セクションが1つだけのファイルでも見出しは1つ出る（2026-10-01 改訂）
+  const s10 = await page.evaluate(() => {
     window.taskboard.test.newSession('# tasks\n\n## PEW\n\n- [ ] only\n');
-    const single = Array.from(document.querySelectorAll('#task-table tbody tr'))[0];
-    return { childClickable, singleClickable: single.children[6].classList.contains('cell-sec') };
-  }, [F1, TODAY]);
-  r.check('TB-S10（子タスクとセクション1つだけのファイルではクリック不可）',
-    s10.childClickable === false && s10.singleClickable === false, JSON.stringify(s10));
+    return { heads: document.querySelectorAll('#task-table tbody tr.sec-row').length,
+      name: ((document.querySelector('#task-table tbody tr.sec-row .sec-name') || {}).textContent || '').replace(/^[▾▸]\s*/, '') };
+  });
+  r.check('TB-S10（セクションが1つだけのファイルでも見出しは1つ — 子が見出しへ落とせないことは TB-SH5）',
+    s10.heads === 1 && s10.name === 'PEW', JSON.stringify(s10));
 
   /* ========== TB-A1〜A7: アーカイブ先と一括操作の事故防止（AR-1 / AR-3） ========== */
   // 完了させたい行を ops で指定し、save() / archive() を確認ダイアログ込みで走らせる

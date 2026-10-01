@@ -67,6 +67,7 @@ const state = {
   memoOpen: new Set(),
   // リストでたたんだ親の行（TB-V2）。**永続化しない**（メモの展開と同じ理由）
   collapsed: new Set(),
+  secFolded: new Set(),   // リストでたたんだセクション（TB-SH4）。**永続化しない**
   drag: null,        // ドラッグ中の { line, banned }（TB-K19）
   lastUndo: null,    // 直前の削除・移動（TB-Q65 — 1回だけ戻せる）
   // 検索で自動的に開いたメモの行（手動で開いたものと区別して、検索をやめたら畳む）

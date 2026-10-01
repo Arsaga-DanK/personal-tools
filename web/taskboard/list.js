@@ -86,8 +86,8 @@ function dropZone(tr, y) {
   return k < 0.25 ? 'before' : (k > 0.75 ? 'after' : 'child');
 }
 function clearDropMarks() {
-  for (const x of document.querySelectorAll('#task-table tr.drop-before, #task-table tr.drop-child, #task-table tr.drop-after')) {
-    x.classList.remove('drop-before', 'drop-child', 'drop-after');
+  for (const x of document.querySelectorAll('#task-table tr.drop-before, #task-table tr.drop-child, #task-table tr.drop-after, #task-table tr.drop-sec')) {
+    x.classList.remove('drop-before', 'drop-child', 'drop-after', 'drop-sec');
   }
 }
 
@@ -232,11 +232,25 @@ function render() {
     groups = groups.slice().sort((a, b) => doneKey(a) - doneKey(b)); // 安定ソート（既存順を保つ）
   }
 
+  // リストはセクションの見出しでまとめる（TB-SH1〜SH3）。並べ替えはセクションの中で — 上の並べ替えのあとに
+  // 安定に振り分けるので、セクションの中の順は並び順どおり。表示・ファイル・Excel用コピーの順を揃えるため groups も入れ替える
+  let secBlocks = null;
+  if (state.ui.view === 'list') {
+    const filtering = q !== '' || !!state.ui.tag;
+    const names = state.ui.section ? [state.ui.section] : doc.sections.slice();
+    if (groups.some(g => !g.section)) names.unshift('');            // 最初の ## より前のタスク
+    secBlocks = names.map(n => ({ name: n, groups: groups.filter(g => (g.section || '') === n) }))
+      // 空のセクションも出す（落として移せるように）。絞り込み中は行の無いセクションを出さない
+      .filter(b => b.groups.length || (!filtering && b.name !== ''));
+    groups = secBlocks.reduce((a, b) => a.concat(b.groups), []);
+  }
+
   const rows = [];
   // たたんだ親の子はリストでだけ隠す（タイムラインの行順は変えない）。検索中はたたみを無視して一致を出す（TB-V2）
   const folded = t => state.ui.view === 'list' && q === '' && state.collapsed.has(t.line);
   const collect = (t) => { if (t._vis) rows.push(t); if (folded(t)) return; for (const c of t.children) collect(c); };
-  for (const g of groups) collect(g);
+  const secFolded = n => state.ui.view === 'list' && state.secFolded.has(n);
+  for (const g of groups) if (!secFolded(g.section || '')) collect(g);
   state.visibleRows = rows;
   // 依存グラフは**表示中の行全体**から作る（🛫 が無くて図に出ない行も含める。
   // リスト・ボードの印と完了時の警告も同じグラフを見る）
@@ -245,9 +259,22 @@ function render() {
   const tbody = el('task-body');
   tbody.textContent = '';
   const today = todayStr();
-  for (const t of rows) {
+  const putRow = (t) => {
     tbody.appendChild(renderRow(t, today));
     if (t.memo.length && state.memoOpen.has(t.line)) tbody.appendChild(renderMemoRow(t));
+  };
+  if (secBlocks) {
+    const inRows = new Set(rows.map(t => t.line));
+    for (const b of secBlocks) {
+      // 見出しの数はたたんでいても数える（そのセクションの表示中のタスク）
+      const all = [];
+      const walk = (t) => { if (t._vis) all.push(t); for (const c of t.children) walk(c); };
+      for (const g of b.groups) walk(g);
+      tbody.appendChild(renderSecHead(b.name, all, today));
+      for (const t of rows) if ((t.section || '') === b.name && inRows.has(t.line)) putRow(t);
+    }
+  } else {
+    for (const t of rows) putRow(t);
   }
 
   for (const b of el('view-tabs').querySelectorAll('button')) {
@@ -317,14 +344,72 @@ function rowState(t, today) {
   if (t.start && t.start <= today && t.status === ST_TODO) return 'should';
   return '';
 }
-// 日付の表示（TB-V5）: 年は薄く小さく（.yr）。文字列そのものは変えない
-function fillDate(host, ymd) {
+// 日付の表示（TB-V5・TB-Q67）: 今年なら「10/5」、今年でなければ「2027/1/5」。正確な日付は title
+function fillDate(host, ymd, today) {
   if (!ymd) return;
-  const y = document.createElement('span');
-  y.className = 'yr';
-  y.textContent = ymd.slice(0, 5);
-  host.appendChild(y);
-  host.appendChild(document.createTextNode(ymd.slice(5)));
+  const p = ymd.split('-');
+  host.textContent = (p[0] === String(today).slice(0, 4) ? '' : p[0] + '/') + (+p[1]) + '/' + (+p[2]);
+  host.title = ymd;
+}
+
+// セクションの見出しの行（TB-SH1〜SH6）。data-line を持たない。セルは2つ（状態の列の空き＋残り全部）
+function renderSecHead(name, list, today) {
+  const tr = document.createElement('tr');
+  tr.className = 'sec-row';
+  const pad = document.createElement('td');
+  pad.className = 'sec-pad';
+  tr.appendChild(pad);
+  const td = document.createElement('td');
+  td.className = 'sec-cell';
+  td.colSpan = 7;
+  const closed = state.secFolded.has(name);
+  const fold = document.createElement('button');
+  fold.type = 'button';
+  fold.className = 'sec-fold';
+  fold.textContent = closed ? '▸' : '▾';
+  fold.title = closed ? 'このセクションを開く' : 'このセクションをたたむ';
+  fold.addEventListener('click', () => {
+    if (state.secFolded.has(name)) state.secFolded.delete(name); else state.secFolded.add(name);
+    render();
+  });
+  td.appendChild(fold);
+  const nm = document.createElement('span');
+  nm.className = 'sec-name';
+  nm.textContent = name || '（セクションなし）';
+  td.appendChild(nm);
+  const cnt = document.createElement('span');
+  cnt.className = 'sec-count';
+  cnt.textContent = list.length + '件';
+  td.appendChild(cnt);
+  // 急ぎの数は行の状態（TB-V4）と同じ分け方。0 のものは出さない
+  const n = { late: 0, today: 0, doing: 0 };
+  for (const t of list) { const k = rowState(t, today); if (k in n) n[k]++; }
+  for (const [k, label] of [['late', '遅れ'], ['today', '今日まで'], ['doing', '進めている']]) {
+    if (!n[k]) continue;
+    const x = document.createElement('span');
+    x.className = 'sec-st ' + k;
+    x.textContent = label + ' ' + n[k];
+    td.appendChild(x);
+  }
+  tr.appendChild(td);
+  // 見出しへ落とすとそのセクションの末尾へ（TB-SH5）。落とせるのは最上位のタスクだけ・別のセクションだけ
+  const canTake = () => state.drag && state.drag.top && name !== '' && state.drag.section !== name;
+  tr.addEventListener('dragover', (e) => {
+    if (!canTake()) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    tr.classList.add('drop-sec');
+  });
+  tr.addEventListener('dragleave', (e) => { if (!tr.contains(e.relatedTarget)) tr.classList.remove('drop-sec'); });
+  tr.addEventListener('drop', (e) => {
+    if (!canTake()) return;
+    e.preventDefault();
+    const from = state.drag.line;
+    state.drag = null;
+    clearDropMarks();
+    applyUndoable({ type: 'moveSection', line: from, section: name }, '「' + name + '」へ移しました');
+  });
+  return tr;
 }
 // 期限の隣の言葉（TB-V5）: N日遅れ／今日／明日／あとN日
 function dueWords(due, today) {
@@ -397,7 +482,7 @@ function renderRow(t, today) {
         e.preventDefault();
         return;
       }
-      state.drag = { line: t.line, banned: new Set([t.line].concat(descendantLines(t, []))) };
+      state.drag = { line: t.line, banned: new Set([t.line].concat(descendantLines(t, []))), top: t.indent === 0, section: t.section || '' };
       if (e.dataTransfer) { e.dataTransfer.setData('text/plain', String(t.line)); e.dataTransfer.effectAllowed = 'move'; }
       tr.classList.add('dragging');
     });
@@ -517,7 +602,7 @@ function renderRow(t, today) {
   const tdStart = document.createElement('td');
   tdStart.className = 'cell-start';
   const startSpan = document.createElement('span');
-  fillDate(startSpan, t.start);   // 空欄は空白（「—」を並べない）
+  fillDate(startSpan, t.start, today);   // 空欄は空白（「—」を並べない）
   tdStart.appendChild(startSpan);
   if (!t.hasCR) {
     tdStart.title = 'クリックで開始日を設定';
@@ -528,7 +613,7 @@ function renderRow(t, today) {
   const tdDue = document.createElement('td');
   tdDue.className = 'cell-due';
   const dueSpan = document.createElement('span');
-  fillDate(dueSpan, t.due);
+  fillDate(dueSpan, t.due, today);
   // 遅れ・今日は文字の色だけ（背景は塗らない — 状態は行の左端の帯が示す。TB-V5）。クラス名は従来どおり
   if (!t.finished && t.due) {
     if (t.due < today) dueSpan.className = 'due-over';
@@ -564,16 +649,7 @@ function renderRow(t, today) {
   }
   tr.appendChild(tdTags);
 
-  const tdSec = document.createElement('td');
-  tdSec.textContent = t.section || '';
-  tdSec.classList.add('muted');
-  // 深さ0のタスクだけセクションを変更できる（子は親と一緒に移るため対象外）
-  if (!t.hasCR && t.indent === 0 && state.doc && state.doc.sections.length > 1) {
-    tdSec.classList.add('cell-sec');
-    tdSec.title = 'クリックでセクションを変更（移動先の末尾に移ります）';
-    tdSec.addEventListener('click', () => openSectionPopover(tdSec, t));
-  }
-  tr.appendChild(tdSec);
+  // セクションの列は無い（表の中の見出しにした — TB-SH2）。移すのは見出しへのドラッグか編集画面
 
   const tdLinks = document.createElement('td');
   for (const name of t.links) {

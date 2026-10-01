@@ -322,7 +322,7 @@ module.exports = {
     ''].join('\n');
   const w3 = await page.evaluate(async ([txt, note]) => {
     window.taskboard.test.newSession(txt);
-    const tr = document.querySelector('#task-table tbody tr');
+    const tr = document.querySelector('#task-table tbody tr:not(.sec-row)');   // 見出しの行を避ける（TB-SH）
     const body = tr.querySelector('td.cell-body');
     const chip = tr.querySelector('.chip');
     const linksTd = chip.closest('td');

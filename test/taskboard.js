@@ -267,7 +267,7 @@ if (unknown.length) {
     await new Promise(d => setTimeout(d, 350));
     const rows = v === 'board'
       ? Array.from(document.querySelectorAll('.board-card')).map(x => Number(x.dataset.line))
-      : Array.from(document.querySelectorAll('#task-table tbody tr:not(.memo-row)')).map(tr => Number(tr.dataset.line));
+      : Array.from(document.querySelectorAll('#task-table tbody tr:not(.memo-row):not(.sec-row)')).map(tr => Number(tr.dataset.line));
     return {
       rows, count: document.getElementById('q-count').textContent,
       hits: document.querySelectorAll('.hit').length,

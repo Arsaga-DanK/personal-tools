@@ -30,7 +30,19 @@
   #task-table th { font-size: 11.5px; font-weight: 600; color: var(--muted); letter-spacing: .04em; }
   #task-table .body-text { font-size: 14px; }
   #task-table td.cell-start, #task-table td.cell-due, #task-table td.cell-pri { font-size: 13px; font-variant-numeric: tabular-nums; }
-  #task-table .yr { font-size: 11px; color: var(--muted); opacity: .8; }
+  /* セクションの見出し（TB-SH1〜SH6）: 背景を付けず、文字と線だけ */
+  #task-table tbody tr.sec-row, #task-table tbody tr.sec-row:hover { background: transparent; }
+  #task-table tr.sec-row td { padding: 16px 10px 6px; border-bottom: 1px solid var(--border); box-shadow: none; }
+  #task-table tbody tr.sec-row:first-child td { padding-top: 8px; }
+  .sec-fold { border: 0; background: none; padding: 0; margin: 0 6px 0 0; cursor: pointer; color: var(--muted); font-size: 13px; }
+  .sec-fold:hover { color: var(--text); }
+  .sec-name { font-size: 15px; font-weight: 700; letter-spacing: .03em; }
+  .sec-count { font-size: 12.5px; color: var(--muted); margin-left: 10px; }
+  .sec-st { font-size: 12.5px; font-weight: 600; margin-left: 10px; }
+  .sec-st.late { color: var(--st-late); }
+  .sec-st.today { color: var(--st-today); }
+  .sec-st.doing { color: var(--st-doing); }
+  #task-table tr.sec-row.drop-sec td { box-shadow: inset 0 -2px 0 var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
   .due-rel { display: block; font-size: 11.5px; color: var(--muted); line-height: 1.3; }
   .due-rel.late { color: var(--st-late); font-weight: 600; }
   .due-rel.today { color: var(--st-today); font-weight: 600; }
@@ -84,7 +96,8 @@
   #task-table .col-act { width: 88px; }
   /* 操作列（＋子・＋メモ・↩︎）。class は th のみに付くため td 側は位置で指定する。
      メモ行は td が1つ（colspan）で last-child にも当たるため除外する */
-  #task-table tbody tr:not(.memo-row) td:last-child { white-space: nowrap; text-align: right; }
+  /* 操作の列を右寄せ。メモの行とセクションの見出しの行（TB-SH）は対象外 */
+  #task-table tbody tr:not(.memo-row):not(.sec-row) td:last-child { white-space: nowrap; text-align: right; }
   #table-wrap { overflow-x: auto; }  /* 9列あるため狭幅では表の中だけを横スクロールさせる */
   #task-table td.cell-due, #task-table td.cell-start,
   #task-table td.cell-pri, #task-table td.cell-sec { cursor: pointer; white-space: nowrap; }
@@ -367,7 +380,7 @@
     <table id="task-table">
       <thead><tr>
         <th class="col-st"></th><th>内容</th><th>開始日</th><th>期限</th><th>優先度</th>
-        <th>タグ</th><th>セクション</th><th>関連ノート</th><th class="col-act"></th>
+        <th>タグ</th><th>関連ノート</th><th class="col-act"></th>
       </tr></thead>
       <tbody id="task-body"></tbody>
     </table>

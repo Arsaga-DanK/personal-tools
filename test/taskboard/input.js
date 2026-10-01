@@ -50,7 +50,7 @@ module.exports = {
 
   /* ========== TB-I5: インライン編集 ========== */
   await session(F1);
-  await page.dblclick('#task-table tbody tr:first-child td.cell-body');
+  await page.dblclick('#task-table tbody tr[data-line] td.cell-body');   // 見出しの行（sec-row）を避ける
   await page.evaluate(() => { document.querySelector('td.cell-body input').value = '編集IME'; });
   await sendKey('td.cell-body input', 'Enter', 'composing');
   const i5a = await ui();

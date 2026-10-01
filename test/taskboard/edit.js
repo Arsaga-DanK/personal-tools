@@ -161,17 +161,17 @@ module.exports = {
     const sess = window.taskboard.test.newSession(t);
     sess.setView('list');   // 直前のテストで timeline のままだと並べ替えが効かない
     return Array.from(document.querySelectorAll('#task-table tbody tr'))
-      .filter(tr => !tr.classList.contains('memo-row'))
+      .filter(tr => !tr.classList.contains('memo-row') && !tr.classList.contains('sec-row'))
       .map(tr => Number(tr.dataset.line));
   }, [text, TODAY, sort]);
   const c1b = await listOrder(c1done, 'file');
-  r.check('TB-C1（完了グループは最下部・未完了の子孫を持つ完了親は上に残る）',
-    eq(c1b, [10, 11, 12, 13, 17, 9]), JSON.stringify(c1b));
+  r.check('TB-C1（完了グループはセクションの中で最下部・未完了の子孫を持つ完了親は上に残る）',
+    eq(c1b, [10, 11, 12, 13, 9, 17]), JSON.stringify(c1b));
 
   const c2 = {};
   for (const s of ['due', 'priority', 'start']) c2[s] = await listOrder(c1done, s);
-  r.check('TB-C2（どのソートでも完了は最下部＝第1キー）',
-    ['due', 'priority', 'start'].every(s => c2[s][c2[s].length - 1] === 9)
+  r.check('TB-C2（どのソートでも完了はセクションの中で最下部＝第1キー）',
+    ['due', 'priority', 'start'].every(s => c2[s][c2[s].length - 2] === 9 && c2[s][c2[s].length - 1] === 17)
     && Object.keys(c2).length === 3, JSON.stringify(c2));
 
   const c3 = await plan(F4, { showDone: true });
@@ -273,9 +273,20 @@ module.exports = {
     rowOf('資料作成').querySelector('.cell-tags').click();
     document.getElementById('tag-input').value = 'ポップオーバー由来';
     Array.from(document.querySelectorAll('#popover button')).find(b => b.textContent === '追加').click();
-    // セクションセル → UL
-    rowOf('資料作成').querySelector('.cell-sec').click();
-    Array.from(document.querySelectorAll('#popover button')).find(b => b.textContent === 'UL').click();
+    // セクション → UL（2026-10-01 に列を消したので、見出しへのドラッグで変える — TB-SH5）
+    {
+      const src = rowOf('資料作成');
+      const head = Array.from(document.querySelectorAll('#task-table tbody tr.sec-row'))
+        .find(h => ((h.querySelector('.sec-name') || {}).textContent || '').replace(/^[▾▸]\s*/, '') === 'UL');
+      if (src && head) {
+        const dt = new DataTransfer();
+        src.querySelector('.drag-handle').dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dt }));
+        const rc = head.getBoundingClientRect();
+        const o = { bubbles: true, cancelable: true, dataTransfer: dt, clientX: rc.left + 80, clientY: rc.top + rc.height / 2 };
+        head.dispatchEvent(new DragEvent('dragover', o));
+        head.dispatchEvent(new DragEvent('drop', o));
+      }
+    }
     return JSON.parse(localStorage.getItem('tools:taskboard')).data.add;
   }, [F1, TODAY]);
   const d1modal = await openModal(page);
@@ -555,14 +566,14 @@ module.exports = {
     window.taskboard.test.setToday(today);
     window.taskboard.test.newSession(f1);
     const rows = Array.from(document.querySelectorAll('#task-table tbody tr'));
-    const last = rows[rows.length - 1];
+    const last = rows.filter(r => r.dataset.line).pop();   // 見出しの行（sec-row）は data-line を持たない
     window.scrollTo(0, document.documentElement.scrollHeight);
     last.querySelector('.cell-due').click();            // 最下行 → 下端
     const pop = document.getElementById('popover');
     const a = pop.getBoundingClientRect();
     const bottomOk = a.bottom <= document.documentElement.clientHeight && a.top >= 0;
-    // 右端のセル（関連ノート列の隣の操作列）を基準に開く
-    last.querySelector('.cell-sec').click();
+    // 右端（操作の列の［＋子］）を基準に開く。2026-10-01 にセクションの列を消したので起点を変えた
+    last.querySelector('.btn-child').click();
     const b = pop.getBoundingClientRect();
     return {
       bottomOk, rightOk: b.right <= document.documentElement.clientWidth && b.left >= 0,
@@ -576,8 +587,8 @@ module.exports = {
 
   const x17 = await page.evaluate(() =>
     Array.from(document.querySelectorAll('#task-table thead th')).map(th => th.textContent));
-  r.check('TB-X17（列見出しが「関連ノート」・列順は不変）',
-    eq(x17, ['', '内容', '開始日', '期限', '優先度', 'タグ', 'セクション', '関連ノート', '']),
+  r.check('TB-X17（列見出し: セクションの列は無い・「関連ノート」）',
+    eq(x17, ['', '内容', '開始日', '期限', '優先度', 'タグ', '関連ノート', '']),
     JSON.stringify(x17));
 
   const x18 = await page.evaluate(([f1, today]) => {

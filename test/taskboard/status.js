@@ -143,11 +143,11 @@ module.exports = {
     cb.dispatchEvent(new Event('change', { bubbles: true }));
     const s = window.taskboard.test.newSession(f7);
     s.setView('list');
-    return Array.from(document.querySelectorAll('#task-table tbody tr:not(.memo-row)'))
+    return Array.from(document.querySelectorAll('#task-table tbody tr:not(.memo-row):not(.sec-row)'))
       .map(tr => Number(tr.dataset.line));
   }, [F7, TODAY]);
-  r.check('TB-S31（終了下部ソート: 着手中は下がらない・完了と中止が最下部）',
-    eq(s31, [5, 6, 13, 7, 8, 9]), JSON.stringify(s31));
+  r.check('TB-S31（終了下部ソート: 着手中は下がらない・完了と中止がセクションの中で最下部）',
+    eq(s31, [5, 6, 7, 8, 9, 13]), JSON.stringify(s31));
 
   const s32 = await page.evaluate(([f7, today]) => {
     window.taskboard.test.setToday(today);
@@ -156,7 +156,7 @@ module.exports = {
     cb.dispatchEvent(new Event('change', { bubbles: true }));
     const s = window.taskboard.test.newSession(f7);
     s.setView('list');
-    return Array.from(document.querySelectorAll('#task-table tbody tr:not(.memo-row)'))
+    return Array.from(document.querySelectorAll('#task-table tbody tr:not(.memo-row):not(.sec-row)'))
       .map(tr => Number(tr.dataset.line));
   }, [F7, TODAY]);
   r.check('TB-S32（「完了・中止を含む」OFF: 着手中は残り、完了と中止が消える）',
@@ -228,7 +228,7 @@ module.exports = {
       .find(tr => tr.children[1] && tr.children[1].textContent.includes(body));
     const hold = rowOf('保留のタスク');
     return {
-      lines: Array.from(document.querySelectorAll('#task-table tbody tr:not(.memo-row)'))
+      lines: Array.from(document.querySelectorAll('#task-table tbody tr:not(.memo-row):not(.sec-row)'))
         .map(tr => Number(tr.dataset.line)),
       badge: hold.querySelector('.st-badge').textContent,
       otherBadge: rowOf('本当に未知の記号').querySelector('.st-badge').textContent,

@@ -1,10 +1,10 @@
 'use strict';
 /* test/taskboard/arrange.js — 節: 並べ替え（moveTask・ドラッグ）・削除（deleteTask）・親子の見た目（たたむ・縦線）
    入口: test/taskboard.js（ctx を受け取る。単独実行は node test/taskboard.js arrange）
-   照合する ID: TB-K12〜K25・TB-DEL1〜DEL7・TB-V1〜V6。期待値の正本は docs/specs/taskboard/engine.md */
+   照合する ID: TB-K12〜K25・TB-DEL1〜DEL7・TB-V1〜V6・TB-SH1〜SH7。期待値の正本は docs/specs/taskboard/engine.md */
 module.exports = {
   name: 'arrange',
-  ids: 'TB-K12〜K25・DEL1〜DEL7・V1〜V6',
+  ids: 'TB-K12〜K25・DEL1〜DEL7・V1〜V6・SH1〜SH6',
   async run(ctx) {
     const { page, r, eq, F1, F5, TODAY, withDialogs, session } = ctx;
     const F1L = F1.split('\n'), F5L = F5.split('\n');
@@ -295,25 +295,26 @@ module.exports = {
     /* ---------- TB-V4〜V6: 見た目の第1段（状態の帯・期限の言葉・年を薄く・見出し2行） ---------- */
     const SV = ['# tasks', '', '## A', '',
       '- [ ] 遅れ 📅 2026-08-01', '- [ ] 今日 📅 2026-08-04', '- [/] 着手 📅 2026-08-20',
-      '- [ ] 始まった 🛫 2026-08-01 📅 2026-08-20', '- [ ] 先の 🛫 2026-08-10 📅 2026-08-20', ''].join('\n');
+      '- [ ] 始まった 🛫 2026-08-01 📅 2026-08-20', '- [ ] 先の 🛫 2026-08-10 📅 2026-08-20', '- [ ] 来年 📅 2027-01-05', ''].join('\n');
     await session(SV);
     const v4 = await page.evaluate(() => {
       const rowOf = t => Array.from(document.querySelectorAll('#task-table tbody tr'))
         .find(x => { const b = x.querySelector('.body-text'); return b && b.textContent === t; });
       const st = r => ['s-late', 's-today', 's-doing', 's-should'].filter(c => r.classList.contains(c)).join(',');
       const due = r => { const td = r.children[3]; const sp = td.querySelector('span');
-        return { cls: sp.className, bg: getComputedStyle(sp).backgroundColor, yr: (sp.querySelector('.yr') || {}).textContent || '',
+        return { cls: sp.className, bg: getComputedStyle(sp).backgroundColor, text: sp.textContent, title: sp.title,
           rel: (td.querySelector('.due-rel') || {}).textContent || '' }; };
       const names = ['遅れ', '今日', '着手', '始まった', '先の'];
       return { st: names.map(n => st(rowOf(n))), due: names.map(n => due(rowOf(n))),
-        startYr: (rowOf('始まった').children[2].querySelector('.yr') || {}).textContent || '' };
+        start: rowOf('始まった').children[2].textContent, nextYear: rowOf('来年').children[3].querySelector('span').textContent };
     });
     r.check('TB-V4（行の左端の色の帯: 遅れ・今日・着手中・開始日を過ぎた・なし）',
       eq(v4.st, ['s-late', 's-today', 's-doing', 's-should', '']), JSON.stringify(v4.st));
-    r.check('TB-V5（期限は背景なし・クラス名は不変・年は .yr・「3日遅れ／今日／あと16日」・開始日にも .yr）',
-      v4.due[0].cls === 'due-over' && v4.due[0].bg === 'rgba(0, 0, 0, 0)' && v4.due[0].yr === '2026-'
-      && v4.due[0].rel === '3日遅れ' && v4.due[1].rel === '今日' && v4.due[4].rel === 'あと16日' && v4.startYr === '2026-',
-      JSON.stringify(v4.due));
+    r.check('TB-V5（期限は背景なし・クラス名は不変・今年は「8/1」で title に全体・「3日遅れ／今日／あと16日」・開始日も「8/1」・来年は「2027/1/5」）',
+      v4.due[0].cls === 'due-over' && v4.due[0].bg === 'rgba(0, 0, 0, 0)' && v4.due[0].text === '8/1' && v4.due[0].title === '2026-08-01'
+      && v4.due[0].rel === '3日遅れ' && v4.due[1].rel === '今日' && v4.due[4].rel === 'あと16日'
+      && v4.start === '8/1' && v4.nextYear === '2027/1/5',
+      JSON.stringify([v4.due, v4.start, v4.nextYear]));
     const v6 = await page.evaluate(() => {
       const top = sel => { const e = document.querySelector(sel); return e ? Math.round(e.getBoundingClientRect().top) : null; };
       const h1 = document.querySelector('main h1');
@@ -326,5 +327,103 @@ module.exports = {
     r.check('TB-V6（見出し2行: 説明文は題名の title・vault 名は ⋯ の中・表示の切替から Excel用コピーまで同じ段・表の上端が 300px より上）',
       v6.noSubtitle && v6.h1Title.includes('tasks.md') && v6.vaultInMore && v6.inHead && v6.oneBand && v6.tableTop < 300,
       JSON.stringify(v6));
+
+    /* ---------- TB-SH1〜SH7: セクションを表の中の見出しに ---------- */
+    const secHeads = () => page.evaluate(() => Array.from(document.querySelectorAll('#task-table tbody tr.sec-row')).map(h => ({
+      name: (h.querySelector('.sec-name') || {}).textContent || '', count: (h.querySelector('.sec-count') || {}).textContent || '',
+      meta: h.textContent, hasLine: h.hasAttribute('data-line') })));
+    const rowsUnder = () => page.evaluate(() => {
+      const out = []; let cur = null;
+      for (const tr of document.querySelectorAll('#task-table tbody tr')) {
+        if (tr.classList.contains('sec-row')) { cur = { n: 0 }; out.push(cur); } else if (tr.dataset.line && cur) cur.n++;
+      }
+      return out.map(x => x.n);
+    });
+    const plain = n => n.replace(/^[▾▸]\s*/, '');
+    await session(F1);
+    await showDone(true);
+    const sh1 = { heads: await secHeads(), under: await rowsUnder() };
+    r.check('TB-SH1（見出しが PEW・UL・その他 の順・「N件」がその下のタスクの行の数・見出しの行は data-line を持たない）',
+      eq(sh1.heads.map(h => plain(h.name)), ['PEW', 'UL', 'その他'])
+      && sh1.heads.every((h, i) => h.count === sh1.under[i] + '件') && sh1.heads.every(h => !h.hasLine),
+      JSON.stringify(sh1));
+    const sh2 = await page.evaluate(() => ({ th: Array.from(document.querySelectorAll('#task-table thead th')).map(th => th.textContent),
+      secCells: document.querySelectorAll('#task-table td.cell-sec').length }));
+    r.check('TB-SH2（セクションの列が無い・td.cell-sec も無い）', !sh2.th.includes('セクション') && sh2.secCells === 0, JSON.stringify(sh2));
+    await showDone(false);
+
+    const SH3 = ['# tasks', '', '## A', '', '- [ ] A中1 🔼', '- [ ] A中2 🔼', '', '## B', '', '- [ ] B高 ⏫', ''].join('\n');
+    await session(SH3);
+    const sh3 = await page.evaluate(() => {
+      const s = document.getElementById('f-sort'); s.value = 'priority'; s.dispatchEvent(new Event('change', { bubbles: true }));
+      const seq = Array.from(document.querySelectorAll('#task-table tbody tr')).map(tr => tr.classList.contains('sec-row')
+        ? '#' + ((tr.querySelector('.sec-name') || {}).textContent || '').replace(/^[▾▸]\s*/, '') : (tr.querySelector('.body-text') || {}).textContent);
+      s.value = 'file'; s.dispatchEvent(new Event('change', { bubbles: true }));
+      return seq;
+    });
+    r.check('TB-SH3（優先度順でも並べ替えはセクションの中で — B の ⏫ は B の見出しの下のまま）',
+      eq(sh3, ['#A', 'A中1', 'A中2', '#B', 'B高']), JSON.stringify(sh3));
+
+    await session(F1);
+    const sh4 = await page.evaluate(() => {
+      const names = () => Array.from(document.querySelectorAll('#task-table tbody tr[data-line] .body-text')).map(b => b.textContent);
+      const head = () => Array.from(document.querySelectorAll('#task-table tbody tr.sec-row'))
+        .find(h => ((h.querySelector('.sec-name') || {}).textContent || '').includes('PEW'));
+      const btn = () => head() && head().querySelector('.sec-fold');
+      if (!btn()) return { noBtn: true };
+      btn().click();
+      const folded = names(); const caret = btn().textContent;
+      btn().click();
+      return { folded, caret, back: names() };
+    });
+    r.check('TB-SH4（PEW の ▾ で PEW の行だけ消えて ▸ に → 戻る・UL は出たまま）',
+      !sh4.noBtn && !sh4.folded.some(t => t.includes('資料')) && sh4.folded.some(t => t.includes('目標管理'))
+      && sh4.caret === '▸' && sh4.back.some(t => t.includes('資料Rv')), JSON.stringify(sh4));
+
+    const dragToHead = (srcTxt, secName) => page.evaluate(async ([s, n]) => {
+      const src = Array.from(document.querySelectorAll('#task-table tbody tr[data-line]'))
+        .find(x => ((x.querySelector('.body-text') || {}).textContent || '').startsWith(s));
+      const head = Array.from(document.querySelectorAll('#task-table tbody tr.sec-row'))
+        .find(h => ((h.querySelector('.sec-name') || {}).textContent || '').replace(/^[▾▸]\s*/, '') === n);
+      if (!src || !head) return { missing: true };
+      const h = src.querySelector('.drag-handle');
+      const dt = new DataTransfer();
+      h.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dt }));
+      const rc = head.getBoundingClientRect();
+      const opt = { bubbles: true, cancelable: true, dataTransfer: dt, clientX: rc.left + 80, clientY: rc.top + rc.height / 2 };
+      head.dispatchEvent(new DragEvent('dragover', opt));
+      head.dispatchEvent(new DragEvent('drop', opt));
+      h.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: dt }));
+      await new Promise(res => setTimeout(res, 50));
+      const b = document.getElementById('banner');
+      return { text: window.__s.getText(), banner: b.hidden ? '' : b.textContent };
+    }, [srcTxt, secName]);
+    await session(F1);
+    const sh5a = await dragToHead('資料Rv', 'UL');
+    const sh5u = sh5a.missing ? null : await clickUndo();
+    const SH5 = await opsX(F1, [{ type: 'moveSection', line: 13, section: 'UL' }]);
+    await session(F1);
+    await showDone(true);
+    const sh5b = await dragToHead('PRODUCTS', 'UL');
+    await showDone(false);
+    r.check('TB-SH5（最上位の資料Rv を UL の見出しへ → UL の末尾へ移り［元に戻す］で F1／子の PRODUCTS は見出しへ落とせない）',
+      !sh5a.missing && sh5a.text === SH5 && sh5a.banner.includes('「UL」へ移しました') && sh5u === F1
+      && !sh5b.missing && sh5b.text === F1, JSON.stringify({ a: sh5a.missing || [sh5a.text === SH5, sh5a.banner], u: sh5u === F1, b: sh5b.missing || sh5b.text === F1 }));
+
+    await session(SV);
+    const sh6 = await page.evaluate(() => (document.querySelector('#task-table tbody tr.sec-row') || {}).textContent || '');
+    r.check('TB-SH6（見出しに「遅れ 1」「今日まで 1」「進めている 1」— 行の状態と同じ分け方）',
+      sh6.includes('遅れ 1') && sh6.includes('今日まで 1') && sh6.includes('進めている 1'), sh6);
+
+    const sh7 = await page.evaluate(() => {
+      const td = document.querySelector('#task-table tbody tr.sec-row td.sec-cell');
+      const name = td && td.querySelector('.sec-name');
+      const act = document.querySelector('#task-table tbody tr[data-line] td:last-child');
+      if (!name || !act) return { missing: true };
+      return { gap: Math.round(name.getBoundingClientRect().left - td.getBoundingClientRect().left),
+        align: getComputedStyle(td).textAlign, actAlign: getComputedStyle(act).textAlign };
+    });
+    r.check('TB-SH7（見出しは左寄せ — セクション名がセルの左端から 60px 以内・タスクの行の最後のセルは右寄せのまま）',
+      !sh7.missing && sh7.gap >= 0 && sh7.gap <= 60 && sh7.actAlign === 'right', JSON.stringify(sh7));
   },
 };
