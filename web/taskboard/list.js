@@ -79,6 +79,104 @@ function confirmDeleteTask(t) {
   return applyUndoable({ type: 'deleteTask', line: t.line }, '削除しました');
 }
 
+/* ---------- 行の操作: 右クリックのメニューとキー（TB-RM1〜RM9・TB-Q69） ----------
+   右端のボタンまでポインタを運ばずに済むように（利用者「毎回そこにマウスポインターを合わせるのがめんどくさい」）。
+   項目・キー・右端のボタンの title の添え書きはここ1箇所。key は KeyboardEvent.code の英字（文字ではなくキーの位置で
+   見るので日本語入力のままでも効く）か 'delete'（Delete と mac の delete キー＝Backspace） */
+const ROW_ACTIONS = [
+  { id: 'child',  key: 'c',      keyLabel: 'C',      icon: '＋', label: '子タスクを追加', run: (t, at) => openChildPopover(at, t) },
+  { id: 'edit',   key: 'e',      keyLabel: 'E',      icon: '✎', label: '編集',           run: (t) => openTaskModal('edit', t) },
+  { id: 'think',  key: 'i',      keyLabel: 'I',      icon: '🎯', label: '考える場所へ',   run: (t) => thinkAbout(t, false) },
+  { id: 'delete', key: 'delete', keyLabel: 'Delete', icon: '🗑', label: '削除',           run: (t) => confirmDeleteTask(t) },
+];
+function rowKeyHint(id) { return '（キー ' + ROW_ACTIONS.find(a => a.id === id).keyLabel + '・右クリックでも）'; }
+// ポインタの位置を openPopover のアンカーにする（openPopover は getBoundingClientRect しか見ない）
+function pointAnchor(x, y) { return { getBoundingClientRect: () => ({ left: x, right: x, top: y, bottom: y, width: 0, height: 0 }) }; }
+function runRowAction(a, t, at) {
+  closePopover();
+  a.run(t, at);
+}
+
+function openRowMenu(t, x, y) {
+  const at = pointAnchor(x, y);
+  openPopover(at, (pop) => {
+    const menu = document.createElement('div');
+    menu.className = 'row-menu';
+    menu.setAttribute('role', 'menu');
+    // キーで選んだときにどの行のどこへ出すかを覚えておく（rowKeyTarget）
+    menu.dataset.line = t.line;
+    menu.dataset.x = x;
+    menu.dataset.y = y;
+    for (const a of ROW_ACTIONS) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'row-menu-item';
+      b.setAttribute('role', 'menuitem');
+      const icon = document.createElement('span');
+      icon.className = 'rm-icon';
+      icon.textContent = a.icon;
+      const label = document.createElement('span');
+      label.className = 'rm-label';
+      label.textContent = a.label;
+      const key = document.createElement('kbd');
+      key.textContent = a.keyLabel;
+      b.append(icon, label, key);
+      b.addEventListener('click', () => runRowAction(a, t, at));
+      menu.appendChild(b);
+    }
+    // ↑↓ で項目を移る（Enter はボタンの既定で押せる・Esc は共通のポップオーバーの規則で閉じる）
+    menu.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      e.preventDefault();
+      const items = Array.from(menu.children), n = items.length, down = e.key === 'ArrowDown';
+      const i = items.indexOf(document.activeElement);
+      items[i < 0 ? (down ? 0 : n - 1) : (i + (down ? 1 : n - 1)) % n].focus();
+    });
+    pop.appendChild(menu);
+    setTimeout(() => menu.firstChild.focus(), 0);
+  });
+}
+
+// リンク・入力欄の上ではブラウザのメニューを奪わない（リンクを開く・本文の編集中のコピーを壊さない — TB-RM2）。
+// 行の文字は選べない（draggable の行にはブラウザが user-select: none を当てる — 実測）ので、選んだ文字のコピーとはぶつからない
+function onRowContextMenu(e, t) {
+  if (state.drag || state.ui.view !== 'list') return;
+  if (e.target.closest && e.target.closest('a, input, textarea, select')) return;
+  e.preventDefault();
+  openRowMenu(t, e.clientX, e.clientY);
+}
+
+// 文字を打つ部品。ここにフォーカスがあるときはキーを奪わない（チェックボックス・ボタンは打たないので含めない）
+const TYPING_SEL = 'input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]), textarea, select, [contenteditable=""], [contenteditable="true"]';
+function rowActionForKey(e) {
+  if (e.metaKey || e.ctrlKey || e.altKey || isComposingKey(e)) return null;
+  const k = (e.key === 'Delete' || e.key === 'Backspace') ? 'delete'
+    : /^Key[A-Z]$/.test(e.code || '') ? e.code.slice(3).toLowerCase() : '';
+  return ROW_ACTIONS.find(a => a.key === k) || null;
+}
+// キーが効く行: メニューが開いていればメニューの行、無ければポインタを乗せている行（TB-RM5・RM6・RM8）
+function rowKeyTarget() {
+  if (state.ui.view !== 'list' || state.drag || !el('modal').hidden) return null;
+  const pop = el('popover');
+  const menu = pop.hidden ? null : pop.querySelector('.row-menu');
+  if (!pop.hidden && !menu) return null;            // 日付・タグ・子の入力などの最中
+  if (!menu && document.activeElement && document.activeElement.matches(TYPING_SEL)) return null;
+  const tr = menu ? document.querySelector('#task-table tbody tr[data-line="' + menu.dataset.line + '"]')
+    : document.querySelector('#task-table tbody tr[data-line]:hover');
+  if (!tr) return null;
+  const t = state.doc.tasks.find(x => x.line === +tr.dataset.line);
+  if (!t || t.hasCR) return null;
+  return { t, at: menu ? pointAnchor(+menu.dataset.x, +menu.dataset.y) : (tr.querySelector('td.cell-body') || tr) };
+}
+document.addEventListener('keydown', (e) => {
+  const a = rowActionForKey(e);
+  if (!a) return;
+  const target = rowKeyTarget();
+  if (!target) return;
+  e.preventDefault();
+  runRowAction(a, target.t, target.at);
+});
+
 // ドラッグの落とし先: 行の上 1/4＝前・下 1/4＝後・真ん中＝子（TB-K19・K20）
 function dropZone(tr, y) {
   const rc = tr.getBoundingClientRect();
@@ -455,6 +553,8 @@ function renderRow(t, today) {
     tr.addEventListener('dragleave', (e) => {
       if (!tr.contains(e.relatedTarget)) tr.classList.remove('drop-before', 'drop-child', 'drop-after');
     });
+    // 右クリックで行の操作のメニュー（TB-RM1。CR を含む行はボタンと同じく出さない）
+    tr.addEventListener('contextmenu', (e) => onRowContextMenu(e, t));
     tr.addEventListener('drop', (e) => {
       if (!state.drag || state.drag.banned.has(t.line)) return;
       e.preventDefault();
@@ -682,28 +782,28 @@ function renderRow(t, today) {
     const btn = document.createElement('button');
     btn.className = 'btn-child';
     btn.textContent = '＋子';
-    btn.title = '子タスクを追加';
+    btn.title = '子タスクを追加' + rowKeyHint('child');
     btn.addEventListener('click', (e) => openChildPopover(e.currentTarget, t));
     tdAct.appendChild(btn);
     // 内容・メモ・タグ・分類・日付・関連ノートはモーダルで1画面で編集する
     const editBtn = document.createElement('button');
     editBtn.className = 'btn-child';
     editBtn.textContent = '編集';
-    editBtn.title = 'このタスクを編集（内容・メモ・タグ・日付・関連ノート）';
+    editBtn.title = 'このタスクを編集（内容・メモ・タグ・日付・関連ノート）' + rowKeyHint('edit');
     editBtn.addEventListener('click', () => openTaskModal('edit', t));
     tdAct.appendChild(editBtn);
     // このタスクを考える場所へ（イシューノートを開く／無ければ作る — TB-N1/N2）
     const thinkBtn = document.createElement('button');
     thinkBtn.className = 'btn-child';
     thinkBtn.textContent = '🎯';
-    thinkBtn.title = '考える場所へ — 関連ノートにイシューノートがあれば開く。無ければ作ってリンクする';
+    thinkBtn.title = '考える場所へ — 関連ノートにイシューノートがあれば開く。無ければ作ってリンクする' + rowKeyHint('think');
     thinkBtn.addEventListener('click', () => thinkAbout(t, false));
     tdAct.appendChild(thinkBtn);
     // 削除（TB-DEL4。子・メモごと・必ず確認・直後に［元に戻す］）
     const delBtn = document.createElement('button');
     delBtn.className = 'btn-child';
     delBtn.textContent = '🗑';
-    delBtn.title = '削除（子・メモごと。直後なら元に戻せます）';
+    delBtn.title = '削除（子・メモごと。直後なら元に戻せます）' + rowKeyHint('delete');
     delBtn.addEventListener('click', () => confirmDeleteTask(t));
     tdAct.appendChild(delBtn);
   }

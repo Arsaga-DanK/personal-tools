@@ -1,10 +1,10 @@
 'use strict';
 /* test/taskboard/arrange.js — 節: 並べ替え（moveTask・ドラッグ）・削除（deleteTask）・親子の見た目（たたむ・縦線）
    入口: test/taskboard.js（ctx を受け取る。単独実行は node test/taskboard.js arrange）
-   照合する ID: TB-K12〜K25・TB-DEL1〜DEL7・TB-V1〜V6・TB-SH1〜SH7。期待値の正本は docs/specs/taskboard/engine.md */
+   照合する ID: TB-K12〜K25・TB-DEL1〜DEL7・TB-V1〜V6・TB-SH1〜SH7・TB-RM1〜RM9。期待値の正本は docs/specs/taskboard/engine.md */
 module.exports = {
   name: 'arrange',
-  ids: 'TB-K12〜K25・DEL1〜DEL7・V1〜V6・SH1〜SH6',
+  ids: 'TB-K12〜K25・DEL1〜DEL7・V1〜V6・SH1〜SH7・RM1〜RM9',
   async run(ctx) {
     const { page, r, eq, F1, F5, TODAY, withDialogs, session } = ctx;
     const F1L = F1.split('\n'), F5L = F5.split('\n');
@@ -427,5 +427,198 @@ module.exports = {
     });
     r.check('TB-SH7（見出しは左寄せ — セクション名がセルの左端から 60px 以内・タスクの行の最後のセルは右寄せのまま）',
       !sh7.missing && sh7.gap >= 0 && sh7.gap <= 60 && sh7.actAlign === 'right', JSON.stringify(sh7));
+
+    /* ---------- TB-RM1〜RM9: 行の操作 — 右クリックのメニューとキー（本物のマウス・キーボードで） ---------- */
+    const DEL9 = [...F1L.slice(0, 8), ...F1L.slice(9)].join('\n');   // 資料作成（子なし）を消した F1
+    const rowBox = (txt) => page.evaluate((t) => {
+      const tr = Array.from(document.querySelectorAll('#task-table tbody tr[data-line]'))
+        .find(x => ((x.querySelector('.body-text') || {}).textContent || '').startsWith(t));
+      if (!tr) return null;
+      const b = tr.querySelector('.body-text').getBoundingClientRect();
+      const c = tr.querySelector('td.cell-body').getBoundingClientRect();
+      return { x: Math.round(b.left + 10), y: Math.round(b.top + b.height / 2), line: +tr.dataset.line,
+        cellLeft: Math.round(c.left), cellBottom: Math.round(c.bottom) };
+    }, txt);
+    // 次の contextmenu で既定が止められたかを記録する（行の処理の後に走る document の受け口で見る）
+    const watchCtx = () => page.evaluate(() => {
+      window.__ctx = null;
+      document.addEventListener('contextmenu', (e) => { window.__ctx = { prevented: e.defaultPrevented }; }, { once: true });
+    });
+    const menuNow = () => page.evaluate(() => {
+      const pop = document.getElementById('popover');
+      const m = !pop.hidden && pop.querySelector('.row-menu');
+      if (!m) return null;
+      const items = Array.from(m.querySelectorAll('[role=menuitem]'));
+      const rc = pop.getBoundingClientRect();
+      return { items: items.map(b => (b.querySelector('.rm-label') || {}).textContent + ' ' + (b.querySelector('kbd') || {}).textContent),
+        left: Math.round(rc.left), top: Math.round(rc.top), focus: items.indexOf(document.activeElement), line: m.dataset.line };
+    });
+    const popNow = () => page.evaluate(() => {
+      const pop = document.getElementById('popover');
+      if (pop.hidden) return null;
+      const rc = pop.getBoundingClientRect();
+      return { left: Math.round(rc.left), top: Math.round(rc.top), input: !!pop.querySelector('input'), menu: !!pop.querySelector('.row-menu') };
+    });
+    const modalNow = () => page.evaluate(() => ({ open: !document.getElementById('modal').hidden, content: document.getElementById('modal-content').value }));
+    const closeModal = () => page.evaluate(() => { if (!document.getElementById('modal').hidden) document.getElementById('modal-cancel').click(); });
+    const rightClick = async (x, y) => { await watchCtx(); await page.mouse.click(x, y, { button: 'right' }); await page.waitForTimeout(40); };
+    const clickItem = (label) => page.evaluate(async (l) => {
+      const b = Array.from(document.querySelectorAll('#popover .row-menu [role=menuitem]'))
+        .find(x => (x.querySelector('.rm-label') || {}).textContent === l);
+      if (b) b.click();
+      await new Promise(res => setTimeout(res, 60));
+      return !!b;
+    }, label);
+    const textNow = () => page.evaluate(() => window.__s.getText());
+
+    await session(F1);
+    const b9 = await rowBox('資料作成');
+    await rightClick(b9.x, b9.y);
+    const rm1 = { menu: await menuNow(), ctx: await page.evaluate(() => window.__ctx) };
+    r.check('TB-RM1（右クリックで行のメニュー: 子タスクを追加 C／編集 E／考える場所へ I／削除 Delete・ポインタの位置・最初の項目にフォーカス・既定のメニューを止める）',
+      !!rm1.menu && eq(rm1.menu.items, ['子タスクを追加 C', '編集 E', '考える場所へ I', '削除 Delete'])
+      && Math.abs(rm1.menu.left - b9.x) <= 8 && Math.abs(rm1.menu.top - b9.y) <= 8 && rm1.menu.focus === 0
+      && !!rm1.ctx && rm1.ctx.prevented, JSON.stringify({ rm1, at: b9 }));
+
+    await page.keyboard.press('ArrowDown');
+    const rm5a = await menuNow();
+    await page.keyboard.press('Escape');
+    const rm5b = await menuNow();
+    await rightClick(b9.x, b9.y);
+    const b13 = await rowBox('資料Rv');
+    await page.mouse.move(b13.x, b13.y);
+    await page.keyboard.press('e');
+    const rm5c = await modalNow();
+    await closeModal();
+    r.check('TB-RM5（メニューの ↓ で2つ目へ → Esc で閉じる／メニューを開いたまま別の行へポインタを動かして E → メニューの行の編集モーダル）',
+      !!rm5a && rm5a.focus === 1 && rm5b === null && rm5c.open && rm5c.content.includes('資料作成') && !rm5c.content.includes('資料Rv'),
+      JSON.stringify({ a: rm5a && rm5a.focus, b: rm5b, c: rm5c }));
+
+    // RM2: リンク・入力欄・文字を選択中は既定のメニューのまま
+    await session(F1);
+    await page.evaluate(() => { const e = document.getElementById('cfg-vault'); e.value = 'V'; e.dispatchEvent(new Event('change')); });
+    const rm2 = {};
+    const link = await page.evaluate(() => {
+      const a = document.querySelector('#task-table tbody tr[data-line] a.chip');
+      if (!a) return null; const rc = a.getBoundingClientRect(); return { x: Math.round(rc.left + 6), y: Math.round(rc.top + rc.height / 2) };
+    });
+    if (link) { await rightClick(link.x, link.y); rm2.link = { ctx: await page.evaluate(() => window.__ctx), menu: !!(await menuNow()) }; }
+    await page.evaluate(() => { const e = document.getElementById('cfg-vault'); e.value = ''; e.dispatchEvent(new Event('change')); });
+    await session(F1);
+    const b9i = await rowBox('資料作成');
+    await page.mouse.dblclick(b9i.x, b9i.y);
+    const inp = await page.evaluate(() => {
+      const i = document.querySelector('#task-table .cell-edit-input');
+      if (!i) return null; const rc = i.getBoundingClientRect(); return { x: Math.round(rc.left + 20), y: Math.round(rc.top + rc.height / 2) };
+    });
+    if (inp) { await rightClick(inp.x, inp.y); rm2.input = { ctx: await page.evaluate(() => window.__ctx), menu: !!(await menuNow()) }; }
+    await page.keyboard.press('Escape');
+    const okDefault = x => !!x && !!x.ctx && !x.ctx.prevented && !x.menu;
+    r.check('TB-RM2（関連ノートのリンク・本文の編集中の入力欄では既定のメニューのまま）',
+      okDefault(rm2.link) && okDefault(rm2.input), JSON.stringify(rm2));
+
+    // RM3: メニューの［編集］／［子タスクを追加］。位置は毎回測り直す（バナーが出ると表が下へずれる）
+    await session(F1);
+    const at9 = async () => { const b = await rowBox('資料作成'); await rightClick(b.x, b.y); return b; };
+    await at9();
+    const rm3e = { clicked: await clickItem('編集'), modal: await modalNow(), pop: await popNow() };
+    await closeModal();
+    const b9c = await at9();
+    const rm3c = { clicked: await clickItem('子タスクを追加'), pop: await popNow() };
+    if (rm3c.pop && rm3c.pop.input) { await page.keyboard.type('RM子'); await page.keyboard.press('Enter'); await page.waitForTimeout(40); }
+    rm3c.line10 = (await textNow()).split('\n')[9];
+    rm3c.after = await popNow();
+    r.check('TB-RM3（メニューの［編集］でそのタスクの編集モーダル／［子タスクを追加］でポインタのそばに子の入力欄 → Enter で子が付く・どちらもメニューは閉じる）',
+      rm3e.clicked && rm3e.modal.open && rm3e.modal.content.includes('資料作成') && !(rm3e.pop && rm3e.pop.menu)
+      && rm3c.clicked && !!rm3c.pop && rm3c.pop.input && !rm3c.pop.menu
+      && Math.abs(rm3c.pop.left - b9c.x) <= 8 && Math.abs(rm3c.pop.top - b9c.y) <= 8
+      && /^\t- \[ \] RM子/.test(rm3c.line10 || '') && rm3c.after === null, JSON.stringify({ rm3e, rm3c }));
+
+    // RM4: メニューの［削除］（確認つき・直後に元に戻す）
+    await session(F1);
+    const rm4a = await withDialogs('accept', async () => { await at9(); await clickItem('削除'); return textNow(); });
+    const rm4u = await clickUndo();
+    await session(F1);
+    const rm4d = await withDialogs('dismiss', async () => { await at9(); await clickItem('削除'); return textNow(); });
+    r.check('TB-RM4（メニューの［削除］→ 承認で消えて［元に戻す］で F1／キャンセルで何も変わらない）',
+      rm4a.result === DEL9 && rm4a.messages.length === 1 && rm4u === F1 && rm4d.result === F1 && rm4d.messages.length === 1,
+      JSON.stringify({ a: rm4a.result === DEL9, msgs: rm4a.messages, u: rm4u === F1, d: rm4d.result === F1 }));
+
+    // RM6: 行にポインタを乗せてキー
+    await session(F1);
+    const hover9 = async () => { const b = await rowBox('資料作成'); await page.mouse.move(b.x + 1, b.y); await page.mouse.move(b.x, b.y); return b; };
+    const rm6 = {};
+    await hover9(); await page.keyboard.press('e');
+    rm6.e = await modalNow(); await closeModal();
+    const b9h = await hover9(); await page.keyboard.press('c');
+    rm6.c = await popNow(); await page.keyboard.press('Escape');
+    rm6.del = await withDialogs('accept', async () => { await hover9(); await page.keyboard.press('Delete'); await page.waitForTimeout(40); return textNow(); });
+    rm6.delU = await clickUndo();
+    rm6.bs = await withDialogs('accept', async () => { await hover9(); await page.keyboard.press('Backspace'); await page.waitForTimeout(40); return textNow(); });
+    await session(F1);
+    await page.evaluate(() => { window.__thinkOrig = window.thinkAbout; window.__think = null; window.thinkAbout = (t, m) => { window.__think = [t.line, m]; }; });
+    await hover9(); await page.keyboard.press('i');
+    rm6.i = await page.evaluate(() => { window.thinkAbout = window.__thinkOrig; return window.__think; });
+    r.check('TB-RM6（行にポインタを乗せて E＝編集モーダル／C＝内容のセルの下に子の入力欄／Delete・Backspace＝確認つきの削除／I＝その行で考える場所へ）',
+      rm6.e.open && rm6.e.content.includes('資料作成')
+      && !!rm6.c && rm6.c.input && rm6.c.top >= b9h.cellBottom - 2 && Math.abs(rm6.c.left - b9h.cellLeft) <= 8
+      && rm6.del.result === DEL9 && rm6.del.messages.length === 1 && rm6.delU === F1
+      && rm6.bs.result === DEL9 && rm6.bs.messages.length === 1 && eq(rm6.i, [9, false]),
+      JSON.stringify({ e: rm6.e, c: rm6.c, cell: [b9h.cellLeft, b9h.cellBottom], del: rm6.del.result === DEL9, u: rm6.delU === F1, bs: rm6.bs.result === DEL9, i: rm6.i }));
+
+    // RM7: 日本語入力のまま（key は「い」・code は KeyE）／大文字
+    await session(F1);
+    await hover9();
+    await page.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'い', code: 'KeyE', bubbles: true, cancelable: true })));
+    const rm7a = await modalNow(); await closeModal();
+    await hover9(); await page.keyboard.press('Shift+KeyE');
+    const rm7b = await modalNow(); await closeModal();
+    r.check('TB-RM7（日本語入力のまま E の位置のキー・大文字の E でも編集モーダル）',
+      rm7a.open && rm7a.content.includes('資料作成') && rm7b.open && rm7b.content.includes('資料作成'), JSON.stringify({ rm7a, rm7b }));
+
+    // RM8: キーが効かないとき
+    await session(F1);
+    const rm8 = await withDialogs('accept', async () => {
+      const o = {};
+      await page.click('#f-q'); await hover9();
+      await page.keyboard.press('e');
+      o.q = await page.evaluate(() => document.getElementById('f-q').value); o.qModal = (await modalNow()).open;
+      await page.keyboard.press('Backspace');
+      o.q2 = await page.evaluate(() => document.getElementById('f-q').value);
+      o.qText = await textNow();
+      await page.evaluate(() => { document.activeElement.blur(); document.getElementById('btn-add-form').click(); });
+      await page.waitForTimeout(40);
+      await page.evaluate(() => document.activeElement && document.activeElement.blur());
+      await page.keyboard.press('Delete');
+      o.modalText = await textNow();
+      await page.evaluate(() => { document.getElementById('modal-content').value = ''; document.getElementById('modal-cancel').click(); });
+      await hover9(); await page.keyboard.press('Meta+e');
+      o.meta = (await modalNow()).open;
+      await page.mouse.move(5, 5); await page.keyboard.press('e');
+      o.none = (await modalNow()).open;
+      await page.evaluate(() => document.querySelector('[data-view="board"]').click());
+      await hover9(); await page.keyboard.press('e');
+      o.board = (await modalNow()).open;
+      await page.evaluate(() => document.querySelector('[data-view="list"]').click());
+      o.text = await textNow();
+      return o;
+    });
+    await closeModal();
+    r.check('TB-RM8（検索欄に入力中の E・Backspace は欄に効く／モーダル中の Delete・Cmd+E・行に乗っていない E・ボード表示の E は何もしない）',
+      rm8.result.q === 'e' && !rm8.result.qModal && rm8.result.q2 === '' && rm8.result.qText === F1
+      && rm8.result.modalText === F1 && !rm8.result.meta && !rm8.result.none && !rm8.result.board
+      && rm8.result.text === F1 && rm8.messages.length === 0, JSON.stringify(rm8));
+
+    // RM9: 右端のボタンは残し、title にキー
+    await session(F1);
+    const rm9 = await page.evaluate(() => {
+      const tr = Array.from(document.querySelectorAll('#task-table tbody tr[data-line]'))
+        .find(x => ((x.querySelector('.body-text') || {}).textContent || '').startsWith('資料作成'));
+      return Array.from(tr.querySelectorAll('td:last-child .btn-child')).map(b => b.textContent + '|' + b.title);
+    });
+    const tails = ['（キー C・右クリックでも）', '（キー E・右クリックでも）', '（キー I・右クリックでも）', '（キー Delete・右クリックでも）'];
+    r.check('TB-RM9（右端のボタン ＋子・編集・🎯・🗑 は残り、title の末尾にキー）',
+      rm9.length === 4 && eq(rm9.map(x => x.split('|')[0]), ['＋子', '編集', '🎯', '🗑']) && rm9.every((x, i) => x.endsWith(tails[i])),
+      JSON.stringify(rm9));
   },
 };

@@ -207,6 +207,17 @@
     border: 1px solid var(--border); border-radius: 8px; padding: 10px;
     box-shadow: 0 4px 16px rgba(0,0,0,.18); display: flex; flex-direction: column; gap: 8px; }
   .popover .row-btns { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  /* 行の右クリックのメニュー（TB-RM1）。項目は行の高さで狙いやすく、右にキーを出して使ううちに覚えられるように */
+  .popover:has(.row-menu) { padding: 4px; }
+  .row-menu { display: flex; flex-direction: column; min-width: 13em; }
+  .row-menu-item { display: flex; align-items: center; gap: 8px; text-align: left; border: 0; border-radius: 6px;
+    background: transparent; padding: 7px 10px; }
+  .row-menu-item:hover, .row-menu-item:focus-visible { background: color-mix(in srgb, var(--accent) 16%, transparent); outline: none; }
+  .row-menu-item:focus { outline: none; background: color-mix(in srgb, var(--accent) 10%, transparent); }
+  .row-menu-item .rm-icon { width: 1.4em; text-align: center; }
+  .row-menu-item .rm-label { flex: 1; }
+  .row-menu-item kbd { font: 11px/1.5 ui-monospace, Menlo, monospace; color: var(--muted);
+    border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; }
   /* 付与済みのタグ（.tabs の外なので ui.css の .active は効かない） */
   .popover button.active { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
   /* ボードビュー（列＝セクション。ドロップは opMoveSection なのでバイト保全が効く） */

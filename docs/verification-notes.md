@@ -411,3 +411,9 @@ vault の「ファイル名の罠」を Python の heredoc で再現したとき
 - Playwright の `page.mouse.down → move（steps 付き）→ up` は、headless Chromium でも本物の `dragstart → dragover → drop` を起こす。
   ドラッグの受け入れテストは**この経路を1本は持つ**（TB-K23）
 
+- **`draggable=true` の要素の中の文字は選べない**（2026-10-01 実測・Chromium）: ブラウザが `user-select: none` を当てる
+  （こちらの CSS には書いていなくても `getComputedStyle(td).userSelect === 'none'`）。`Range` で選んでも `String(getSelection())` は空、
+  Cmd+A でも入らない。Plan Tasks は行ごとつかめる（TB-K24）ので行の文字はコピーできず、右クリックのメニュー（TB-RM）に
+  「文字を選んでいたらブラウザのメニュー」の例外は要らなかった。**選択に頼る処理を足す前に、その要素が draggable かを見る**
+- 位置を一度だけ測って使い回すテストは、**バナーが出ると表が下へずれて別の行を指す**（TB-RM6 で「元に戻す」の後の Backspace が
+  空振りした — `:hover` の行が無かった）。マウスで行を指す前に毎回測り直す
