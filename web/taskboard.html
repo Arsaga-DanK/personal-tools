@@ -14,11 +14,49 @@
     padding: 6px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
   #task-table td { padding: 5px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
   #task-table tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
-  /* 親子（TB-V1〜V3）: 親は太字＋背景を少し色づけ、子は深さごとの縦線（--rail） */
+  /* 親子（TB-V1〜V3）: 最上位の行は子の有無に関係なく同じ色＋太字、子は深さごとの縦線（--rail） */
   #task-table { --rail: color-mix(in srgb, var(--accent) 40%, transparent); }
-  #task-table tbody tr.row-parent { background: color-mix(in srgb, var(--accent) 9%, transparent); }
-  #task-table tbody tr.row-parent:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); }
-  #task-table tr.row-parent .body-text { font-weight: 700; }
+  #task-table tbody tr.row-top { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  #task-table tbody tr.row-top:hover { background: color-mix(in srgb, var(--accent) 13%, transparent); }
+  #task-table tr.row-top .body-text { font-weight: 650; }
+  /* 見た目の第1段（TB-V4〜V6・TB-Q66） */
+  #task-table { --st-late: var(--error); --st-today: #d08770; --st-doing: #81a1c1; --st-should: color-mix(in srgb, #d08770 50%, transparent); }
+  #task-table tr.s-late td.cell-st { box-shadow: inset 4px 0 0 var(--st-late); }
+  #task-table tr.s-today td.cell-st { box-shadow: inset 4px 0 0 var(--st-today); }
+  #task-table tr.s-doing td.cell-st { box-shadow: inset 4px 0 0 var(--st-doing); }
+  #task-table tr.s-should td.cell-st { box-shadow: inset 4px 0 0 var(--st-should); }
+  #task-table td.cell-st { padding-left: 12px; }
+  #task-table td { padding-top: 8px; padding-bottom: 8px; border-bottom-color: color-mix(in srgb, var(--border) 60%, transparent); }
+  #task-table th { font-size: 11.5px; font-weight: 600; color: var(--muted); letter-spacing: .04em; }
+  #task-table .body-text { font-size: 14px; }
+  #task-table td.cell-start, #task-table td.cell-due, #task-table td.cell-pri { font-size: 13px; font-variant-numeric: tabular-nums; }
+  #task-table .yr { font-size: 11px; color: var(--muted); opacity: .8; }
+  .due-rel { display: block; font-size: 11.5px; color: var(--muted); line-height: 1.3; }
+  .due-rel.late { color: var(--st-late); font-weight: 600; }
+  .due-rel.today { color: var(--st-today); font-weight: 600; }
+  /* 見出しを2行に（TB-V6） */
+  .tb-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 0 0 8px; }
+  .tb-head .tool-header { margin: 0; }
+  .tb-file .autosave-note { color: var(--muted); font-size: 12px; }
+  .tb-head h1 { margin: 0; font-size: 20px; cursor: help; }
+  .tb-head nav.modes { margin: 0; }
+  .tb-head .spacer { flex: 1 1 auto; }
+  .tb-head .toolbar.tb-file { margin: 0; padding: 0; background: none; border: 0; box-shadow: none; gap: 10px; font-size: 13px; }
+  .tb-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 4px 0 12px; }
+  .tb-controls > #viewbar, .tb-controls > #main-toolbar { display: contents; }
+  /* 表示の切替は小さな切り替えボタンの形（1行に並べると、下線のタブは浮いて見える。幅も詰める） */
+  /* .viewbar .tabs（横いっぱいに伸ばす指定）が後ろにあるので、id で強くする */
+  .tb-controls #view-tabs { margin: 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; gap: 0; flex: 0 0 auto; background: var(--panel); }
+  .tb-controls .tabs button { border: 0; border-radius: 0; padding: 4px 10px; font-size: 13px; }
+  .tb-controls .tabs button + button { border-left: 1px solid var(--border); }
+  .tb-controls .tabs button.active { background: var(--accent); color: var(--accent-text); box-shadow: none; }
+  .tb-controls .opts { gap: 6px 10px; }
+  .tb-controls .opts select { padding-left: 6px; padding-right: 4px; }
+  .tb-controls #btn-add-form, .tb-controls #btn-copy { padding-left: 10px; padding-right: 10px; }
+  .tb-controls #f-q { width: 9.5em; }
+  .tb-controls #main-toolbar .spacer { order: 1; flex: 1 1 auto; }
+  .tb-controls .viewbar-find { order: 2; }
+  .tb-controls #btn-copy, .tb-controls #btn-save, .tb-controls #more-menu { order: 3; }
   .fold-btn { border: 0; background: none; padding: 0; margin: 0 4px 0 0; width: 1.1em; cursor: pointer;
     color: var(--text); font-size: 13px; line-height: 1; vertical-align: baseline; }
   .fold-btn:hover { color: var(--text); }
@@ -58,8 +96,9 @@
   .memo-text { white-space: pre-wrap; font-size: 12px; color: var(--muted);
     padding: 2px 0; word-break: break-word; }
   #task-table td.cell-body { width: 45%; }
-  .due-over { color: var(--error); background: var(--error-bg); font-weight: 600; border-radius: 4px; }
-  .due-today { background: var(--warn-bg); font-weight: 600; border-radius: 4px; }
+  /* 遅れ・今日は文字の色だけ（背景は塗らない — TB-V5） */
+  .due-over { color: var(--error); font-weight: 600; }
+  .due-today { color: #d08770; font-weight: 600; }
   tr.row-done td { color: var(--muted); }
   tr.row-done .body-text { text-decoration: line-through; }
   .chip { display: inline-block; font-size: 12px; color: var(--accent); text-decoration: none;
@@ -229,28 +268,39 @@
 </head>
 <body>
 <main class="app-wide">
-  <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">変更は tasks.md へ自動保存されます</span></p>
-  <nav class="modes" aria-label="モード">
-    <a href="taskboard.html" aria-current="page">✅ タスク</a>
-    <a href="issue.html">🎯 イシュー</a>
-  </nav>
-  <h1>Plan Tasks</h1>
-  <p class="subtitle">vault の tasks.md（正本）を表形式で閲覧・編集 — 完了・開始日・期限・優先度、計画ビュー（タイムライン）、Excel用コピー</p>
-
-  <div class="toolbar">
-    <span id="file-actions"></span>
-    <span id="file-name" class="muted mono"></span>
-    <span id="save-state" class="muted" style="font-size:12px"></span>
+  <!-- 見出しは2行（TB-V6）: 1行目＝ツール・題名・タスク/イシュー・ファイル・保存の状態・件数・⋯。説明文は題名の title に置く（消さない） -->
+  <header class="tb-head">
+    <p class="tool-header"><a href="../index.html">← ツール一覧</a></p>
+    <h1 title="vault の tasks.md（正本）を表形式で閲覧・編集 — 完了・開始日・期限・優先度、計画ビュー（タイムライン）、Excel用コピー">Plan Tasks</h1>
+    <nav class="modes" aria-label="モード">
+      <a href="taskboard.html" aria-current="page">✅ タスク</a>
+      <a href="issue.html">🎯 イシュー</a>
+    </nav>
     <span class="spacer"></span>
-    <label class="opts" title="Obsidian の vault 名。関連ノートを obsidian:// で開くリンクに使います（空ならリンクを作らず名前だけ表示します）">
-      vault 名 <input type="text" id="cfg-vault" size="10" placeholder="未設定">
-    </label>
-    <span class="summary" id="summary"></span>
-  </div>
+    <div class="toolbar tb-file">
+      <span id="file-actions"></span>
+      <span id="file-name" class="muted mono"></span>
+      <!-- 自動保存の注記は保存の状態の隣（題名の手前に挟まると落ち着かない） -->
+      <span class="autosave-note">自動保存</span>
+      <span id="save-state" class="muted" style="font-size:12px"></span>
+      <span class="summary" id="summary"></span>
+      <!-- 一度決めたら変えない設定は ⋯ の中（TB-V6）。ファイルを開く前の「tasks.md を開く」は上の file-actions にそのまま出る -->
+      <details class="more-menu" id="file-more">
+        <summary title="設定（vault 名）">⋯</summary>
+        <div class="more-panel">
+          <label class="more-row" title="Obsidian の vault 名。関連ノートを obsidian:// で開くリンクに使います（空ならリンクを作らず名前だけ表示します）">
+            vault 名 <input type="text" id="cfg-vault" size="12" placeholder="未設定">
+          </label>
+        </div>
+      </details>
+    </div>
+  </header>
 
   <div class="banner banner-info" id="fallback-note" role="status" hidden></div>
   <div class="banner" id="banner" hidden></div>
 
+  <!-- 2行目（TB-V6）: 表示の切替・＋タスク追加・絞り込み・並び順・検索・Excel用コピー・⋯ を1つの段に（id は不変） -->
+  <div class="tb-controls">
   <div class="viewbar" id="viewbar" hidden>
     <div class="tabs" id="view-tabs">
       <button data-view="list">リスト</button>
@@ -309,6 +359,7 @@
         <button id="btn-reload">再読込</button>
       </div>
     </details>
+  </div>
   </div>
 
 

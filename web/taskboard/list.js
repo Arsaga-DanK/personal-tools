@@ -308,6 +308,30 @@ function appendHighlighted(host, text, q) {
 }
 
 /* ---------- 行の描画（2026-09-25 にアーカイブ節から描画の隣へ戻した — todo #17） ---------- */
+// 行の状態（TB-V4）。行の左端の色の帯は1つだけ: 遅れ → 今日 → 着手中 → 開始日を過ぎたのに未着手。終了した行は無し
+function rowState(t, today) {
+  if (t.finished) return '';
+  if (t.due && t.due < today) return 'late';
+  if (t.due && t.due === today) return 'today';
+  if (t.status === ST_DOING) return 'doing';
+  if (t.start && t.start <= today && t.status === ST_TODO) return 'should';
+  return '';
+}
+// 日付の表示（TB-V5）: 年は薄く小さく（.yr）。文字列そのものは変えない
+function fillDate(host, ymd) {
+  if (!ymd) return;
+  const y = document.createElement('span');
+  y.className = 'yr';
+  y.textContent = ymd.slice(0, 5);
+  host.appendChild(y);
+  host.appendChild(document.createTextNode(ymd.slice(5)));
+}
+// 期限の隣の言葉（TB-V5）: N日遅れ／今日／明日／あとN日
+function dueWords(due, today) {
+  const d = diffDays(today, due);
+  return d < 0 ? (-d) + '日遅れ' : d === 0 ? '今日' : d === 1 ? '明日' : 'あと' + d + '日';
+}
+
 function renderRow(t, today) {
   const tr = document.createElement('tr');
   if (t.finished) tr.className = 'row-done';
@@ -315,8 +339,11 @@ function renderRow(t, today) {
   // 未保存の追加行を見分けられるようにする（保存すると orig が実値になり自然に消える）
   const isAdded = state.lines[t.line - 1] && state.lines[t.line - 1].orig === null;
   if (isAdded) tr.classList.add('row-added');
-  // 子を持つ行（TB-V1）: 太字・背景を少し色づけ・子の数・▾
+  // 最上位の行は子の有無に関係なく同じ色・太字（TB-V3）。子を持つ行は子の数と ▾（TB-V1）
+  if (t.indent === 0) tr.classList.add('row-top');
   if (t.children.length) tr.classList.add('row-parent');
+  const rs = rowState(t, today);
+  if (rs) tr.classList.add('s-' + rs);
   // ドラッグで落とされる側（TB-K19〜K21）。自分と自分の子孫の上には落とせない
   if (!t.hasCR) {
     tr.addEventListener('dragover', (e) => {
@@ -490,8 +517,7 @@ function renderRow(t, today) {
   const tdStart = document.createElement('td');
   tdStart.className = 'cell-start';
   const startSpan = document.createElement('span');
-  startSpan.textContent = t.start || '—';
-  if (!t.start) startSpan.classList.add('muted');
+  fillDate(startSpan, t.start);   // 空欄は空白（「—」を並べない）
   tdStart.appendChild(startSpan);
   if (!t.hasCR) {
     tdStart.title = 'クリックで開始日を設定';
@@ -502,21 +528,25 @@ function renderRow(t, today) {
   const tdDue = document.createElement('td');
   tdDue.className = 'cell-due';
   const dueSpan = document.createElement('span');
-  dueSpan.textContent = t.due || '—';
+  fillDate(dueSpan, t.due);
+  // 遅れ・今日は文字の色だけ（背景は塗らない — 状態は行の左端の帯が示す。TB-V5）。クラス名は従来どおり
   if (!t.finished && t.due) {
     if (t.due < today) dueSpan.className = 'due-over';
     else if (t.due === today) dueSpan.className = 'due-today';
-    dueSpan.style.padding = '1px 6px';
   }
-  if (!t.due) dueSpan.classList.add('muted');
   tdDue.appendChild(dueSpan);
+  if (!t.finished && t.due) {
+    const w = document.createElement('span');
+    w.className = 'due-rel' + (t.due < today ? ' late' : t.due === today ? ' today' : '');
+    w.textContent = dueWords(t.due, today);
+    tdDue.appendChild(w);
+  }
   if (!t.hasCR) tdDue.addEventListener('click', (e) => openDatePopover(e.currentTarget, t, 'due'));
   tr.appendChild(tdDue);
 
   const tdPri = document.createElement('td');
   tdPri.className = 'cell-pri';
-  tdPri.textContent = t.priEmoji ? t.priEmoji + ' ' + (PRI_LABEL[t.priority] || '') : '—';
-  if (!t.priEmoji) tdPri.classList.add('muted');
+  tdPri.textContent = t.priEmoji ? t.priEmoji + ' ' + (PRI_LABEL[t.priority] || '') : '';
   if (!t.hasCR) tdPri.addEventListener('click', (e) => openPriPopover(e.currentTarget, t));
   tr.appendChild(tdPri);
 
@@ -526,12 +556,6 @@ function renderRow(t, today) {
     const s = document.createElement('span');
     s.className = 'chip';
     s.textContent = '#' + tag;
-    tdTags.appendChild(s);
-  }
-  if (!t.tags.length) {
-    const s = document.createElement('span');
-    s.className = 'muted';
-    s.textContent = '—';
     tdTags.appendChild(s);
   }
   if (!t.hasCR) {

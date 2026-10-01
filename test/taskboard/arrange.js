@@ -1,10 +1,10 @@
 'use strict';
 /* test/taskboard/arrange.js — 節: 並べ替え（moveTask・ドラッグ）・削除（deleteTask）・親子の見た目（たたむ・縦線）
    入口: test/taskboard.js（ctx を受け取る。単独実行は node test/taskboard.js arrange）
-   照合する ID: TB-K12〜K25・TB-DEL1〜DEL7・TB-V1〜V3。期待値の正本は docs/specs/taskboard/engine.md */
+   照合する ID: TB-K12〜K25・TB-DEL1〜DEL7・TB-V1〜V6。期待値の正本は docs/specs/taskboard/engine.md */
 module.exports = {
   name: 'arrange',
-  ids: 'TB-K12〜K25・DEL1〜DEL7・V1〜V3',
+  ids: 'TB-K12〜K25・DEL1〜DEL7・V1〜V6',
   async run(ctx) {
     const { page, r, eq, F1, F5, TODAY, withDialogs, session } = ctx;
     const F1L = F1.split('\n'), F5L = F5.split('\n');
@@ -243,6 +243,7 @@ module.exports = {
     /* ---------- TB-V1〜V3: 親子の見た目 ---------- */
     await session(F1);
     await showDone(true);
+    await page.mouse.move(1, 1);   // ホバーの色を拾わない（前のドラッグのテストでマウスが行の上に残る）
     const v1 = await page.evaluate(() => {
       const rowOf = t => Array.from(document.querySelectorAll('#task-table tbody tr'))
         .find(x => { const b = x.querySelector('.body-text'); return b && b.textContent.includes(t); });
@@ -281,7 +282,49 @@ module.exports = {
     });
     r.check('TB-V2（▾ で子がたたまれ ▸ に → 戻せる／たたんだままでも検索中は一致が出る）',
       !v2.folded && v2.caret === '▸' && v2.searching && v2.reopened, JSON.stringify(v2));
-    r.check('TB-V3（親の行と子を持たない行は背景色が違う）', v1.bgP !== v1.bgL, JSON.stringify([v1.bgP, v1.bgL]));
+    await page.mouse.move(1, 1);
+    const v3 = await page.evaluate(() => {
+      const rowOf = t => Array.from(document.querySelectorAll('#task-table tbody tr'))
+        .find(x => { const b = x.querySelector('.body-text'); return b && b.textContent.includes(t); });
+      const bg = r => getComputedStyle(r).backgroundColor;
+      return { p: bg(rowOf('外部IF')), leaf: bg(rowOf('資料作成')), child: bg(rowOf('PRODUCTS_DETAIL')) };
+    });
+    r.check('TB-V3（最上位の行は子の有無に関係なく同じ背景色・子の行とは違う）', v3.p === v3.leaf && v3.p !== v3.child, JSON.stringify(v3));
     await showDone(false);
+
+    /* ---------- TB-V4〜V6: 見た目の第1段（状態の帯・期限の言葉・年を薄く・見出し2行） ---------- */
+    const SV = ['# tasks', '', '## A', '',
+      '- [ ] 遅れ 📅 2026-08-01', '- [ ] 今日 📅 2026-08-04', '- [/] 着手 📅 2026-08-20',
+      '- [ ] 始まった 🛫 2026-08-01 📅 2026-08-20', '- [ ] 先の 🛫 2026-08-10 📅 2026-08-20', ''].join('\n');
+    await session(SV);
+    const v4 = await page.evaluate(() => {
+      const rowOf = t => Array.from(document.querySelectorAll('#task-table tbody tr'))
+        .find(x => { const b = x.querySelector('.body-text'); return b && b.textContent === t; });
+      const st = r => ['s-late', 's-today', 's-doing', 's-should'].filter(c => r.classList.contains(c)).join(',');
+      const due = r => { const td = r.children[3]; const sp = td.querySelector('span');
+        return { cls: sp.className, bg: getComputedStyle(sp).backgroundColor, yr: (sp.querySelector('.yr') || {}).textContent || '',
+          rel: (td.querySelector('.due-rel') || {}).textContent || '' }; };
+      const names = ['遅れ', '今日', '着手', '始まった', '先の'];
+      return { st: names.map(n => st(rowOf(n))), due: names.map(n => due(rowOf(n))),
+        startYr: (rowOf('始まった').children[2].querySelector('.yr') || {}).textContent || '' };
+    });
+    r.check('TB-V4（行の左端の色の帯: 遅れ・今日・着手中・開始日を過ぎた・なし）',
+      eq(v4.st, ['s-late', 's-today', 's-doing', 's-should', '']), JSON.stringify(v4.st));
+    r.check('TB-V5（期限は背景なし・クラス名は不変・年は .yr・「3日遅れ／今日／あと16日」・開始日にも .yr）',
+      v4.due[0].cls === 'due-over' && v4.due[0].bg === 'rgba(0, 0, 0, 0)' && v4.due[0].yr === '2026-'
+      && v4.due[0].rel === '3日遅れ' && v4.due[1].rel === '今日' && v4.due[4].rel === 'あと16日' && v4.startYr === '2026-',
+      JSON.stringify(v4.due));
+    const v6 = await page.evaluate(() => {
+      const top = sel => { const e = document.querySelector(sel); return e ? Math.round(e.getBoundingClientRect().top) : null; };
+      const h1 = document.querySelector('main h1');
+      const tops = ['#view-tabs', '#btn-add-form', '#f-q', '#btn-copy', '#more-menu'].map(top);   // ⋯ まで同じ段（実データで ⋯ だけ落ちたことがある）
+      return { noSubtitle: !document.querySelector('main .subtitle'), h1Title: h1 ? h1.title : '',
+        vaultInMore: !!document.querySelector('#file-more #cfg-vault'), inHead: !!document.querySelector('.tb-head h1'),
+        tops, oneBand: tops.every(t => t !== null) && Math.max(...tops) - Math.min(...tops) <= 14,
+        tableTop: Math.round(document.getElementById('task-table').getBoundingClientRect().top + window.scrollY) };
+    });
+    r.check('TB-V6（見出し2行: 説明文は題名の title・vault 名は ⋯ の中・表示の切替から Excel用コピーまで同じ段・表の上端が 300px より上）',
+      v6.noSubtitle && v6.h1Title.includes('tasks.md') && v6.vaultInMore && v6.inHead && v6.oneBand && v6.tableTop < 300,
+      JSON.stringify(v6));
   },
 };
