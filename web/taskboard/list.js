@@ -344,13 +344,25 @@ function rowState(t, today) {
   if (t.start && t.start <= today && t.status === ST_TODO) return 'should';
   return '';
 }
-// 日付の表示（TB-V5・TB-Q67）: 今年なら「10/5」、今年でなければ「2027/1/5」。正確な日付は title
+// 日付の表示（TB-V5・TB-Q68）: 「2026/10/5(月)」。今年の年は薄く（.yr）、今年でない年はふつうの濃さで目に留まるように。
+// 正確な日付は title。曜日は dayNum（1970-01-01＝木曜が 0）から
+const WEEKDAYS = '日月火水木金土';
 function fillDate(host, ymd, today) {
   if (!ymd) return;
   const p = ymd.split('-');
-  host.textContent = (p[0] === String(today).slice(0, 4) ? '' : p[0] + '/') + (+p[1]) + '/' + (+p[2]);
+  const rest = (+p[1]) + '/' + (+p[2]) + '(' + WEEKDAYS[(dayNum(ymd) + 4) % 7] + ')';
+  if (p[0] === String(today).slice(0, 4)) {
+    const y = document.createElement('span');
+    y.className = 'yr';
+    y.textContent = p[0] + '/';
+    host.appendChild(y);
+    host.appendChild(document.createTextNode(rest));
+  } else host.textContent = p[0] + '/' + rest;
   host.title = ymd;
 }
+// 一覧の関連ノートのチップの文字（TB-W4）: 🎯 が作る「<日付>_<内容>」の先頭の日付を省いて中身を見せる。
+// 日付しか無い名前（デイリーノート）は省かない。title とリンク先は全文のまま
+function noteChipLabel(name) { return name.replace(/^\d{4}-\d{2}-\d{2}[_ ](?=\S)/, ''); }
 
 // セクションの見出しの行（TB-SH1〜SH6）。data-line を持たない。セルは2つ（状態の列の空き＋残り全部）
 function renderSecHead(name, list, today) {
@@ -657,8 +669,8 @@ function renderRow(t, today) {
     const href = obsidianHref(name);
     const chip = document.createElement(href ? 'a' : 'span');
     chip.className = 'chip';
-    chip.textContent = name;
-    // 一覧では14emで切るので、title の先頭に全文（TB-W3）
+    chip.textContent = noteChipLabel(name);
+    // 一覧では先頭の日付を省き9emで切るので、title の先頭に全文（TB-W3・W4）
     if (href) { chip.href = href; chip.title = name + ' — Obsidian で開く'; }
     else chip.title = name + ' — Obsidian で開くにはツールバーの「vault 名」を設定してください';
     tdLinks.appendChild(chip);

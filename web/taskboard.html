@@ -43,6 +43,8 @@
   .sec-st.today { color: var(--st-today); }
   .sec-st.doing { color: var(--st-doing); }
   #task-table tr.sec-row.drop-sec td { box-shadow: inset 0 -2px 0 var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  /* 今年の年は薄く（TB-V5・TB-Q68）。今年でない年は .yr を付けないのでふつうの濃さ */
+  #task-table .yr { font-size: 11px; color: var(--muted); opacity: .85; }
   .due-rel { display: block; font-size: 11.5px; color: var(--muted); line-height: 1.3; }
   .due-rel.late { color: var(--st-late); font-weight: 600; }
   .due-rel.today { color: var(--st-today); font-weight: 600; }
@@ -120,8 +122,9 @@
   a.chip:hover { text-decoration: underline; }
   /* 一覧の関連ノート: チップは折り返さないので、長いノート名だと列がその幅まで伸びて内容の列が潰れる
      （利用者のスクリーンショット・2026-09-25 — 🎯 が作るノート名は <日付>_<内容> で長い）。
-     14em で切って全文は title（TB-W3。2026-09-30 に 16em→14em — 行のボタンが4つになり内容の列を守るため）。モーダルのチップは ✕ を隠さないよう切らない */
-  #task-table td .chip { max-width: 14em; overflow: hidden; text-overflow: ellipsis; vertical-align: top; }
+     9em で切って全文は title（TB-W3。2026-09-30 に 16em→14em、2026-10-01 に 14em→9em — 日付の列が年＋曜日で広がった分を
+     ここで吸収。先頭の日付は省いて中身を見せる TB-W4）。モーダルのチップは ✕ を隠さないよう切らない */
+  #task-table td .chip { max-width: 9em; overflow: hidden; text-overflow: ellipsis; vertical-align: top; }
   /* 行のボタンは4つ（＋子・編集・🎯・🗑）。内容の列を削らないよう余白は詰める（TB-W3） */
   .btn-child { opacity: 0; font-size: 12px; padding: 1px 5px; }
   #task-table tbody tr:hover .btn-child { opacity: 1; }

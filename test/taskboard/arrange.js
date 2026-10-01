@@ -303,18 +303,20 @@ module.exports = {
       const st = r => ['s-late', 's-today', 's-doing', 's-should'].filter(c => r.classList.contains(c)).join(',');
       const due = r => { const td = r.children[3]; const sp = td.querySelector('span');
         return { cls: sp.className, bg: getComputedStyle(sp).backgroundColor, text: sp.textContent, title: sp.title,
-          rel: (td.querySelector('.due-rel') || {}).textContent || '' }; };
+          yr: (sp.querySelector('.yr') || {}).textContent || '', rel: (td.querySelector('.due-rel') || {}).textContent || '' }; };
       const names = ['遅れ', '今日', '着手', '始まった', '先の'];
       return { st: names.map(n => st(rowOf(n))), due: names.map(n => due(rowOf(n))),
-        start: rowOf('始まった').children[2].textContent, nextYear: rowOf('来年').children[3].querySelector('span').textContent };
+        start: rowOf('始まった').children[2].textContent, nextYear: rowOf('来年').children[3].querySelector('span').textContent,
+        nextYearYr: !!rowOf('来年').children[3].querySelector('.yr') };
     });
     r.check('TB-V4（行の左端の色の帯: 遅れ・今日・着手中・開始日を過ぎた・なし）',
       eq(v4.st, ['s-late', 's-today', 's-doing', 's-should', '']), JSON.stringify(v4.st));
-    r.check('TB-V5（期限は背景なし・クラス名は不変・今年は「8/1」で title に全体・「3日遅れ／今日／あと16日」・開始日も「8/1」・来年は「2027/1/5」）',
-      v4.due[0].cls === 'due-over' && v4.due[0].bg === 'rgba(0, 0, 0, 0)' && v4.due[0].text === '8/1' && v4.due[0].title === '2026-08-01'
+    r.check('TB-V5（期限は背景なし・クラス名は不変・「2026/8/1(土)」で今年の年は .yr・title に全体・「3日遅れ／今日／あと16日」・開始日も同じ形・来年は「2027/1/5(火)」で .yr なし）',
+      v4.due[0].cls === 'due-over' && v4.due[0].bg === 'rgba(0, 0, 0, 0)' && v4.due[0].text === '2026/8/1(土)' && v4.due[0].yr === '2026/'
+      && v4.due[0].title === '2026-08-01'
       && v4.due[0].rel === '3日遅れ' && v4.due[1].rel === '今日' && v4.due[4].rel === 'あと16日'
-      && v4.start === '8/1' && v4.nextYear === '2027/1/5',
-      JSON.stringify([v4.due, v4.start, v4.nextYear]));
+      && v4.start === '2026/8/1(土)' && v4.nextYear === '2027/1/5(火)' && !v4.nextYearYr,
+      JSON.stringify([v4.due, v4.start, v4.nextYear, v4.nextYearYr]));
     const v6 = await page.evaluate(() => {
       const top = sel => { const e = document.querySelector(sel); return e ? Math.round(e.getBoundingClientRect().top) : null; };
       const h1 = document.querySelector('main h1');

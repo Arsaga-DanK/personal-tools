@@ -352,10 +352,31 @@ module.exports = {
     document.getElementById('modal-cancel').click();
     return out;
   }, [W3, W3NOTE]);
-  r.check('TB-W3（長い関連ノート名: 内容の列が関連ノートの列より広く表の3割以上・チップは14em以内で全文は title・横スクロールなし・モーダルのチップもはみ出さず ✕ が見える）',
-    w3.bodyW > w3.linksW && w3.bodyW >= w3.tableW * 0.3 && w3.chipEm <= 14.5 && w3.fullTitle && w3.docNoScroll
+  r.check('TB-W3（長い関連ノート名: 内容の列が関連ノートの列より広く表の3割以上・チップは9em以内で全文は title・横スクロールなし・モーダルのチップもはみ出さず ✕ が見える）',
+    w3.bodyW > w3.linksW && w3.bodyW >= w3.tableW * 0.3 && w3.chipEm <= 9.5 && w3.fullTitle && w3.docNoScroll
     && w3.modalNoScroll && w3.modalChipFits && w3.delVisible,
     JSON.stringify(w3));
+
+  /* ---------- TB-W4: 一覧のチップは先頭の日付を省く（2026-10-01・利用者「関連ノート列はもうちょっと狭めて大丈夫」） ---------- */
+  const W4N = ['2026-09-25_JP1でFTP確認', '2026-09-25', '議事録 2026-09-25'];
+  const w4 = await page.evaluate(async (names) => {
+    window.taskboard.test.newSession(['# tasks', '', '## A', '', '- [ ] 三つ ' + names.map(n => '[[' + n + ']]').join(' '), ''].join('\n'));
+    const e = document.getElementById('cfg-vault'); e.value = 'V'; e.dispatchEvent(new Event('change'));
+    const tr = document.querySelector('#task-table tbody tr[data-line]');
+    const chips = Array.from(tr.querySelectorAll('.chip')).filter(c => c.closest('td') === tr.children[6]);
+    const out = { text: chips.map(c => c.textContent), title: chips.map(c => c.title), href: chips.map(c => c.getAttribute('href') || '') };
+    Array.from(tr.querySelectorAll('.btn-child')).find(x => x.textContent === '編集').click();
+    await new Promise(r => setTimeout(r, 150));
+    out.modal = Array.from(document.querySelectorAll('#modal-link-list .chip')).map(c => c.textContent.replace('✕', ''));
+    document.getElementById('modal-cancel').click();
+    e.value = ''; e.dispatchEvent(new Event('change'));
+    return out;
+  }, W4N);
+  r.check('TB-W4（一覧のチップは先頭の「YYYY-MM-DD_」だけ省く・日付だけ／途中の日付はそのまま・title とリンク先は全文・モーダルは全文）',
+    eq(w4.text, ['JP1でFTP確認', '2026-09-25', '議事録 2026-09-25'])
+    && w4.title.every((t, i) => t.startsWith(W4N[i]))
+    && eq(w4.href, W4N.map(n => 'obsidian://open?vault=V&file=' + encodeURIComponent(n)))
+    && eq(w4.modal, W4N.map(n => '[[' + n + ']]')), JSON.stringify(w4));
 
   /* ========== TB-N1〜N6: タスクを考える場所へ（イシューノートを開く／作る） ========== */
   const fsaReset = () => page.evaluate(() => {
