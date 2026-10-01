@@ -1,5 +1,5 @@
 'use strict';
-/* web/taskboard/list.js — 一覧の描画・検索ハイライト・行の描画・インライン編集と IME ガード
+/* web/taskboard/list.js — 一覧の描画・行の操作（右クリック・キー）・検索ハイライト・行の描画・インライン編集と IME ガード（「いま」は now.js）
    入口: web/taskboard.html（このファイルは単独では動かない）。読み込み順は入口の <script src> の並びが正本で、
    前のファイルの宣言だけを読み込み時に使ってよい（分割の規約: docs/coding-rules.md「ファイルの分割」）。 */
 
@@ -242,6 +242,7 @@ function render() {
     el('timeline-view').hidden = true;
     el('board-view').hidden = true;
     el('empty-msg').hidden = false;
+    el('now').hidden = true;
     el('empty-msg').textContent = 'ファイルを開くとタスクが表示されます — ブラウザから直接 tasks.md を読み書きします（初回のみ Chrome の許可ダイアログが出ます）';
     return;
   }
@@ -374,6 +375,7 @@ function render() {
   } else {
     for (const t of rows) putRow(t);
   }
+  renderNow(groups, today);
 
   for (const b of el('view-tabs').querySelectorAll('button')) {
     b.classList.toggle('active', b.dataset.view === state.ui.view);

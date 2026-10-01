@@ -81,6 +81,7 @@ const state = {
     q: '',   // 検索語。**永続化しない**（persistUi に入れない）
     board: { groupBy: 'section' },   // ボードの列の基準（永続化する）
     tlZoom: 'day',                   // タイムラインのズーム（永続化する）
+    nowFolded: false,                // 「いま」をたたんだか（永続化する — TB-NW7）
     // 追加モーダルの前回値（クリアも '' として記憶する。固定デフォルトは実態に合わない）。
     // 書き込みは rememberFromOp（全編集経路）、投入は openTaskModal の1箇所だけ
     // start/due の **null は「未設定」＝新規で今日を入れる**。'' は「クリアした」＝空のまま（TB-D2）。

@@ -1,10 +1,10 @@
 'use strict';
 /* test/taskboard/arrange.js — 節: 並べ替え（moveTask・ドラッグ）・削除（deleteTask）・親子の見た目（たたむ・縦線）
    入口: test/taskboard.js（ctx を受け取る。単独実行は node test/taskboard.js arrange）
-   照合する ID: TB-K12〜K25・TB-DEL1〜DEL7・TB-V1〜V6・TB-SH1〜SH7・TB-RM1〜RM9。期待値の正本は docs/specs/taskboard/engine.md */
+   照合する ID: TB-K12〜K25・TB-DEL1〜DEL7・TB-V1〜V6・TB-SH1〜SH7・TB-RM1〜RM9・TB-NW1〜NW8。期待値の正本は docs/specs/taskboard/engine.md */
 module.exports = {
   name: 'arrange',
-  ids: 'TB-K12〜K25・DEL1〜DEL7・V1〜V6・SH1〜SH7・RM1〜RM9',
+  ids: 'TB-K12〜K25・DEL1〜DEL7・V1〜V6・SH1〜SH7・RM1〜RM9・NW1〜NW8',
   async run(ctx) {
     const { page, r, eq, F1, F5, TODAY, withDialogs, session } = ctx;
     const F1L = F1.split('\n'), F5L = F5.split('\n');
@@ -324,10 +324,13 @@ module.exports = {
       return { noSubtitle: !document.querySelector('main .subtitle'), h1Title: h1 ? h1.title : '',
         vaultInMore: !!document.querySelector('#file-more #cfg-vault'), inHead: !!document.querySelector('.tb-head h1'),
         tops, oneBand: tops.every(t => t !== null) && Math.max(...tops) - Math.min(...tops) <= 14,
-        tableTop: Math.round(document.getElementById('task-table').getBoundingClientRect().top + window.scrollY) };
+        // 見出しの下の最初の中身（「いま」があればそれ、無ければ表 — 第3段で「いま」が表の上に入った）
+        firstTop: (() => { const n = document.getElementById('now');
+          const e = n && !n.hidden ? n : document.getElementById('task-table');
+          return Math.round(e.getBoundingClientRect().top + window.scrollY); })() };
     });
-    r.check('TB-V6（見出し2行: 説明文は題名の title・vault 名は ⋯ の中・表示の切替から Excel用コピーまで同じ段・表の上端が 300px より上）',
-      v6.noSubtitle && v6.h1Title.includes('tasks.md') && v6.vaultInMore && v6.inHead && v6.oneBand && v6.tableTop < 300,
+    r.check('TB-V6（見出し2行: 説明文は題名の title・vault 名は ⋯ の中・表示の切替から Excel用コピーまで同じ段・見出しの下の最初の中身の上端が 300px より上）',
+      v6.noSubtitle && v6.h1Title.includes('tasks.md') && v6.vaultInMore && v6.inHead && v6.oneBand && v6.firstTop < 300,
       JSON.stringify(v6));
 
     /* ---------- TB-SH1〜SH7: セクションを表の中の見出しに ---------- */
@@ -584,6 +587,8 @@ module.exports = {
       await page.keyboard.press('e');
       o.q = await page.evaluate(() => document.getElementById('f-q').value); o.qModal = (await modalNow()).open;
       await page.keyboard.press('Backspace');
+      // 検索は 250ms 後に描き直す。待たないと後のテストの途中で描き直しが走り、付けたクラスを消す（TB-NW4 で実際に踏んだ）
+      await page.waitForTimeout(300);
       o.q2 = await page.evaluate(() => document.getElementById('f-q').value);
       o.qText = await textNow();
       await page.evaluate(() => { document.activeElement.blur(); document.getElementById('btn-add-form').click(); });
@@ -620,5 +625,126 @@ module.exports = {
     r.check('TB-RM9（右端のボタン ＋子・編集・🎯・🗑 は残り、title の末尾にキー）',
       rm9.length === 4 && eq(rm9.map(x => x.split('|')[0]), ['＋子', '編集', '🎯', '🗑']) && rm9.every((x, i) => x.endsWith(tails[i])),
       JSON.stringify(rm9));
+
+    /* ---------- TB-NW1〜NW8: 見た目の第3段「いま」（今日 08-04） ---------- */
+    const NW = ['# tasks', '', '## A', '',
+      '- [ ] 親P 🛫 2026-08-01',                    // 5  開始日を過ぎた — だが子が遅れなので「いま」に出さない
+      '\t- [ ] 子遅れ 📅 2026-08-02',                // 6  遅れ 2日
+      '- [/] 着手遅れ 📅 2026-08-03',                // 7  着手中だが遅れ 1日 → 遅れの行に ▶ つき
+      '- [ ] 今日の 📅 2026-08-04',                  // 8  今日まで
+      '- [/] 進行中',                                // 9  進めている
+      '- [ ] 始まった 🛫 2026-08-02',                // 10 開始日を過ぎた
+      '- [ ] 先の 🛫 2026-08-10',                    // 11 どれでもない
+      '- [x] 済んだ 📅 2026-08-01',                  // 12 終了 — 出さない
+      '', '## B', '',
+      '- [ ] B遅れ 📅 2026-07-30',                   // 16 遅れ 5日（いちばん古い）
+      '- [ ] 長い親の名前ですよこれは 🛫 2026-08-01', // 17 開始日を過ぎた（子も「開始日を過ぎた」だけなので出す）
+      '\t- [ ] 子始まった 🛫 2026-08-03',            // 18 開始日を過ぎた・親の名前は10字で切る
+      ''].join('\n');
+    const nowNow = () => page.evaluate(() => {
+      const box = document.getElementById('now');
+      if (!box) return { missing: true };
+      const list = box.querySelector('.now-list');
+      return {
+        hidden: box.hidden,
+        cnt: Array.from(box.querySelectorAll('.now-cnt')).map(c => c.textContent.trim()),
+        groups: Array.from(box.querySelectorAll('.now-group')).map(g => ({
+          badge: ((g.querySelector('.now-badge') || {}).textContent || '').trim(),
+          ticks: Array.from(g.querySelectorAll('.tick')).map(t => t.textContent),
+          titles: Array.from(g.querySelectorAll('.tick')).map(t => t.title) })),
+        empty: (box.querySelector('.now-empty') || {}).textContent || '',
+        listHidden: !list || list.hidden || list.offsetHeight === 0,
+        fold: ((document.getElementById('now-fold') || {}).textContent || '').trim(),
+        docNoScroll: document.documentElement.scrollWidth <= document.documentElement.clientWidth };
+    });
+    await session(NW);
+    const nw1 = await nowNow();
+    r.check('TB-NW1（見出しに 遅れ 3・今日まで 1・進めている 1／行は 遅れ → 今日まで → 進めている → 開始日を過ぎた・1280px で横スクロールなし）',
+      !nw1.missing && !nw1.hidden && eq(nw1.cnt, ['遅れ 3', '今日まで 1', '進めている 1'])
+      && eq(nw1.groups.map(g => g.badge), ['遅れ 3', '今日まで 1', '進めている 1', '開始日を過ぎた 3']) && nw1.docNoScroll,
+      JSON.stringify(nw1.missing || { cnt: nw1.cnt, badges: nw1.groups.map(g => g.badge), noScroll: nw1.docNoScroll }));
+    const tk = nw1.groups ? nw1.groups.map(g => g.ticks) : [];
+    const tt = nw1.groups ? nw1.groups.map(g => g.titles) : [];
+    r.check('TB-NW2（札: 親の名前 › 内容・遅れは（N日遅れ）で期限の古い順・遅れの着手中は ▶・親の名前は10字で切る・title は全文）',
+      eq(tk, [['B遅れ（5日遅れ）', '親P › 子遅れ（2日遅れ）', '▶ 着手遅れ（1日遅れ）'], ['今日の'], ['進行中'],
+        ['始まった', '長い親の名前ですよこれは', '長い親の名前ですよこ… › 子始まった']])
+      && tt.length === 4 && tt[0][1] === '親P › 子遅れ' && tt[3][2] === '長い親の名前ですよこれは › 子始まった',
+      JSON.stringify({ tk, tt }));
+    const flat = tk.reduce((a, b) => a.concat(b), []);
+    r.check('TB-NW3（子が遅れの親P は「開始日を過ぎた」に出ない・子が「開始日を過ぎた」だけの親は出る・終了した行は出ない）',
+      flat.length > 0 && !flat.includes('親P') && flat.includes('長い親の名前ですよこれは') && !flat.some(x => x.includes('済んだ')),
+      JSON.stringify(flat));
+
+    // NW4: たたんだ親・セクションの中の札を押す → 開いて画面に入り光る（動きを減らす設定でスクロールを瞬時に）
+    await page.setViewportSize({ width: 1280, height: 420 });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await session(NW);
+    await page.evaluate(() => {
+      const tr = Array.from(document.querySelectorAll('#task-table tbody tr[data-line]'))
+        .find(x => (x.querySelector('.body-text') || {}).textContent === '親P');
+      tr.querySelector('.fold-btn').click();
+      const h = Array.from(document.querySelectorAll('#task-table tbody tr.sec-row'))
+        .find(x => ((x.querySelector('.sec-name') || {}).textContent || '').replace(/^[▾▸]\s*/, '') === 'B');
+      h.querySelector('.sec-fold').click();
+    });
+    const rowThere = l => page.evaluate(n => !!document.querySelector('#task-table tbody tr[data-line="' + n + '"]'), l);
+    const nw4pre = [await rowThere(6), await rowThere(18)];
+    const jump = (txt, line) => page.evaluate(async ([t, l]) => {
+      const b = Array.from(document.querySelectorAll('#now .tick')).find(x => x.textContent.includes(t));
+      if (!b) return { noTick: true };
+      b.click();
+      await new Promise(res => setTimeout(res, 80));
+      const tr = document.querySelector('#task-table tbody tr[data-line="' + l + '"]');
+      if (!tr) return { noRow: true };
+      const rc = tr.getBoundingClientRect();
+      return { inView: rc.top >= 0 && rc.bottom <= window.innerHeight, flash: tr.classList.contains('flash') };
+    }, [txt, line]);
+    const nw4a = await jump('子遅れ', 6);
+    const nw4b = await jump('子始まった', 18);
+    await page.emulateMedia({ reducedMotion: null });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    r.check('TB-NW4（たたんだ親・セクションの中の札を押す → 開いて、その行が画面に入り光る）',
+      eq(nw4pre, [false, false]) && nw4a.inView && nw4a.flash && nw4b.inView && nw4b.flash, JSON.stringify({ nw4pre, nw4a, nw4b }));
+
+    // NW5: 絞り込みに従う
+    await session(NW);
+    await page.evaluate(() => { const s = document.getElementById('f-section'); s.value = 'A'; s.dispatchEvent(new Event('change', { bubbles: true })); });
+    const nw5a = await nowNow();
+    await page.evaluate(() => {
+      const s = document.getElementById('f-section'); s.value = ''; s.dispatchEvent(new Event('change', { bubbles: true }));
+      const q = document.getElementById('f-q'); q.value = 'B遅れ'; q.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await page.waitForTimeout(350);
+    const nw5b = await nowNow();
+    await page.evaluate(() => { const q = document.getElementById('f-q'); q.value = ''; q.dispatchEvent(new Event('input', { bubbles: true })); });
+    await page.waitForTimeout(350);
+    const ticksOf = x => (x.groups || []).reduce((a, g) => a.concat(g.ticks), []);
+    r.check('TB-NW5（セクションを A に絞ると B の札が消え見出しの数も A だけ／検索「B遅れ」で札は B遅れ だけ）',
+      !ticksOf(nw5a).some(x => x.startsWith('B遅れ') || x.includes('子始まった')) && eq(nw5a.cnt, ['遅れ 2', '今日まで 1', '進めている 1'])
+      && eq(ticksOf(nw5b), ['B遅れ（5日遅れ）']), JSON.stringify({ a: [nw5a.cnt, ticksOf(nw5a)], b: ticksOf(nw5b) }));
+
+    await session(['# tasks', '', '## A', '', '- [ ] 先の 🛫 2026-08-10', ''].join('\n'));
+    const nw6 = await nowNow();
+    r.check('TB-NW6（急ぎが無ければ「急ぎのものはありません」・見出しの数は 0）',
+      nw6.empty === '急ぎのものはありません' && (nw6.groups || []).length === 0 && eq(nw6.cnt, ['遅れ 0', '今日まで 0', '進めている 0']),
+      JSON.stringify(nw6));
+
+    await session(NW);
+    const foldNow = () => page.evaluate(() => {
+      const b = document.getElementById('now-fold');
+      if (b) b.click();
+      const s = JSON.parse(localStorage.getItem('tools:taskboard') || '{}');
+      return { clicked: !!b, saved: s.data ? s.data.nowFolded : undefined };
+    });
+    const nw7a = await foldNow(); const nw7as = await nowNow();
+    const nw7b = await foldNow(); const nw7bs = await nowNow();
+    r.check('TB-NW7（［たたむ］で札の行が消え見出しの数は残る・「ひらく ▾」・UI 状態に nowFolded=true → もう一度で戻る）',
+      nw7a.clicked && nw7as.listHidden && eq(nw7as.cnt, ['遅れ 3', '今日まで 1', '進めている 1']) && nw7as.fold === 'ひらく ▾' && nw7a.saved === true
+      && !nw7bs.listHidden && nw7bs.fold === 'たたむ ▴' && nw7b.saved === false, JSON.stringify({ nw7a, f: nw7as.fold, l: nw7as.listHidden, nw7b, f2: nw7bs.fold }));
+
+    const viewNow = v => page.evaluate(x => { document.querySelector('[data-view="' + x + '"]').click(); return document.getElementById('now') && document.getElementById('now').hidden; }, v);
+    const nw8 = [await viewNow('board'), await viewNow('timeline'), await viewNow('list')];
+    r.check('TB-NW8（ボード・タイムラインでは「いま」を隠し、リストで出す）', eq(nw8, [true, true, false]), JSON.stringify(nw8));
+
   },
 };

@@ -97,7 +97,7 @@ function persistUi() {
   ToolStorage.save(TOOL, {
     view: state.ui.view, sort: state.ui.sort, section: state.ui.section,
     tag: state.ui.tag, showDone: state.ui.showDone, add: state.ui.add,
-    board: state.ui.board, tlZoom: state.ui.tlZoom,
+    board: state.ui.board, tlZoom: state.ui.tlZoom, nowFolded: state.ui.nowFolded,
   });
 }
 function restoreUi() {
@@ -115,6 +115,7 @@ function restoreUi() {
   }
   // ズームも既知値のみ（未知なら day）
   if (TL_ZOOM_KEYS.includes(s.tlZoom)) state.ui.tlZoom = s.tlZoom;
+  if (typeof s.nowFolded === 'boolean') state.ui.nowFolded = s.nowFolded;
   if (s.add && typeof s.add === 'object') {
     for (const k of ['section', 'start', 'due', 'priority']) {
       if (typeof s.add[k] === 'string') state.ui.add[k] = s.add[k];
