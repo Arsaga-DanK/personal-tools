@@ -874,14 +874,18 @@ function startBodyEdit(td, t) {
   const input = document.createElement('input');
   input.type = 'text';
   input.className = 'cell-edit-input';
-  input.value = t.body;
+  // 編集欄には内容だけを出す（関連ノート・タグは外す — 編集画面の内容欄と同じ modalContentOf）。確定したら
+  // bodyTextOf で付け直す（TB-X20。以前は本文をまるごと出していたので [[…]] とタグが編集欄に並び、打ち直すと消えた）
+  const before = modalContentOf(t);
+  input.value = before;
   let done = false;
   const commit = () => {
     if (done) return;
     done = true;
     const v = input.value.trim();
-    if (v && v !== t.body) applyUiOp({ type: 'editContent', line: t.line, text: v });
-    else render();
+    if (v && v !== before) {
+      applyUiOp({ type: 'editContent', line: t.line, text: bodyTextOf({ content: v, tags: t.tags, links: t.links }) });
+    } else render();
   };
   input.addEventListener('keydown', (e) => {
     if (isComposingKey(e)) return;

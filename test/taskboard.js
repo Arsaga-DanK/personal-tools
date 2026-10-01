@@ -110,6 +110,10 @@ if (unknown.length) {
       document.getElementById('modal-memo').value = '';
       document.getElementById('modal-cancel').click();
     }
+    // 前のテストが開いたままのポップオーバーも閉じる。画面の下にはみ出して文書を伸ばしたままだと、次のマウス操作で
+    // 閉じた瞬間に文書が縮んでスクロールが戻り、ダブルクリックが別の行に当たる（TB-X20 で実際に踏んだ — 2026-10-01）
+    if (!document.getElementById('popover').hidden) closePopover();
+    if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
   }, [text, TODAY]);
   const addModal = () => page.evaluate(() => {
     if (document.getElementById('modal').hidden) document.getElementById('btn-add-form').click();

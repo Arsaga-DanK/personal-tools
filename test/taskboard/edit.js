@@ -1,10 +1,10 @@
 'use strict';
 /* test/taskboard/edit.js — 節: メモ・完了タスクを常に最下部・タグ・既定値・追加編集モーダル
    入口: test/taskboard.js（ctx を受け取る。単独実行は node test/taskboard.js edit）
-   照合する ID: TB-M1〜M12・C1〜C3・T1〜T5・D1〜D3・X1〜X18。期待値の正本は docs/specs/taskboard.md と docs/specs/taskboard/*.md */
+   照合する ID: TB-M1〜M12・C1〜C3・T1〜T5・D1〜D3・X1〜X20。期待値の正本は docs/specs/taskboard.md と docs/specs/taskboard/*.md */
 module.exports = {
   name: 'edit',
-  ids: 'TB-M1〜M12・C1〜C3・T1〜T5・D1〜D3・X1〜X18',
+  ids: 'TB-M1〜M12・C1〜C3・T1〜T5・D1〜D3・X1〜X20',
   async run(ctx) {
     const { page, context, browser, r, eq, bannerIs, fileUrl, REPO, path, SHOTS, shotPath,
             F1, F2, F2c, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, F13, F14, F15, TODAY, NFD9, NFC9,
@@ -254,6 +254,9 @@ module.exports = {
   const d1 = await page.evaluate(([f1, today]) => {
     window.taskboard.test.setToday(today);
     window.taskboard.test.newSession(f1);
+    // セクションは見出しへのドラッグで変える。見出しはリストにしか無いので、前のテストの表示（タイムライン等）に頼らず
+    // リストへ切り替える（edit 節だけを回すとタイムラインのままで空振りしていた — 2026-10-01）
+    document.querySelector('[data-view="list"]').click();
     const rowOf = body => Array.from(document.querySelectorAll('#task-table tbody tr'))
       .find(tr => tr.children[1] && tr.children[1].textContent.includes(body));
     const pop = (cls, pick) => {
@@ -625,6 +628,32 @@ module.exports = {
     x18.split('\n')[17] === '- [ ] Cmd+Enter で保存'
     && x18.split('\n')[18] === '\t- メモにフォーカスがあっても保存される',
     JSON.stringify(x18.split('\n').slice(16, 20)));
+
+  // TB-X20: 一覧の内容のその場の編集（ダブルクリック）も内容だけを出し、確定で関連ノート・タグを付け直す
+  // 前のテストの表示（ボード・タイムライン）のままだと表が隠れているので、リストに戻してから本物のマウスで押す
+  const toList = () => page.evaluate(() => document.querySelector('[data-view="list"]').click());
+  await session(F1); await toList();
+  const editAt = async (line) => {
+    try { await page.dblclick('#task-table tbody tr[data-line="' + line + '"] td.cell-body .body-text', { timeout: 3000 }); }
+    catch (e) { return 'ERR: ' + e.message.split('\n')[0]; }
+    return page.evaluate(() => (document.querySelector('#task-table .cell-edit-input') || {}).value);
+  };
+  const x20 = {};
+  x20.goal = await editAt(17);
+  await page.keyboard.press('Escape');
+  x20.rv = await editAt(13);
+  await page.keyboard.press('Escape');
+  await editAt(17);
+  await page.evaluate(() => { const i = document.querySelector('#task-table .cell-edit-input'); if (i) i.value = '目標管理を見直す'; });
+  await page.keyboard.press('Enter');
+  x20.line = await page.evaluate(() => window.__s.getText().split('\n')[16]);
+  await session(F1); await toList();
+  await editAt(17);
+  await page.keyboard.press('Enter');
+  x20.same = await page.evaluate((f1) => window.__s.getText() === f1, F1);
+  r.check('TB-X20（一覧の内容のその場の編集も内容だけ: 関連ノートとタグを出さない・#144 は内容側・確定で付け直して TB-X19 と同じ行・変えなければ不変）',
+    x20.goal === '目標管理について考える' && x20.rv === '資料Rv #144'
+    && x20.line === '- [ ] 目標管理を見直す #UL業務 [[2026-07-07]] 🔽' && x20.same, JSON.stringify(x20));
 
   },
 };
