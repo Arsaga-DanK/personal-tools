@@ -11,24 +11,9 @@ function openPopover(anchor, build) {
   const pop = el('popover');
   pop.textContent = '';
   build(pop);
-  // 実寸は表示してからでないと測れない。測る前に左上へ寄せてページを広げない
-  pop.style.left = '0px';
-  pop.style.top = '0px';
+  // 実寸は表示してからでないと測れない。置き場所の計算（右端で押し戻し・下端で上側へ）は lib/ui.js の ToolUI.placeAt（2026-10-02 に移設）
   pop.hidden = false;
-  const r = anchor.getBoundingClientRect();
-  const pw = pop.offsetWidth, ph = pop.offsetHeight;
-  const vw = document.documentElement.clientWidth, vh = document.documentElement.clientHeight;
-  const sx = window.scrollX, sy = window.scrollY;
-  let left = r.left + sx;
-  if (left + pw > sx + vw - 8) left = sx + vw - pw - 8;
-  if (left < sx + 8) left = sx + 8;
-  let top = r.bottom + sy + 4;
-  if (top + ph > sy + vh - 8) {
-    const above = r.top + sy - ph - 4;                     // アンカーの上側に出す
-    top = above >= sy + 8 ? above : Math.max(sy + 8, sy + vh - ph - 8);
-  }
-  pop.style.left = left + 'px';
-  pop.style.top = top + 'px';
+  ToolUI.placeAt(pop, anchor.getBoundingClientRect());
 }
 function closePopover() { el('popover').hidden = true; }
 document.addEventListener('mousedown', (e) => {

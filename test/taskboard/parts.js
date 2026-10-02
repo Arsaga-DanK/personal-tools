@@ -31,7 +31,7 @@ module.exports = {
 
     /* ---------- TB-LP9: 移したものが Plan Tasks に残っていない ---------- */
     const lp9 = await page.evaluate((names) => names.filter(n => { try { return (0, eval)('typeof ' + n) !== 'undefined'; } catch (e) { return false; } }),
-      ['fillDate', 'dueWords', 'WEEKDAYS']);
+      ['fillDate', 'dueWords', 'WEEKDAYS', 'rowActionForKey', 'TYPING_SEL']);
     r.check('TB-LP9（移した関数・定数が Plan Tasks 側に残っていない）', eq(lp9, []), JSON.stringify(lp9));
 
     /* ---------- TB-LP10: CSS の置き場所 ---------- */
@@ -48,6 +48,65 @@ module.exports = {
     await page.emulateMedia({ colorScheme: null });
     r.check('TB-LP10（状態の色・日付・いま・光らせるの CSS は lib/ui.css に1つだけ・ライトでもダークでも --st-late がある）',
       eq(lp10.libMissing, []) && eq(lp10.tbLeft, []) && lp10.light !== '' && lp10.dark !== '', JSON.stringify(lp10));
+
+    /* ---------- TB-LP3〜LP6: メニューとキー ---------- */
+    const ACTS = [{ id: 'child', key: 'c', keyLabel: 'C', icon: '＋', label: '子タスクを追加' },
+      { id: 'edit', key: 'e', keyLabel: 'E', icon: '✎', label: '編集' }, { id: 'delete', key: 'delete', keyLabel: 'Delete', icon: '🗑', label: '削除' }];
+    const lp3 = await safe((acts) => {
+      const k = (o) => { const a = ToolUI.menuKey(new KeyboardEvent('keydown', o), acts); return a ? a.id : null; };
+      return [k({ key: 'e', code: 'KeyE' }), k({ key: 'い', code: 'KeyE' }), k({ key: 'E', code: 'KeyE', shiftKey: true }),
+        k({ key: 'e', code: 'KeyE', metaKey: true }), k({ key: 'e', code: 'KeyE', ctrlKey: true }), k({ key: 'e', code: 'KeyE', altKey: true }),
+        k({ key: 'e', code: 'KeyE', isComposing: true }), k({ key: 'Delete', code: 'Delete' }), k({ key: 'Backspace', code: 'Backspace' }), k({ key: 'x', code: 'KeyX' })];
+    }, ACTS);
+    r.check('TB-LP3（ToolUI.menuKey: キーの位置で見る・日本語入力・大文字は効く／修飾キー・変換中は効かない／Delete と Backspace は削除）',
+      eq(lp3, ['edit', 'edit', 'edit', null, null, null, null, 'delete', 'delete', null]), JSON.stringify(lp3));
+    const lp4 = await safe(() => {
+      const mk = (tag, type) => { const e = document.createElement(tag); if (type) e.type = type; return e; };
+      const ce = document.createElement('div'); ce.contentEditable = 'true';
+      return [mk('input', 'text'), mk('input', 'search'), mk('input', 'checkbox'), mk('input', 'radio'), mk('input', 'button'),
+        mk('textarea'), mk('select'), mk('button'), ce, document.body, null].map(e => ToolUI.isTyping(e));
+    });
+    r.check('TB-LP4（ToolUI.isTyping: 文字を打つ部品だけ true）',
+      eq(lp4, [true, true, false, false, false, true, true, false, true, false, false]), JSON.stringify(lp4));
+    const lp5 = await safe(async (acts) => {
+      const picked = [];
+      const m = ToolUI.menu(acts, a => picked.push(a.id));
+      document.body.appendChild(m);
+      await new Promise(res => setTimeout(res, 20));
+      const items = Array.from(m.querySelectorAll('[role=menuitem]'));
+      const at = () => items.indexOf(document.activeElement);
+      const key = k => m.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
+      const out = { role: m.getAttribute('role'), cls: m.className, itemCls: items.map(b => b.className),
+        labels: items.map(b => b.querySelector('.rm-icon').textContent + '|' + b.querySelector('.rm-label').textContent + '|' + b.querySelector('kbd').textContent),
+        first: at() };
+      key('ArrowUp'); out.up = at();
+      key('ArrowDown'); out.down = at();
+      items[1].click(); out.picked = picked;
+      m.remove();
+      return out;
+    }, ACTS);
+    r.check('TB-LP5（ToolUI.menu: 役割と項目・開いた直後は1つ目・↑で最後へ回る・↓で1つ目・押すと onPick）',
+      lp5.role === 'menu' && lp5.cls === 'row-menu' && eq(lp5.itemCls, ['row-menu-item', 'row-menu-item', 'row-menu-item'])
+      && eq(lp5.labels, ['＋|子タスクを追加|C', '✎|編集|E', '🗑|削除|Delete']) && lp5.first === 0 && lp5.up === 2 && lp5.down === 0
+      && eq(lp5.picked, ['edit']), JSON.stringify(lp5));
+    const lp6 = await safe(() => {
+      window.scrollTo(0, 0);
+      const pop = document.createElement('div'); pop.style.position = 'absolute'; pop.style.width = '200px'; pop.style.height = '150px';
+      document.body.appendChild(pop);
+      const vw = document.documentElement.clientWidth, vh = document.documentElement.clientHeight;
+      const at = (x, y) => { ToolUI.placeAt(pop, ToolUI.pointRect(x, y)); const rc = pop.getBoundingClientRect(); return [Math.round(rc.left), Math.round(rc.top)]; };
+      const out = { mid: at(100, 100), right: at(vw - 10, 100), bottom: at(100, vh - 10), vw, vh };
+      pop.remove();
+      return out;
+    });
+    r.check('TB-LP6（ToolUI.placeAt: ポインタの下・右端は内側へ押し戻す・下端はポインタの上側へ）',
+      eq(lp6.mid, [100, 104]) && lp6.right[0] === lp6.vw - 208 && lp6.bottom[1] === lp6.vh - 10 - 154, JSON.stringify(lp6));
+    /* ---------- TB-LP11: メニューの CSS の置き場所 ---------- */
+    const css2 = fs.readFileSync(path.join(REPO, 'lib/ui.css'), 'utf8');
+    const html2 = fs.readFileSync(path.join(REPO, 'web/taskboard.html'), 'utf8');
+    r.check('TB-LP11（メニューの見た目は lib/ui.css に・Plan Tasks には小窓の余白の指定だけ）',
+      css2.includes('.row-menu-item') && !html2.includes('.row-menu-item') && html2.includes('.popover:has(.row-menu)'),
+      JSON.stringify([css2.includes('.row-menu-item'), html2.includes('.row-menu-item')]));
 
     /* ---------- TB-LP7: 「いま」を描く ---------- */
     const lp7 = await safe(() => {

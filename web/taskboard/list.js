@@ -82,16 +82,18 @@ function confirmDeleteTask(t) {
 /* ---------- 行の操作: 右クリックのメニューとキー（TB-RM1〜RM9・TB-Q69） ----------
    右端のボタンまでポインタを運ばずに済むように（利用者「毎回そこにマウスポインターを合わせるのがめんどくさい」）。
    項目・キー・右端のボタンの title の添え書きはここ1箇所。key は KeyboardEvent.code の英字（文字ではなくキーの位置で
-   見るので日本語入力のままでも効く）か 'delete'（Delete と mac の delete キー＝Backspace） */
+   見るので日本語入力のままでも効く）か 'delete'（Delete と mac の delete キー＝Backspace）。
+   メニューの見た目・キーの読み方・文字を打っている最中の判定は lib/ui.js の ToolUI（2026-10-02 に移設 — TB-LP3〜LP6）。
+   何をするか（run）とどの行に効くか（rowKeyTarget）はここ */
 const ROW_ACTIONS = [
   { id: 'child',  key: 'c',      keyLabel: 'C',      icon: '＋', label: '子タスクを追加', run: (t, at) => openChildPopover(at, t) },
   { id: 'edit',   key: 'e',      keyLabel: 'E',      icon: '✎', label: '編集',           run: (t) => openTaskModal('edit', t) },
   { id: 'think',  key: 'i',      keyLabel: 'I',      icon: '🎯', label: '考える場所へ',   run: (t) => thinkAbout(t, false) },
   { id: 'delete', key: 'delete', keyLabel: 'Delete', icon: '🗑', label: '削除',           run: (t) => confirmDeleteTask(t) },
 ];
-function rowKeyHint(id) { return '（キー ' + ROW_ACTIONS.find(a => a.id === id).keyLabel + '・右クリックでも）'; }
+function rowKeyHint(id) { return ToolUI.keyHint(ROW_ACTIONS.find(a => a.id === id)); }
 // ポインタの位置を openPopover のアンカーにする（openPopover は getBoundingClientRect しか見ない）
-function pointAnchor(x, y) { return { getBoundingClientRect: () => ({ left: x, right: x, top: y, bottom: y, width: 0, height: 0 }) }; }
+function pointAnchor(x, y) { return { getBoundingClientRect: () => ToolUI.pointRect(x, y) }; }
 function runRowAction(a, t, at) {
   closePopover();
   a.run(t, at);
@@ -100,40 +102,12 @@ function runRowAction(a, t, at) {
 function openRowMenu(t, x, y) {
   const at = pointAnchor(x, y);
   openPopover(at, (pop) => {
-    const menu = document.createElement('div');
-    menu.className = 'row-menu';
-    menu.setAttribute('role', 'menu');
+    const menu = ToolUI.menu(ROW_ACTIONS, (a) => runRowAction(a, t, at));
     // キーで選んだときにどの行のどこへ出すかを覚えておく（rowKeyTarget）
     menu.dataset.line = t.line;
     menu.dataset.x = x;
     menu.dataset.y = y;
-    for (const a of ROW_ACTIONS) {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'row-menu-item';
-      b.setAttribute('role', 'menuitem');
-      const icon = document.createElement('span');
-      icon.className = 'rm-icon';
-      icon.textContent = a.icon;
-      const label = document.createElement('span');
-      label.className = 'rm-label';
-      label.textContent = a.label;
-      const key = document.createElement('kbd');
-      key.textContent = a.keyLabel;
-      b.append(icon, label, key);
-      b.addEventListener('click', () => runRowAction(a, t, at));
-      menu.appendChild(b);
-    }
-    // ↑↓ で項目を移る（Enter はボタンの既定で押せる・Esc は共通のポップオーバーの規則で閉じる）
-    menu.addEventListener('keydown', (e) => {
-      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
-      e.preventDefault();
-      const items = Array.from(menu.children), n = items.length, down = e.key === 'ArrowDown';
-      const i = items.indexOf(document.activeElement);
-      items[i < 0 ? (down ? 0 : n - 1) : (i + (down ? 1 : n - 1)) % n].focus();
-    });
     pop.appendChild(menu);
-    setTimeout(() => menu.firstChild.focus(), 0);
   });
 }
 
@@ -146,21 +120,13 @@ function onRowContextMenu(e, t) {
   openRowMenu(t, e.clientX, e.clientY);
 }
 
-// 文字を打つ部品。ここにフォーカスがあるときはキーを奪わない（チェックボックス・ボタンは打たないので含めない）
-const TYPING_SEL = 'input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]), textarea, select, [contenteditable=""], [contenteditable="true"]';
-function rowActionForKey(e) {
-  if (e.metaKey || e.ctrlKey || e.altKey || isComposingKey(e)) return null;
-  const k = (e.key === 'Delete' || e.key === 'Backspace') ? 'delete'
-    : /^Key[A-Z]$/.test(e.code || '') ? e.code.slice(3).toLowerCase() : '';
-  return ROW_ACTIONS.find(a => a.key === k) || null;
-}
 // キーが効く行: メニューが開いていればメニューの行、無ければポインタを乗せている行（TB-RM5・RM6・RM8）
 function rowKeyTarget() {
   if (state.ui.view !== 'list' || state.drag || !el('modal').hidden) return null;
   const pop = el('popover');
   const menu = pop.hidden ? null : pop.querySelector('.row-menu');
   if (!pop.hidden && !menu) return null;            // 日付・タグ・子の入力などの最中
-  if (!menu && document.activeElement && document.activeElement.matches(TYPING_SEL)) return null;
+  if (!menu && ToolUI.isTyping(document.activeElement)) return null;   // 文字を打つ欄にいるときはキーを奪わない
   const tr = menu ? document.querySelector('#task-table tbody tr[data-line="' + menu.dataset.line + '"]')
     : document.querySelector('#task-table tbody tr[data-line]:hover');
   if (!tr) return null;
@@ -169,7 +135,7 @@ function rowKeyTarget() {
   return { t, at: menu ? pointAnchor(+menu.dataset.x, +menu.dataset.y) : (tr.querySelector('td.cell-body') || tr) };
 }
 document.addEventListener('keydown', (e) => {
-  const a = rowActionForKey(e);
+  const a = ToolUI.menuKey(e, ROW_ACTIONS);
   if (!a) return;
   const target = rowKeyTarget();
   if (!target) return;

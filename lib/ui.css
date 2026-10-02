@@ -391,3 +391,15 @@ nav.modes a[aria-current="page"] { background: var(--accent); color: #fff; font-
 .flash { animation: tool-flash 1.3s ease-out; }
 @keyframes tool-flash { from { background: color-mix(in srgb, var(--accent) 35%, transparent); } to { background: transparent; } }
 @media (prefers-reduced-motion: reduce) { .flash { animation: none; outline: 2px solid var(--accent); } }
+
+/* ---------- 行の操作のメニュー（2026-10-02 に Plan Tasks から移設 — TB-RM・ToolUI.menu）----------
+   項目は行の高さで狙いやすく、右にキーを出して使ううちに覚えられるように。置く小窓は各ツールが持つ */
+.row-menu { display: flex; flex-direction: column; min-width: 13em; }
+.row-menu-item { display: flex; align-items: center; gap: 8px; text-align: left; border: 0; border-radius: 6px;
+  background: transparent; padding: 7px 10px; }
+.row-menu-item:hover, .row-menu-item:focus-visible { background: color-mix(in srgb, var(--accent) 16%, transparent); outline: none; }
+.row-menu-item:focus { outline: none; background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.row-menu-item .rm-icon { width: 1.4em; text-align: center; }
+.row-menu-item .rm-label { flex: 1; }
+.row-menu-item kbd { font: 11px/1.5 ui-monospace, Menlo, monospace; color: var(--muted);
+  border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; }
