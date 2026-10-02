@@ -48,7 +48,7 @@
   .tb-controls > #viewbar, .tb-controls > #main-toolbar { display: contents; }
   /* 表示の切替は小さな切り替えボタンの形（1行に並べると、下線のタブは浮いて見える。幅も詰める） */
   /* .viewbar .tabs（横いっぱいに伸ばす指定）が後ろにあるので、id で強くする */
-  .tb-controls #view-tabs { margin: 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; gap: 0; flex: 0 0 auto; background: var(--panel); }
+  .tb-controls #view-tabs { flex: 0 0 auto; }
   .tb-controls #btn-add-form, .tb-controls #btn-copy { padding-left: 10px; padding-right: 10px; }
   .tb-controls #f-q { width: 9.5em; }
   .tb-controls #main-toolbar .spacer { order: 1; flex: 1 1 auto; }
@@ -247,24 +247,6 @@
   .cell-edit-input { width: 100%; font: inherit; padding: 2px 6px; border: 1px solid var(--accent);
     border-radius: 4px; background: var(--panel); color: var(--text); }
   #file-actions button { margin-right: 8px; }
-  /* ⋯ メニュー: 低頻度の操作を畳む（常時11個は多すぎた — 2026-09-24 の利用者指摘） */
-  .more-menu { position: relative; }
-  .more-menu > summary {
-    list-style: none; cursor: pointer; user-select: none;
-    border: 1px solid var(--border); border-radius: 8px; background: var(--panel);
-    padding: 4px 12px; font-size: 14px; line-height: 1.4; color: var(--muted);
-  }
-  .more-menu > summary::-webkit-details-marker { display: none; }
-  .more-menu > summary:hover { color: var(--accent); }
-  .more-menu[open] > summary { color: var(--accent); border-color: var(--accent); }
-  .more-panel {
-    position: absolute; right: 0; top: calc(100% + 6px); z-index: 150;
-    display: flex; flex-direction: column; align-items: stretch; gap: 6px;
-    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
-    box-shadow: 0 8px 24px rgba(0,0,0,.24); padding: 10px; min-width: 200px;
-  }
-  .more-panel .more-row { display: flex; align-items: center; justify-content: space-between;
-    gap: 8px; font-size: 13px; color: var(--muted); }
 </style>
 </head>
 <body>

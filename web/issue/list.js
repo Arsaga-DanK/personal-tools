@@ -341,8 +341,29 @@ function card(it) {
   return art;
 }
 
+/* ---------- 表示の切替・検索（段2 — IS-LK2・LK3） ----------
+   表示の切替は select から横並びのボタンに（画面イメージ第2案）。検索はノート名・本文（論点・掘る）に含む語で絞る */
+function statusFilter() {
+  const b = document.querySelector('#f-status button.active');
+  return b ? b.dataset.v : 'open';
+}
+function setStatusFilter(v) {
+  for (const b of document.querySelectorAll('#f-status button[data-v]')) {
+    const on = b.dataset.v === v;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', String(on));
+  }
+  renderCards();
+}
+function searchQuery() { return nfc($id('f-q').value || '').trim().toLowerCase(); }
+function matchesSearch(n) {
+  const q = searchQuery();
+  return !q || nfc(n.title + '\n' + n.text).toLowerCase().includes(q);
+}
+let howtoShown = false;   // ⋯ の［使い方］で開いたか（ノートがあるときは既定で隠す — IS-LK4）
+
 function visibleCards(note) {
-  const f = $id('f-status').value;
+  const f = statusFilter();
   return note.cards.filter(function (c) {
     if (f === 'all') return true;
     if (f === 'closed') return c.status === 'closed';
@@ -448,13 +469,13 @@ async function saveAddIssue(n, line, due) {
 function renderCards() {
   const host = $id('cards');
   host.textContent = '';
-  const label = { open: '開いているもの', all: 'すべて', closed: '閉じたもの' }[$id('f-status').value];
-  const groups = notes.map(function (n) { return { n: n, cards: visibleCards(n) }; })
+  const label = { open: '開いているもの', all: 'すべて', closed: '閉じたもの' }[statusFilter()];
+  const groups = notes.filter(matchesSearch).map(function (n) { return { n: n, cards: visibleCards(n) }; })
     .filter(function (g) { return g.cards.length > 0; });
   let total = 0;
   for (let i = 0; i < groups.length; i++) total += groups[i].cards.length;
   let tally = '';
-  if ($id('f-status').value !== 'open') {
+  if (statusFilter() !== 'open') {
     // 訓練の成績表（R6）: 立てた問いがどれだけ当たったか
     const closed = [];
     notes.forEach(function (n) { n.cards.forEach(function (c) { if (c.status === 'closed') closed.push(c); }); });
@@ -463,6 +484,7 @@ function renderCards() {
   }
   $id('summary').textContent = notes.length === 0 ? '' : total + '件（' + label + '）' + tally;
   if (notes.length === 0) $id('howto').open = true;   // 初見は使い方を開いておく（R10）
+  $id('howto').hidden = notes.length > 0 && !howtoShown;   // ノートがあれば ⋯ から開く（IS-LK4）
   if (groups.length === 0) {
     const p = document.createElement('p');
     p.className = 'ic-empty';
@@ -617,7 +639,20 @@ $id('cfg-vault').addEventListener('change', function () {
 
 $id('pick-btn').addEventListener('click', function () { loadIssues(true); });
 $id('reload-btn').addEventListener('click', function () { loadIssues(false); });
-$id('f-status').addEventListener('change', renderCards);
+$id('f-status').addEventListener('click', function (e) {
+  const b = e.target.closest('button[data-v]');
+  if (b) setStatusFilter(b.dataset.v);
+});
+let qTimer = null;
+const runSearch = function () { clearTimeout(qTimer); qTimer = setTimeout(renderCards, 250); };
+$id('f-q').addEventListener('input', function (e) { if (e.isComposing) return; runSearch(); });   // 変換中は絞らない
+$id('f-q').addEventListener('compositionend', runSearch);
+$id('howto-btn').addEventListener('click', function () {
+  howtoShown = true;
+  $id('howto').hidden = false;
+  $id('howto').open = true;
+  $id('issue-more').open = false;
+});
 $id('cm-cancel').addEventListener('click', closeCloseModal);
 $id('cm-ok').addEventListener('click', applyClose);
 

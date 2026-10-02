@@ -144,32 +144,45 @@
   }
   button.ic-issue:hover { border-color: var(--border); background: var(--bg); transform: none; box-shadow: none; color: var(--text); }
   button.ic-issue.is-empty { color: var(--muted); font-size: 13px; }
+  /* 見出し2行（段2）— Check Issue 固有の部分だけ（型は lib/ui.css） */
+  .app-head .autosave-note { color: var(--muted); font-size: 12px; }
+  .app-head .summary { margin: 0; font-size: 13px; }
+  .app-controls #f-q { width: 14em; }
 </style>
 </head>
 <body>
 <main class="app-wide">
-  <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">入力は自動保存されます</span></p>
-  <nav class="modes" aria-label="モード">
-    <a href="taskboard.html">✅ タスク</a>
-    <a href="issue.html" aria-current="page">🎯 イシュー</a>
-  </nav>
-  <h1>Check Issue</h1>
-  <p class="subtitle">論点（イシュー）を一覧して育てる — 書き殴りは Obsidian、1行足す・切り出す・閉じるはここ</p>
-
-  <div class="toolbar">
-    <button id="wizard-btn" title="論点が最初から見えているときだけ。ふだんは Obsidian で書き殴って、カードから足す">🎯 新しく立てる（5段）</button>
-    <button id="pick-btn">📂 04_Issues を開く</button>
-    <button id="reload-btn" hidden>再読込</button>
-    <label class="opts">表示 <select id="f-status">
-      <option value="open" selected>開いているもの</option>
-      <option value="all">すべて</option>
-      <option value="closed">閉じたもの</option>
-    </select></label>
+  <!-- 見出し2行（段2・IS-LK1）。型は lib/ui.css の .app-head・.app-controls -->
+  <header class="app-head">
+    <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">入力は自動保存されます</span></p>
+    <h1 title="論点（イシュー）を一覧して育てる — 書き殴りは Obsidian、1行足す・切り出す・閉じるはここ">Check Issue</h1>
+    <nav class="modes" aria-label="モード">
+      <a href="taskboard.html">✅ タスク</a>
+      <a href="issue.html" aria-current="page">🎯 イシュー</a>
+    </nav>
     <span class="spacer"></span>
-    <label class="opts" title="Obsidian の vault 名。カードの［Obsidian で開く］に使います（空ならリンクを作りません）">
-      vault 名 <input type="text" id="cfg-vault" size="10" placeholder="未設定">
-    </label>
+    <button id="pick-btn">📂 04_Issues を開く</button>
     <span class="summary" id="summary"></span>
+    <details class="more-menu" id="issue-more">
+      <summary title="vault 名・再読込・使い方">⋯</summary>
+      <div class="more-panel">
+        <label class="more-row" title="Obsidian の vault 名。カードの［Obsidian で開く］に使います（空ならリンクを作りません）">
+          vault 名 <input type="text" id="cfg-vault" size="10" placeholder="未設定">
+        </label>
+        <button id="reload-btn" hidden>再読込</button>
+        <button id="howto-btn" type="button">使い方（3つだけ）</button>
+      </div>
+    </details>
+  </header>
+  <div class="app-controls">
+    <button id="wizard-btn" title="論点が最初から見えているときだけ。ふだんは Obsidian で書き殴って、カードから足す">＋ 新しく立てる（5段）</button>
+    <div class="tabs" id="f-status" role="group" aria-label="表示">
+      <button type="button" data-v="open" class="active" aria-pressed="true">開いている</button>
+      <button type="button" data-v="all" aria-pressed="false">すべて</button>
+      <button type="button" data-v="closed" aria-pressed="false">閉じた</button>
+    </div>
+    <span class="spacer"></span>
+    <input type="search" id="f-q" placeholder="🔍 検索（ノート名・論点・掘る）" aria-label="検索">
   </div>
 
   <p class="summary" id="env-note" hidden></p>

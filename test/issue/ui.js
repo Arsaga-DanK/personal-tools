@@ -109,8 +109,7 @@ module.exports = {
 
   const ul2 = await page.evaluate(() => {
     const set = v => {
-      const f = document.getElementById('f-status');
-      f.value = v; f.dispatchEvent(new Event('change', { bubbles: true }));
+      document.querySelector('#f-status [data-v="' + v + '"]').click();
       return document.querySelectorAll('.issue-card').length;
     };
     return { open: set('open'), all: set('all'), closed: set('closed'), back: set('open') };
@@ -307,10 +306,9 @@ module.exports = {
     const count = () => document.querySelectorAll('.issue-card').length;
     const heads = () => Array.from(document.querySelectorAll('.note-name')).map(e => e.textContent);
     const open = { cards: count(), heads: heads() };
-    const f = document.getElementById('f-status');
-    f.value = 'all'; f.dispatchEvent(new Event('change', { bubbles: true }));
+    document.querySelector('#f-status [data-v="all"]').click();
     const all = count();
-    f.value = 'open'; f.dispatchEvent(new Event('change', { bubbles: true }));
+    document.querySelector('#f-status [data-v="open"]').click();
     return {
       open, all,
       firstIssue: document.querySelector('.issue-card .ic-issue').textContent,
@@ -492,8 +490,7 @@ module.exports = {
 
   // IS-UL14: 閉じたカードに 判定＋分かったこと・集計・超過を出さない
   const ul14 = await page.evaluate(() => {
-    const f = document.getElementById('f-status');
-    f.value = 'closed'; f.dispatchEvent(new Event('change', { bubbles: true }));
+    document.querySelector('#f-status [data-v="closed"]').click();
     const cards = Array.from(document.querySelectorAll('.issue-card'));
     const os = cards.find(c => c.querySelector('.ic-issue').textContent.includes('OS のみ'));
     const out = {
@@ -503,7 +500,7 @@ module.exports = {
       overClass: os.querySelector('.ic-due').className,
       closeBtn: !!os.querySelector('.ic-close'),
     };
-    f.value = 'open'; f.dispatchEvent(new Event('change', { bubbles: true }));
+    document.querySelector('#f-status [data-v="open"]').click();
     return out;
   });
   r.check('IS-UL14（閉じたカード: 判定と分かったことが出る・集計「当たり1・外れ1」・超過を赤で出さない）',
@@ -522,7 +519,7 @@ module.exports = {
   const ul16 = await page.evaluate(async ([n1, n2]) => {
     for (const k of Object.keys(window.__fsa.files)) delete window.__fsa.files[k];
     window.__fsa.files['n1.md'] = n1; window.__fsa.files['n2.md'] = n2;
-    document.getElementById('f-status').value = 'open';
+    document.querySelector('#f-status [data-v="open"]').click();
     await window.issue.load();
     const head = Array.from(document.querySelectorAll('.note-head')).find(h => h.textContent.includes('ノート1'));
     const btn = head && head.querySelector('.note-close');
@@ -535,13 +532,11 @@ module.exports = {
     await new Promise(d => setTimeout(d, 400));
     const after = window.__fsa.files['n1.md'];
     const openIssues = Array.from(document.querySelectorAll('.ic-issue')).map(e => e.textContent);
-    document.getElementById('f-status').value = 'closed';
-    document.getElementById('f-status').dispatchEvent(new Event('change'));
+    document.querySelector('#f-status [data-v="closed"]').click();
     const closedIssues = Array.from(document.querySelectorAll('.ic-issue')).map(e => e.textContent);
     const headAfter = Array.from(document.querySelectorAll('.note-head')).find(h => h.textContent.includes('ノート1'));
     const btnGone = !headAfter || !headAfter.querySelector('.note-close');
-    document.getElementById('f-status').value = 'open';
-    document.getElementById('f-status').dispatchEvent(new Event('change'));
+    document.querySelector('#f-status [data-v="open"]').click();
     return {
       target, btnGone,
       status: /^status: closed$/m.test(after), verdict: /^verdict: 外れ$/m.test(after),
@@ -583,7 +578,7 @@ module.exports = {
     for (const k of Object.keys(window.__fsa.files)) delete window.__fsa.files[k];
     window.__fsa.files['q.md'] = ['---', 'status: open', 'tags: [issue]', '---', '# 確認', '', '## 論点', '',
       '- [ ] JP1でFTP通信をしているものがあるか。 \u{1F4C5} 2026-09-30', ''].join('\n');
-    document.getElementById('f-status').value = 'open';
+    document.querySelector('#f-status [data-v="open"]').click();
     await window.issue.load();
     const card = document.querySelector('.issue-card');
     return { warn: !!(card && card.querySelector('.ic-warn')), ok: !!(card && card.querySelector('.ic-ok')) };

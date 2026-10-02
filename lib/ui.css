@@ -413,8 +413,30 @@ nav.modes a[aria-current="page"] { background: var(--accent); color: #fff; font-
 .app-head nav.modes { margin: 0; }
 .app-head .spacer { flex: 1 1 auto; }
 .app-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 4px 0 12px; }
+/* 表示の切替（横並びのボタン）の外枠。ツール側で後ろから .xxx .tabs の flex を上書きするときは id で強める（Plan Tasks の #view-tabs） */
+.app-controls .tabs { margin: 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; gap: 0; flex: 0 0 auto; background: var(--panel); }
 .app-controls .tabs button { border: 0; border-radius: 0; padding: 4px 10px; font-size: 13px; }
 .app-controls .tabs button + button { border-left: 1px solid var(--border); }
 .app-controls .tabs button.active { background: var(--accent); color: var(--accent-text); box-shadow: none; }
 .app-controls .opts { gap: 6px 10px; }
 .app-controls .opts select { padding-left: 6px; padding-right: 4px; }
+
+/* ---------- ⋯ メニュー（2026-10-02 に Plan Tasks から移設 — 段2で Check Issue が2本目）----------
+   低頻度の操作を畳む（常時11個は多すぎた — 2026-09-24 の利用者指摘） */
+.more-menu { position: relative; }
+.more-menu > summary {
+  list-style: none; cursor: pointer; user-select: none;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--panel);
+  padding: 4px 12px; font-size: 14px; line-height: 1.4; color: var(--muted);
+}
+.more-menu > summary::-webkit-details-marker { display: none; }
+.more-menu > summary:hover { color: var(--accent); }
+.more-menu[open] > summary { color: var(--accent); border-color: var(--accent); }
+.more-panel {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 150;
+  display: flex; flex-direction: column; align-items: stretch; gap: 6px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.24); padding: 10px; min-width: 200px;
+}
+.more-panel .more-row { display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; font-size: 13px; color: var(--muted); }

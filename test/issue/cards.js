@@ -20,7 +20,7 @@ module.exports = {
       window.__fsa.files['ul.md'] = ['---', 'status: open', 'project: UL', 'tags: [issue]', '---', '# ULのノート', '', '## 論点', '',
         '- [ ] 目標は数ではなく質で立てるべきではないか \u{1F4C5} 2026-09-28', ''].join('\n');
       window.__fsa.files['none.md'] = ['---', 'status: open', 'tags: [issue]', '---', '# 案件なしのノート', '', '## 掘る', '- メモ', ''].join('\n');
-      document.getElementById('f-status').value = 'open';
+      document.querySelector('#f-status [data-v="open"]').click();
       await window.issue.load();
       const heads = Array.from(document.querySelectorAll('.proj-head')).map(e => e.textContent);
       const itk = Array.from(document.querySelectorAll('.note-card')).find(c => (c.querySelector('.note-name') || {}).textContent === 'ITKのノート');
