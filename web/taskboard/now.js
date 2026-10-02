@@ -1,7 +1,8 @@
 'use strict';
 /* web/taskboard/now.js — 「いま」（今やるものを種類ごとに1行で並べる札・札から表の行へ飛ぶ）
    入口: web/taskboard.html（このファイルは単独では動かない）。前提: engine.js（diffDays・ST_DOING）・io.js（state・el）・
-   list.js（rowState・render）が先に読まれる。読み込み時に実行する文は無い（宣言だけ）。
+   list.js（rowState・render）が先に読まれる。描くのと光らせるのは lib/ui.js の ToolUI.nowStrip / flash（2026-10-02 に移設 — 分け方はここ）。
+   読み込み時に実行する文は無い（宣言だけ）。
    2026-10-01 に list.js が 1,000 行を超えたので分けた（分割の規約: docs/coding-rules.md「ファイルの分割」） */
 
 /* ---------- 「いま」（TB-NW1〜NW8・TB-Q66・TB-Q70） ----------
@@ -13,7 +14,6 @@ function renderNow(groups, today) {
   const box = el('now');
   box.hidden = state.ui.view !== 'list';
   if (box.hidden) return;
-  box.textContent = '';
   const byLine = new Map(state.doc.tasks.map(x => [x.line, x]));
   // 表の順（並び順・セクションの順）で、表に出るタスクを集める
   const by = { late: [], today: [], doing: [], should: [] };
@@ -29,74 +29,28 @@ function renderNow(groups, today) {
   const hasShownDesc = t => t.children.some(c => shown.has(c.line) || hasShownDesc(c));
   by.should = by.should.filter(t => !hasShownDesc(t));
 
-  const head = document.createElement('div');
-  head.className = 'now-head';
-  const title = document.createElement('span');
-  title.className = 'now-title';
-  title.textContent = 'いま';
-  head.appendChild(title);
-  for (const [k, label] of NOW_KINDS.slice(0, 3)) {
-    const c = document.createElement('span');
-    c.className = 'now-cnt';
-    const dot = document.createElement('span');
-    dot.className = 'now-dot k-' + k;
-    const n = document.createElement('b');
-    n.textContent = String(by[k].length);
-    c.append(dot, label + ' ', n);
-    head.appendChild(c);
-  }
-  const fold = document.createElement('button');
-  fold.type = 'button';
-  fold.id = 'now-fold';
-  fold.className = 'now-fold';
-  fold.textContent = state.ui.nowFolded ? 'ひらく ▾' : 'たたむ ▴';
-  fold.setAttribute('aria-expanded', String(!state.ui.nowFolded));
-  fold.addEventListener('click', () => { state.ui.nowFolded = !state.ui.nowFolded; persistUi(); render(); });
-  head.appendChild(fold);
-
-  const ul = document.createElement('ul');
-  ul.className = 'now-list';
-  ul.hidden = state.ui.nowFolded;
-  for (const [k, label] of NOW_KINDS) {
-    if (!by[k].length) continue;
-    const li = document.createElement('li');
-    li.className = 'now-group';
-    const badge = document.createElement('span');
-    badge.className = 'now-badge k-' + k;
-    badge.textContent = label + ' ' + by[k].length;
-    const ticks = document.createElement('div');
-    ticks.className = 'ticks';
-    for (const t of by[k]) ticks.appendChild(nowTick(t, k, today, byLine));
-    li.append(badge, ticks);
-    ul.appendChild(li);
-  }
-  if (!ul.childNodes.length) {
-    const li = document.createElement('li');
-    li.className = 'now-empty';
-    li.textContent = '急ぎのものはありません';
-    ul.appendChild(li);
-  }
-  box.append(head, ul);
+  ToolUI.nowStrip(box, {
+    kinds: NOW_KINDS.map(([id, label]) => ({ id, label, count: id !== 'should' })),   // 開始日を過ぎた は見出しに数を出さない（TB-NW1）
+    groups: Object.fromEntries(NOW_KINDS.map(([id]) => [id, by[id].map(t => nowTick(t, id, today, byLine))])),
+    folded: state.ui.nowFolded,
+    onFold: () => { state.ui.nowFolded = !state.ui.nowFolded; persistUi(); render(); },
+    empty: '急ぎのものはありません',
+  });
 }
-// 札: 「▶ 」（遅れ・今日までに入った着手中）＋「親の内容（10字まで）› 」＋内容＋「（N日遅れ）」。title は祖先から全文
+// 札の中身: 「▶ 」（遅れ・今日までに入った着手中）＋「親の内容（10字まで）› 」＋内容＋「（N日遅れ）」。title は祖先から全文
 function nowTick(t, kind, today, byLine) {
-  const b = document.createElement('button');
-  b.type = 'button';
-  b.className = 'tick';
-  const part = (cls, text) => { const s = document.createElement('span'); s.className = cls; s.textContent = text; return s; };
-  if (t.status === ST_DOING && kind !== 'doing') b.appendChild(part('tick-par', '▶ '));
+  const parts = [];
+  if (t.status === ST_DOING && kind !== 'doing') parts.push({ text: '▶ ', cls: 'tick-par' });
   const parent = t.parentLine !== null ? byLine.get(t.parentLine) : null;
   if (parent) {
     const cs = Array.from(nowName(parent));   // 文字（コードポイント）で数える — 絵文字を途中で切らない
-    b.appendChild(part('tick-par', (cs.length > 10 ? cs.slice(0, 10).join('') + '…' : cs.join('')) + ' › '));
+    parts.push({ text: (cs.length > 10 ? cs.slice(0, 10).join('') + '…' : cs.join('')) + ' › ', cls: 'tick-par' });
   }
-  b.appendChild(document.createTextNode(nowName(t)));
-  if (kind === 'late') b.appendChild(part('tick-rel', '（' + (-diffDays(today, t.due)) + '日遅れ）'));
+  parts.push({ text: nowName(t) });
+  if (kind === 'late') parts.push({ text: '（' + (-diffDays(today, t.due)) + '日遅れ）', cls: 'tick-rel' });
   const path = [];
   for (let p = t; p; p = p.parentLine !== null ? byLine.get(p.parentLine) : null) path.unshift(nowName(p));
-  b.title = path.join(' › ');
-  b.addEventListener('click', () => jumpToRow(t));
-  return b;
+  return { parts, title: path.join(' › '), onClick: () => jumpToRow(t) };
 }
 // 札から表の行へ: たたんだ祖先とセクションを開いて描き直し、行を画面の中ほどへ寄せて少し光らせる（TB-NW4）
 function jumpToRow(t) {
@@ -106,8 +60,5 @@ function jumpToRow(t) {
   render();
   const tr = document.querySelector('#task-table tbody tr[data-line="' + t.line + '"]');
   if (!tr) return;
-  const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  tr.scrollIntoView({ block: 'center', behavior: reduce ? 'auto' : 'smooth' });
-  tr.classList.add('flash');
-  setTimeout(() => tr.classList.remove('flash'), 1300);
+  ToolUI.flash(tr);
 }
