@@ -1,10 +1,10 @@
 'use strict';
 /* test/taskboard/input.js — 節: 追加モーダルの内容欄・子タスク popover・インライン編集・IME ガード（CDP 込み）・取り消しの UI 経路・実キー
    入口: test/taskboard.js（ctx を受け取る。単独実行は node test/taskboard.js input）
-   照合する ID: TB-I1〜I8・U1〜U7。期待値の正本は docs/specs/taskboard.md と docs/specs/taskboard/*.md */
+   照合する ID: TB-I1〜I8・U1〜U7・UZ1〜UZ6。期待値の正本は docs/specs/taskboard.md と docs/specs/taskboard/*.md */
 module.exports = {
   name: 'input',
-  ids: 'TB-I1〜I8・U1〜U7',
+  ids: 'TB-I1〜I8・U1〜U7・UZ1〜UZ6',
   async run(ctx) {
     const { page, context, browser, r, eq, bannerIs, fileUrl, REPO, path, SHOTS, shotPath,
             F1, F2, F2c, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, F13, F14, F15, TODAY, NFD9, NFC9,
@@ -240,6 +240,86 @@ module.exports = {
     real.rows === realBase.rows + 1 && real.bodies.some(b => b.includes('実キーで追加'))
     && real.input === '' && real.activeId === 'modal-content' && real.undoBtns === 1,
     JSON.stringify([real.rows, real.input, real.activeId, real.undoBtns]));
+
+
+  /* ========== TB-UZ1〜UZ6: Cmd+Z で直前の1つを戻す（TB-Q71） ========== */
+  const F1L = F1.split('\n');
+  const textNow = () => page.evaluate(() => window.__s.getText());
+  const bannerNow = () => page.evaluate(() => { const b = document.getElementById('banner'); return { text: b.hidden ? '' : b.textContent, cls: b.className }; });
+  const check = (name) => page.evaluate((n) => {
+    const tr = Array.from(document.querySelectorAll('#task-table tbody tr[data-line]')).find(x => ((x.querySelector('.body-text') || {}).textContent || '').startsWith(n));
+    const cb = tr && tr.querySelector('input[type="checkbox"]');
+    if (!cb) return false;
+    cb.checked = !cb.checked; cb.dispatchEvent(new Event('change', { bubbles: true }));
+    document.activeElement && document.activeElement.blur();
+    return true;
+  }, name);
+  const undoKey = async () => { await page.keyboard.press('Meta+z'); await page.waitForTimeout(40); };
+  await session(F1);
+  await check('資料作成');
+  const uz1a = await textNow();
+  await undoKey();
+  const uz1 = { changed: uz1a !== F1, text: await textNow(), banner: await bannerNow() };
+  r.check('TB-UZ1（完了にする → Cmd+Z で F1 に戻り「直前の変更（完了）を戻しました」）',
+    uz1.changed && uz1.text === F1 && uz1.banner.text.includes('直前の変更（完了）を戻しました'), JSON.stringify(uz1));
+
+  await session(F1);
+  await page.evaluate(async () => {
+    const tr = Array.from(document.querySelectorAll('#task-table tbody tr[data-line]')).find(x => ((x.querySelector('.body-text') || {}).textContent || '').startsWith('資料作成'));
+    Array.from(tr.querySelectorAll('.btn-child')).find(x => x.textContent === '編集').click();
+    await new Promise(res => setTimeout(res, 100));
+    document.getElementById('modal-content').value = '資料作成を見直す';
+    document.getElementById('modal-due').value = '2026-08-10';
+    document.getElementById('modal-save').click();
+    await new Promise(res => setTimeout(res, 50));
+    document.activeElement && document.activeElement.blur();
+  });
+  const uz2a = await textNow();
+  await undoKey();
+  const uz2 = { changed: uz2a !== F1 && uz2a.includes('資料作成を見直す') && uz2a.includes('2026-08-10'), text: await textNow(), banner: await bannerNow() };
+  r.check('TB-UZ2（編集画面で内容と期限を変えて保存 → Cmd+Z で両方とも戻り「直前の変更（編集画面の保存）を戻しました」）',
+    uz2.changed && uz2.text === F1 && uz2.banner.text.includes('直前の変更（編集画面の保存）を戻しました'), JSON.stringify({ changed: uz2.changed, same: uz2.text === F1, banner: uz2.banner }));
+
+  await undoKey();
+  const uz3 = { text: await textNow(), banner: await bannerNow() };
+  r.check('TB-UZ3（もう一度 Cmd+Z は何もせず「戻せる操作がありません」）',
+    uz3.text === F1 && uz3.banner.text.includes('戻せる操作がありません') && uz3.banner.cls.includes('warn'), JSON.stringify(uz3));
+
+  await session(F1);
+  await check('資料作成');
+  const uz4done = await textNow();
+  await page.click('#f-q'); await page.keyboard.type('xyz'); await undoKey();
+  const uz4a = await textNow();
+  await page.evaluate(() => { const q = document.getElementById('f-q'); q.value = ''; q.dispatchEvent(new Event('input', { bubbles: true })); q.blur(); });
+  await page.waitForTimeout(300);
+  await page.evaluate(async () => { document.getElementById('btn-add-form').click(); await new Promise(res => setTimeout(res, 50)); document.activeElement && document.activeElement.blur(); });
+  await undoKey();
+  const uz4b = await textNow();
+  await page.evaluate(() => { document.getElementById('modal-content').value = ''; document.getElementById('modal-memo').value = ''; document.getElementById('modal-cancel').click(); document.activeElement && document.activeElement.blur(); });
+  await undoKey();
+  const uz4c = await textNow();
+  r.check('TB-UZ4（検索欄に入力中・編集画面が開いているときの Cmd+Z はタスクを戻さない・欄の外で戻す）',
+    uz4done !== F1 && uz4a === uz4done && uz4b === uz4done && uz4c === F1, JSON.stringify([uz4a === uz4done, uz4b === uz4done, uz4c === F1]));
+
+  await session(F1);
+  const uz5 = await withDialogs('accept', async () => {
+    await page.evaluate(() => { const tr = Array.from(document.querySelectorAll('#task-table tbody tr[data-line]')).find(x => ((x.querySelector('.body-text') || {}).textContent || '').startsWith('資料作成'));
+      Array.from(tr.querySelectorAll('button')).find(b => b.textContent === '🗑').click(); });
+    await page.waitForTimeout(40);
+    await check('資料Rv');
+    await undoKey();
+    return textNow();
+  });
+  r.check('TB-UZ5（削除 → 別のタスクを完了 → Cmd+Z は後の完了だけを戻し、削除は消えたまま）',
+    uz5.result === [...F1L.slice(0, 8), ...F1L.slice(9)].join('\n'), JSON.stringify(uz5.result.split('\n').slice(6, 14)));
+
+  await session(F1);
+  await check('資料作成');
+  await session(F1);
+  await undoKey();
+  const uz6 = { text: await textNow(), banner: await bannerNow() };
+  r.check('TB-UZ6（ファイルを開き直したあとの Cmd+Z は「戻せる操作がありません」）',
+    uz6.text === F1 && uz6.banner.text.includes('戻せる操作がありません'), JSON.stringify(uz6));
 
   },
 };

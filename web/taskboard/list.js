@@ -8,12 +8,41 @@
 // 戻り値: 成功したか（呼び出し側が成功時だけ案内バナーを出せるようにする）
 // 複数 op を1回の render でまとめて適用する（バーの平行移動は setStart + setDue の2つ）。
 // 途中で失敗したら、そこまでの変更を画面に反映してから理由を出す（画面とモデルを食い違わせない）
+/* ---------- Cmd+Z で直前の1つを戻す（TB-UZ1〜UZ6・TB-Q71）----------
+   ファイルの中身を変える操作はすべてここを通るので、ここで「操作の直前の行」を1つだけ覚える（多段にしない）。
+   編集画面の保存のように続けて当てる操作は beginUndoGroup / endUndoGroup で1つにまとめる */
+const OP_LABEL = { complete: '完了', uncomplete: '完了の取り消し', setStatus: '状態', setDue: '期限', setStart: '開始日', setId: '依存',
+  setDependsOn: '依存', setPriority: '優先度', editContent: '内容', addTask: '追加', addChild: '子の追加', undoAdd: '追加の取り消し',
+  moveSection: 'セクションの移動', setParent: '親子の付け替え', moveTask: '移動', deleteTask: '削除', wrapParent: '親でまとめる',
+  setMemo: 'メモ', setTags: 'タグ' };
+function opsLabel(types, groupLabel) {
+  const names = Array.from(new Set(types.map(t => OP_LABEL[t] || '変更')));
+  if (names.length === 1) return names[0];
+  if (groupLabel) return groupLabel;
+  return names.length === 2 && names.includes('開始日') && names.includes('期限') ? '日程' : '複数の変更';
+}
+const snapLines = () => state.lines.map(l => ({ raw: l.raw, orig: l.orig }));
+let undoGroup = null;
+function beginUndoGroup(label) { undoGroup = { snap: snapLines(), savedAt: state.snapshot, before: joinLines(state.lines), label, types: [] }; }
+function endUndoGroup() {
+  const g = undoGroup;
+  undoGroup = null;
+  // 途中で失敗しても、変わった分はまとめて戻せるようにする（保存の前の行へ）
+  if (g && joinLines(state.lines) !== g.before) {
+    state.lastUndo = { snap: g.snap, savedAt: g.savedAt, after: joinLines(state.lines), label: opsLabel(g.types, g.label) };
+  }
+}
+
 function applyUiOps(ops) {
+  const snap = snapLines();
+  const savedAt = state.snapshot;
   try {
     for (const op of ops) {
       runOp(state.lines, op, todayStr());
       rememberFromOp(op);
     }
+    if (undoGroup) undoGroup.types.push(...ops.map(o => o.type));
+    else state.lastUndo = { snap, savedAt, after: joinLines(state.lines), label: opsLabel(ops.map(o => o.type)) };
     hideBanner();
     render();
     scheduleAutoSave();        // 変更の中心はここ1箇所（spec「自動保存」）
@@ -26,22 +55,21 @@ function applyUiOps(ops) {
 }
 function applyUiOp(op) { return applyUiOps([op]); }
 
-/* 削除・移動は直前の1回だけ戻せる（TB-Q65。汎用 undo ではない — TB-Q8 の例外）。
-   戻すのは操作の直前の行そのもの。そのあとに別の変更があれば戻さない */
+/* 削除・移動はバナーに［元に戻す］も出す（TB-Q65）。記録は applyUiOps が付けたものを使い、
+   ボタンは**そのバナーの操作だけ**を戻す（あとに別の変更があれば戻さない — TB-DEL7・TB-Q71） */
 function applyUndoable(op, msg) {
-  const snap = state.lines.map(l => ({ raw: l.raw, orig: l.orig }));
-  const savedAt = state.snapshot;
   if (!applyUiOp(op)) return false;
   state.collapsed.clear();          // 行番号がずれるので、たたみは解く
-  state.lastUndo = { snap, savedAt, after: joinLines(state.lines) };
-  showBanner('info', msg + '（直前の1回だけ戻せます）', [{ label: '元に戻す', onClick: undoLast }]);
+  const token = state.lastUndo;
+  showBanner('info', msg + '（直前の1回だけ戻せます）', [{ label: '元に戻す', onClick: () => undoLast(token) }]);
   return true;
 }
-function undoLast() {
+// token: バナーのボタンが戻してよい記録（無ければ Cmd+Z — 直前の1つ）
+function undoLast(token) {
   const u = state.lastUndo;
   if (!u) { showBanner('warn', '戻せる操作がありません'); return false; }
-  if (joinLines(state.lines) !== u.after) {
-    state.lastUndo = null;
+  if ((token && token !== u) || joinLines(state.lines) !== u.after) {
+    if (!token) state.lastUndo = null;   // 操作を通らない変更（読み込みなど）のあとは記録を捨てる
     showBanner('warn', 'そのあとに別の変更があるため戻せません');
     return false;
   }
@@ -52,9 +80,17 @@ function undoLast() {
   state.collapsed.clear();
   render();
   scheduleAutoSave();
-  showBanner('info', '元に戻しました');
+  showBanner('info', token ? '元に戻しました' : '直前の変更（' + u.label + '）を戻しました');
   return true;
 }
+// Cmd+Z（Ctrl+Z も）。文字を打つ欄・編集画面の中ではブラウザの文字の取り消しを奪わない。やり直し（Shift）は扱わない
+document.addEventListener('keydown', (e) => {
+  if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || isComposingKey(e)) return;
+  if (e.code !== 'KeyZ' && e.key !== 'z' && e.key !== 'Z') return;
+  if (!state.loaded || !el('modal').hidden || ToolUI.isTyping(document.activeElement)) return;
+  e.preventDefault();
+  undoLast();
+});
 
 // 削除の確認文（TB-DEL4）。子・メモの数と、このタスクを先行にしているタスクの数を出す
 function deleteMessage(t) {

@@ -489,19 +489,23 @@ function saveModal() {
   if (!parentChanged && v.section !== a.section) ops.push({ type: 'moveSection', line, section: v.section });
   if (!ops.length && !parentChanged) { closeModal(); return; }
   const before = state.lines.length;
-  for (const op of ops) if (!applyUiOp(op)) return;
-  if (parentChanged) {
-    // 付け替えは行を動かすので最後に1つ。先の op（メモ）で増減した行数だけ、下にある親の行番号を補正する
-    // （増減するのは自分のメモ範囲だけ＝自分より下の行が同じだけずれる）
-    let pop;
-    if (v.parent === '__new__') pop = { type: 'wrapParent', line, content: v.parentNew };
-    else {
-      let p = v.parent === '' ? null : Number(v.parent);
-      if (p !== null && p > line) p += state.lines.length - before;
-      pop = { type: 'setParent', line, parent: p };
+  // 変えた項目をまとめて1つとして戻せるように（Cmd+Z — TB-UZ2）。途中で失敗しても変わった分は戻せる
+  beginUndoGroup('編集画面の保存');
+  try {
+    for (const op of ops) if (!applyUiOp(op)) return;
+    if (parentChanged) {
+      // 付け替えは行を動かすので最後に1つ。先の op（メモ）で増減した行数だけ、下にある親の行番号を補正する
+      // （増減するのは自分のメモ範囲だけ＝自分より下の行が同じだけずれる）
+      let pop;
+      if (v.parent === '__new__') pop = { type: 'wrapParent', line, content: v.parentNew };
+      else {
+        let p = v.parent === '' ? null : Number(v.parent);
+        if (p !== null && p > line) p += state.lines.length - before;
+        pop = { type: 'setParent', line, parent: p };
+      }
+      if (!applyUiOp(pop)) return;
     }
-    if (!applyUiOp(pop)) return;
-  }
+  } finally { endUndoGroup(); }
   showBanner('info', (ops.length + (parentChanged ? 1 : 0)) + '項目を変更しました（ファイルへは保存時に反映）');
   closeModal();
 }

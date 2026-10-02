@@ -189,6 +189,7 @@ async function doArchive() {
     return { ok: false, reason: 'archwrite' };
   }
   for (let i = lineNos.length - 1; i >= 0; i--) state.lines.splice(lineNos[i] - 1, 1);
+  state.lastUndo = null;   // アーカイブは archive.md にも書くので Cmd+Z では戻さない（TB-Q71）
   const text = joinLines(state.lines);
   try {
     await state.adapter.write(text);

@@ -141,6 +141,7 @@ function loadText(text, adapter) {
   state.adapter = adapter;
   state.snapshot = text;
   state.lines = toLines(text);
+  state.lastUndo = null;   // 読み込んだら戻す記録は捨てる（別のファイルの行は戻せない — TB-UZ6）
   state.loaded = true;
   state.demo = false;
   state.hasCRFile = text.includes('\r');

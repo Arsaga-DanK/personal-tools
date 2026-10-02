@@ -227,18 +227,20 @@ module.exports = {
     const d7 = await withDialogs('accept', async () => {
       await clickTrash('資料作成');
       return page.evaluate(() => {
+        // 削除のバナーの［元に戻す］を持っておき、別の変更のあとに押す（ボタンはそのバナーの操作だけを戻す — TB-Q71）
+        const btn = Array.from(document.querySelectorAll('#banner button')).find(x => x.textContent === '元に戻す');
         const tr = Array.from(document.querySelectorAll('#task-table tbody tr'))
           .find(x => { const b = x.querySelector('.body-text'); return b && b.textContent.includes('資料Rv'); });
         const cb = tr.querySelector('input[type="checkbox"]');
         cb.checked = true; cb.dispatchEvent(new Event('change', { bubbles: true }));
         const after = window.__s.getText();
-        const undo = window.taskboard.test.undoLast ? window.taskboard.test.undoLast() : 'none';
+        if (btn) btn.click();
         const b = document.getElementById('banner');
-        return { undo, same: window.__s.getText() === after, doneKept: /- \[x\] 資料Rv/.test(window.__s.getText()), banner: b.className };
+        return { undo: !!btn, same: window.__s.getText() === after, doneKept: /- \[x\] 資料Rv/.test(window.__s.getText()), banner: b.className };
       });
     });
     r.check('TB-DEL7（UI: 削除のあとに別の変更をしたら［元に戻す］は戻さず warn・完了は残る）',
-      d7.result.undo === false && d7.result.same && d7.result.doneKept && d7.result.banner.includes('warn'), JSON.stringify(d7.result));
+      d7.result.undo === true && d7.result.same && d7.result.doneKept && d7.result.banner.includes('warn'), JSON.stringify(d7.result));
 
     /* ---------- TB-V1〜V3: 親子の見た目 ---------- */
     await session(F1);
