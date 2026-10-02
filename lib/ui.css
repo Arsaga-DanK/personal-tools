@@ -25,6 +25,7 @@
   --success-border: #a3be8c99; /* nord14 */
   --shadow: 0 1px 2px rgba(46, 52, 64, .05), 0 4px 16px rgba(46, 52, 64, .07);
   --shadow-hover: 0 2px 4px rgba(94, 129, 172, .12), 0 8px 24px rgba(94, 129, 172, .18);
+  --st-rethink: #a8862a; --st-noissue: #8a93a6;   /* 状態の色（段2: 立て直す・論点なし）。ほかの --st-* は下の「状態の色」の節 */
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -48,6 +49,7 @@
     --success-border: #a3be8c99;
     --shadow: none;
     --shadow-hover: 0 0 0 1px rgba(136, 192, 208, .4), 0 4px 24px rgba(136, 192, 208, .15);
+    --st-rethink: #ebcb8b; --st-noissue: #9aa5bc;
   }
 }
 
@@ -370,6 +372,8 @@ nav.modes a[aria-current="page"] { background: var(--accent); color: #fff; font-
 .now-dot.k-late { background: var(--st-late); }
 .now-dot.k-today { background: var(--st-today); }
 .now-dot.k-doing { background: var(--st-doing); }
+.now-dot.k-rethink { background: var(--st-rethink); }
+.now-dot.k-noissue { background: var(--st-noissue); }
 .now-fold { margin-left: auto; font-size: 12px; padding: 2px 8px; border: 0; background: transparent; color: var(--muted); }
 .now-list { list-style: none; margin: 6px 0 0; padding: 0; }
 .now-group { display: grid; grid-template-columns: 9.5em 1fr; gap: 10px; align-items: start; padding: 6px 0;
@@ -380,6 +384,8 @@ nav.modes a[aria-current="page"] { background: var(--accent); color: #fff; font-
 .now-badge.k-today { color: var(--st-today); background: color-mix(in srgb, var(--st-today) 16%, transparent); }
 .now-badge.k-doing { color: var(--st-doing); background: color-mix(in srgb, var(--st-doing) 16%, transparent); }
 .now-badge.k-should { color: var(--st-today); border: 1px dashed var(--st-should); }
+.now-badge.k-rethink { color: var(--st-rethink); background: color-mix(in srgb, var(--st-rethink) 16%, transparent); }
+.now-badge.k-noissue { color: var(--st-noissue); border: 1px dashed var(--st-noissue); }
 /* 札は .now の中に限る。:where で強さを .tick と同じに保つ（button:hover の枠の色が効くように — TB-LP14） */
 :where(.now) .ticks { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
 :where(.now) .tick { border: 1px solid var(--border); background: var(--bg); border-radius: 8px; padding: 2px 9px; font-size: 13px;

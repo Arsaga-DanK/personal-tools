@@ -88,7 +88,7 @@ module.exports = {
       order: Array.from(document.querySelectorAll('.note-card .note-name')).map(e => e.textContent),
       issue0: cards[0].querySelector('.ic-issue').textContent,
       meta0: Array.from(cards[0].querySelectorAll('.ic-meta li')).map(li => li.textContent),
-      due0: cards[0].querySelector('.ic-due').textContent,
+      due0: ((cards[0].querySelector('.ic-due span[title]')) || {}).title || '',
       summary: document.getElementById('summary').textContent,
       warnBtn: !!cards.find(c => c.querySelector('.ic-warn')),
       okMarks: cards.filter(c => c.querySelector('.ic-ok')).length,
@@ -102,7 +102,7 @@ module.exports = {
     eq(ul1.order, ['急ぐ方', '遅い方'])          // closed は既定フィルタで出ない
     && ul1.issue0 === 'Yは C ではなく D ではないか'
     && ul1.meta0.some(m => m.includes('次の一手')) && ul1.meta0.some(m => m.includes('サブイシュー 1件'))
-    && ul1.due0.includes('2026-09-25')
+    && ul1.due0 === '2026-09-25'
     && ul1.summary.includes('2件')
     && ul1.okMarks === 2,          // どちらも締切・絵コンテ・サブがあるので引っかかりなし
     JSON.stringify(ul1));
@@ -496,7 +496,7 @@ module.exports = {
     const out = {
       summary: document.getElementById('summary').textContent,
       metaOS: Array.from(os.querySelectorAll('.ic-meta li')).map(li => li.textContent).join(' | '),
-      dueOS: os.querySelector('.ic-due').textContent,
+      dueOS: ((os.querySelector('.ic-due span[title]')) || {}).title || '',
       overClass: os.querySelector('.ic-due').className,
       closeBtn: !!os.querySelector('.ic-close'),
     };
@@ -506,7 +506,7 @@ module.exports = {
   r.check('IS-UL14（閉じたカード: 判定と分かったことが出る・集計「当たり1・外れ1」・超過を赤で出さない）',
     ul14.metaOS.includes('判定: 外れ') && ul14.metaOS.includes('Interstage も一緒に上げないと比較できなかった')
     && ul14.summary.includes('当たり 1') && ul14.summary.includes('外れ 1')
-    && ul14.dueOS.includes('2026-09-22') && !ul14.overClass.includes('is-over')
+    && ul14.dueOS === '2026-09-22' && !ul14.overClass.includes('is-over')
     && ul14.closeBtn === false,
     JSON.stringify(ul14));
 

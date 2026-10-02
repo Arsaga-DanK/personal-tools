@@ -22,7 +22,7 @@ module.exports = {
       window.__fsa.files['none.md'] = ['---', 'status: open', 'tags: [issue]', '---', '# 案件なしのノート', '', '## 掘る', '- メモ', ''].join('\n');
       document.querySelector('#f-status [data-v="open"]').click();
       await window.issue.load();
-      const heads = Array.from(document.querySelectorAll('.proj-head')).map(e => e.textContent);
+      const heads = Array.from(document.querySelectorAll('.proj-head')).map(e => (e.querySelector('.proj-name') || {}).textContent + '|' + ((e.querySelector('.proj-meta') || {}).textContent || '').split(' ')[0]);
       const itk = Array.from(document.querySelectorAll('.note-card')).find(c => (c.querySelector('.note-name') || {}).textContent === 'ITKのノート');
       if (!itk) return { heads, noCard: true };
       const rows = Array.from(itk.querySelectorAll('.issue-card'));
@@ -35,7 +35,7 @@ module.exports = {
       };
     });
     r.check('IS-UL21（案件ごとの見出し UL→ITK→案件なし・ITK のカードにノート名と「掘る 2行・論点 2・画像 1」・行2つ・行にノート名なし・⋯ に3つの操作）',
-      !ul21.noCard && eq(ul21.heads, ['UL（1）', 'ITK（1）', '案件なし（1）'])
+      !ul21.noCard && eq(ul21.heads, ['UL|開いている', 'ITK|開いている', '案件なし|開いている'])
       && ul21.stats.includes('掘る 2行') && ul21.stats.includes('論点 2') && ul21.stats.includes('画像 1')
       && ul21.rows === 2 && ul21.noTitle && ul21.moreHas,
       JSON.stringify(ul21));

@@ -86,5 +86,60 @@ module.exports = {
     r.check('IS-LK5（表示の切替の外枠は lib の .app-controls .tabs・⋯ メニューの見た目は lib・Plan Tasks の #view-tabs は flex だけ）',
       lk5.bw === '1px' && lk5.br === '8px' && css.includes('.more-menu') && css.includes('.more-panel') && !tb.includes('.more-panel {')
       && viewTabsRule.trim() === 'flex: 0 0 auto;', JSON.stringify([lk5, viewTabsRule.trim()]));
+
+    /* ---------- IS-LK6〜LK9: 論点の行と案件の見出し ---------- */
+    await setStatus('open');
+    await search('');
+    const day = (n) => page.evaluate((x) => ToolEdit.addDays(todayStr(), x), n);
+    const [past, today, future] = [await day(-3), await day(0), await day(7)];
+    await loadNotes({
+      'p.md': note({ title: '急ぎのノート', project: 'ITK', lines: [
+        '- [ ] 甲は A ではなく B ではないか \u{1F4C5} ' + past,
+        '- [ ] 乙は C ではなく D ではないか \u{1F4C5} ' + today,
+        '- [ ] 本番と通信できるのか。 \u{1F4C5} ' + future,
+        '- [ ] 丙は E ではなく F ではないか \u{1F4C5} ' + future,
+        '- [x] 丁は G ではなく H ではないか \u{1F4C5} 2026-09-20 ✅ 2026-09-22 当たり'] }),
+      'q.md': note({ title: '論点のないノート', project: 'ITK', lines: [], dig: ['- 書き殴り'] }),
+      'r.md': note({ title: '閉じたノート', project: 'ITK', status: 'closed', lines: ['- [ ] 戊は I ではなく J ではないか \u{1F4C5} ' + past] }),
+    });
+    await setStatus('all');
+    const lk = await page.evaluate(() => {
+      const cards = Array.from(document.querySelectorAll('.issue-card'));
+      const byText = t => cards.find(c => (c.querySelector('.ic-issue') || {}).textContent === t);
+      const st = c => ['s-late', 's-today', 's-rethink'].filter(k => c.classList.contains(k)).join(',');
+      const shadow = c => getComputedStyle(c).boxShadow;
+      const probe = v => { const d = document.createElement('div'); d.style.color = 'var(' + v + ')'; document.body.appendChild(d); const c = getComputedStyle(d).color; d.remove(); return c; };
+      const due = c => { const d = c.querySelector('.ic-due'); const sp = d && d.querySelector('span[title]');
+        return { text: d ? d.textContent : '', title: sp ? sp.title : '', rel: (d && d.querySelector('.due-rel') || {}).textContent || '',
+          late: !!(d && d.querySelector('.due-rel.late')), over: !!(d && d.classList.contains('is-over')) }; };
+      const ko = byText('甲は A ではなく B ではないか'), ot = byText('乙は C ではなく D ではないか'), w = byText('本番と通信できるのか。'),
+        pl = byText('丙は E ではなく F ではないか'), cl = byText('丁は G ではなく H ではないか'), empty = cards.find(c => c.querySelector('.ic-issue.is-empty'));
+      return {
+        st: [ko, ot, w, pl, cl].map(c => c ? st(c) : 'none'),
+        shadowLate: ko ? shadow(ko) : '', lateColor: probe('--st-late'), rethinkColor: probe('--st-rethink'), shadowRethink: w ? shadow(w) : '',
+        dueKo: ko ? due(ko) : null, dueCl: cl ? due(cl) : null,
+        labDo: Array.from(document.querySelectorAll('.note-head .lab-do')).map(e => e.textContent),
+        labQ: [ko, empty, cl].map(c => !!(c && c.querySelector('.lab-q'))),
+        fix: w ? ((w.querySelector('.ic-fix') || {}).textContent || '') : '',
+        proj: Array.from(document.querySelectorAll('.proj-head')).map(h => ({ name: (h.querySelector('.proj-name') || {}).textContent || '', meta: (h.querySelector('.proj-meta') || {}).textContent || '' })),
+      };
+    });
+    r.check('IS-LK6（論点の行の状態の帯: 遅れ・今日・立て直す・なし・閉じたはなし）',
+      eq(lk.st, ['s-late', 's-today', 's-rethink', '', '']) && lk.shadowLate.includes(lk.lateColor) && lk.shadowRethink.includes(lk.rethinkColor),
+      JSON.stringify([lk.st, lk.shadowLate, lk.lateColor, lk.shadowRethink, lk.rethinkColor]));
+    r.check('IS-LK7（締切の title は ISO・遅れは「3日遅れ」・閉じたは「閉じた 2026/9/22(火)」で赤くしない）',
+      !!lk.dueKo && lk.dueKo.title === past && lk.dueKo.rel === '3日遅れ' && lk.dueKo.late
+      && !!lk.dueCl && lk.dueCl.text.startsWith('閉じた ') && lk.dueCl.text.includes('9/22(火)') && lk.dueCl.title === '2026-09-22' && !lk.dueCl.over && lk.dueCl.rel === '',
+      JSON.stringify([lk.dueKo, lk.dueCl]));
+    r.check('IS-LK8（ノートの見出しに「やること」・開いた論点にだけ「問い」・⚠ の下に直し方）',
+      lk.labDo.length === 3 && lk.labDo.every(t => t === 'やること') && eq(lk.labQ, [true, false, false])
+      && lk.fix.startsWith('→ 直すなら ') && lk.fix.includes('ではないか'), JSON.stringify([lk.labDo, lk.labQ, lk.fix]));
+    const fold = () => page.evaluate(() => { const h = document.querySelector('.proj-head'); const b = h && h.querySelector('.proj-fold'); if (b) b.click();
+      const h2 = document.querySelector('.proj-head'); return { caret: ((h2 && h2.querySelector('.proj-fold')) || {}).textContent || '', cards: document.querySelectorAll('.note-card').length }; });
+    const f1 = await fold(), f2 = await fold();
+    r.check('IS-LK9（案件の見出し: 名前・開いている 2・閉じた 1・遅れ 1・今日まで 1・立て直す 1・論点なし 1・▾ でたたむ／戻す）',
+      lk.proj.length === 1 && lk.proj[0].name === 'ITK' && lk.proj[0].meta.includes('開いている 2・閉じた 1')
+      && lk.proj[0].meta.includes('遅れ 1') && lk.proj[0].meta.includes('今日まで 1') && lk.proj[0].meta.includes('立て直す 1') && lk.proj[0].meta.includes('論点なし 1')
+      && f1.caret === '▸' && f1.cards === 0 && f2.caret === '▾' && f2.cards === 3, JSON.stringify([lk.proj, f1, f2]));
   },
 };

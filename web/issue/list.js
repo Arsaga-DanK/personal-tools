@@ -49,6 +49,17 @@ function earliestDue(n) {
   return ds[0] || '';
 }
 
+// 論点の行の状態（段2 — IS-LK6）。行の色の帯と「いま」の分け方の正本。1つの行に1つだけ: 遅れ → 今日 → 立て直す（⚠）
+function cardState(it) {
+  if (it.status === 'closed' || !it.issue) return '';
+  const d = dayDiff(it.deadline);
+  if (d !== null && d < 0) return 'late';
+  if (d === 0) return 'today';
+  return it.warn > 0 ? 'rethink' : '';
+}
+const cardOf = new WeakMap();   // 論点の行の要素 → カード（右クリックとキー — 段2 Task 4）
+let projFolded = new Set();     // たたんだ案件（画面を閉じるまで — IS-LK9）
+
 function dayDiff(ymd) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd || '')) return null;
   const a = new Date(todayStr() + 'T00:00:00');
@@ -205,21 +216,34 @@ function sendToTasks(it) {
 
 function card(it) {
   const art = document.createElement('article');
-  art.className = 'issue-card' + (it.status === 'closed' ? ' is-closed' : '');
+  const st = cardState(it);
+  art.className = 'issue-card' + (it.status === 'closed' ? ' is-closed' : '') + (st ? ' s-' + st : '');
   art.dataset.file = it.file;
+  art.dataset.key = it.file + (it.kind === 'line' ? ':' + it.lineNo : '');
+  cardOf.set(art, it);
 
   // ノート名は行に出さない — ノートのカードの見出しにある（IS-Q23）
   const due = document.createElement('span');
   const d = dayDiff(it.deadline);
   const closed = it.status === 'closed';
   due.className = 'ic-due' + (!closed && d !== null && d < 0 ? ' is-over' : '');
+  // 日付は lib の ToolEdit.fillDate（2026/9/25(金)・今年の年は薄く）・期限の言葉は dueWords（段2 — IS-LK7）
+  const dateSpan = function (ymd) { const s = document.createElement('span'); ToolEdit.fillDate(s, ymd, todayStr()); return s; };
   if (closed) {
-    // 閉じたものに「超過」を出さない（もう追う締切ではない）。閉じた日を出す
-    due.textContent = it.doneDate ? '✅ ' + it.doneDate + ' に閉じた' : '✅ 閉じた';
+    // 閉じたものに「遅れ」を出さない（もう追う締切ではない）。閉じた日を出す
+    due.appendChild(document.createTextNode('閉じた' + (it.doneDate ? ' ' : '')));
+    if (it.doneDate) due.appendChild(dateSpan(it.doneDate));
+  } else if (it.deadline) {
+    due.appendChild(dateSpan(it.deadline));
+    const w = ToolEdit.dueWords(it.deadline, todayStr());
+    if (w) {
+      const rel = document.createElement('span');
+      rel.className = 'due-rel' + (d < 0 ? ' late' : d === 0 ? ' today' : '');
+      rel.textContent = w;
+      due.appendChild(rel);
+    }
   } else {
-    due.textContent = it.deadline
-      ? '📅 ' + it.deadline + (d === null ? '' : (d < 0 ? '（' + (-d) + '日超過）' : d === 0 ? '（今日）' : '（あと' + d + '日）'))
-      : '📅 締切なし';
+    due.textContent = '締切なし';
   }
 
   /* **論点の一行はその場で書ける**（軽い入口 — IS-Q11）。
@@ -280,6 +304,12 @@ function card(it) {
     ok.title = '引っかかりなし';
     row.appendChild(ok);
   }
+  if (it.issue && !closed) {
+    const lab = document.createElement('span');
+    lab.className = 'lab-q';
+    lab.textContent = '問い';   // ノート名は「やること」、論点は「問い」（IS-LK8）
+    row.appendChild(lab);
+  }
   row.appendChild(q);
   if (it.kind === 'line' && it.link) {
     const lh = obsidianHref(it.link);
@@ -335,6 +365,11 @@ function card(it) {
     why.className = 'ic-why';
     why.textContent = '└ ' + firstWarn.msg;
     art.appendChild(why);
+    // 直し方も1行（判定の fix の文 — IS-LK8）。押さなくても次の一手が読める
+    const fix = document.createElement('p');
+    fix.className = 'ic-fix';
+    fix.textContent = '→ 直すなら ' + firstWarn.fix;
+    art.appendChild(fix);
   }
   if (ul.childNodes.length) art.appendChild(ul);   // 空の一覧で余白を作らない
   art.appendChild(vlist);
@@ -376,7 +411,11 @@ function visibleCards(note) {
 function noteHeader(n) {
   const row = document.createElement('div');
   row.className = 'note-head';
-  // 主役はノート名（何の話か — IS-Q23）。絵文字は付けない
+  // 主役はノート名（何の話か — IS-Q23）。絵文字は付けない。前に「やること」の印（IS-LK8）
+  const lab = document.createElement('span');
+  lab.className = 'lab-do';
+  lab.textContent = 'やること';
+  row.appendChild(lab);
   const t = document.createElement('h3');
   t.className = 'note-name';
   t.textContent = n.title;
@@ -505,18 +544,51 @@ function renderCards() {
   if (byProj['']) order.push('');
   for (let i = 0; i < order.length; i++) {
     const k = order[i];
-    const ph = document.createElement('h2');
-    ph.className = 'proj-head';
-    ph.textContent = (k || '案件なし') + '（' + byProj[k].length + '）';
-    host.appendChild(ph);
+    host.appendChild(projHead(k));
+    if (projFolded.has(k)) continue;
     for (let j = 0; j < byProj[k].length; j++) host.appendChild(noteCard(byProj[k][j]));
   }
+}
+
+// 案件の見出し（段2 — IS-LK9）: ▾ 名前・開いている N・閉じた M（ノートの数）・急ぎの数（開いたノートの論点を「いま」と同じ分け方で）。たためる
+function projHead(k) {
+  const all = notes.filter(function (n) { return (n.project || '') === k && matchesSearch(n); });
+  const open = all.filter(function (n) { return !(n.base && n.base.status === 'closed'); });
+  const cnt = { late: 0, today: 0, rethink: 0, noissue: 0 };
+  open.forEach(function (n) {
+    if (!n.cards.some(function (c) { return c.issue; })) { cnt.noissue++; return; }
+    n.cards.forEach(function (c) { const s = cardState(c); if (s) cnt[s]++; });
+  });
+  const ph = document.createElement('h2');
+  ph.className = 'proj-head';
+  const fb = document.createElement('button');
+  fb.type = 'button';
+  fb.className = 'proj-fold';
+  fb.textContent = projFolded.has(k) ? '▸' : '▾';
+  fb.title = projFolded.has(k) ? 'この案件を開く' : 'この案件をたたむ';
+  fb.addEventListener('click', function () { if (projFolded.has(k)) projFolded.delete(k); else projFolded.add(k); renderCards(); });
+  const nm = document.createElement('span');
+  nm.className = 'proj-name';
+  nm.textContent = k || '案件なし';
+  const meta = document.createElement('span');
+  meta.className = 'proj-meta';
+  meta.appendChild(document.createTextNode('開いている ' + open.length + '・閉じた ' + (all.length - open.length)));
+  [['late', '遅れ'], ['today', '今日まで'], ['rethink', '立て直す'], ['noissue', '論点なし']].forEach(function (p) {
+    if (!cnt[p[0]]) return;
+    const s = document.createElement('span');
+    s.className = 'ps-' + p[0];
+    s.textContent = ' ' + p[1] + ' ' + cnt[p[0]];
+    meta.appendChild(s);
+  });
+  ph.append(fb, nm, meta);
+  return ph;
 }
 
 // ノート＝1枚（IS-Q23）: 見出し（ノート名・＋論点・Obsidian・⋯）→ 量（掘る・論点・画像）→ 論点の行
 function noteCard(g) {
   const sec = document.createElement('section');
   sec.className = 'note-card' + (g.n.base && g.n.base.status === 'closed' ? ' is-closed' : '');
+  sec.dataset.file = g.n.file;
   sec.appendChild(noteHeader(g.n));
   const st = noteStats(g.n.text);
   const parts = [];
