@@ -141,5 +141,79 @@ module.exports = {
       lk.proj.length === 1 && lk.proj[0].name === 'ITK' && lk.proj[0].meta.includes('開いている 2・閉じた 1')
       && lk.proj[0].meta.includes('遅れ 1') && lk.proj[0].meta.includes('今日まで 1') && lk.proj[0].meta.includes('立て直す 1') && lk.proj[0].meta.includes('論点なし 1')
       && f1.caret === '▸' && f1.cards === 0 && f2.caret === '▾' && f2.cards === 3, JSON.stringify([lk.proj, f1, f2]));
+
+    /* ---------- IS-LK10〜LK14: いま ---------- */
+    const [p5, p2] = [await day(-5), await day(-2)];
+    const NOW_FILES = {
+      'u.md': note({ title: '急ぎのノート', project: 'ITK', lines: [
+        '- [ ] 甲は A ではなく B ではないか \u{1F4C5} ' + p2,
+        '- [ ] 本番と通信できるのか。 \u{1F4C5} ' + p5,
+        '- [ ] 乙は C ではなく D ではないか \u{1F4C5} ' + today,
+        '- [ ] 確認できるのか。 \u{1F4C5} ' + future,
+        '- [ ] 丙は E ではなく F ではないか \u{1F4C5} ' + future] }),
+      'v.md': note({ title: '論点のないノート', project: 'ITK', lines: [], dig: ['- 書き殴り'] }),
+      'w.md': note({ title: '閉じたノート', project: 'ITK', status: 'closed', lines: ['- [ ] 戊は I ではなく J ではないか \u{1F4C5} ' + p5] }),
+    };
+    await setStatus('open');
+    await loadNotes(NOW_FILES);
+    const nowNow = () => page.evaluate(() => {
+      const box = document.getElementById('now');
+      if (!box) return { missing: true };
+      return { hidden: box.hidden, cnt: Array.from(box.querySelectorAll('.now-cnt')).map(c => c.textContent.trim()),
+        groups: Array.from(box.querySelectorAll('.now-group')).map(g => ({ badge: (g.querySelector('.now-badge') || {}).textContent || '',
+          ticks: Array.from(g.querySelectorAll('.tick')).map(t => t.textContent), warn: Array.from(g.querySelectorAll('.tick')).map(t => !!t.querySelector('.tick-warn')) })),
+        empty: (box.querySelector('.now-empty') || {}).textContent || '', listHidden: (box.querySelector('.now-list') || {}).hidden };
+    });
+    const n10 = await nowNow();
+    r.check('IS-LK10（いま: 遅れ 2・今日まで 1・立て直す 1・論点なし 1・行は 遅れ→今日まで→立て直す→論点がまだ無い）',
+      !n10.missing && !n10.hidden && eq(n10.cnt, ['遅れ 2', '今日まで 1', '立て直す 1', '論点なし 1'])
+      && eq((n10.groups || []).map(g => g.badge), ['遅れ 2', '今日まで 1', '立て直す 1', '論点がまだ無い 1']), JSON.stringify(n10));
+    const g = n10.groups || [];
+    r.check('IS-LK11（札: 遅れは古い順・ノート名 › 論点（N日遅れ）・⚠ の遅れに印・その論点は立て直すに出ない・論点なしは（掘る 1行））',
+      g.length === 4 && g[0].ticks[0] === '⚠ 急ぎのノート › 本番と通信できるのか。（5日遅れ）' && g[0].ticks[1] === '急ぎのノート › 甲は A ではなく B ではないか（2日遅れ）'
+      && eq(g[0].warn, [true, false]) && eq(g[2].ticks, ['急ぎのノート › 確認できるのか。']) && eq(g[3].ticks, ['論点のないノート（掘る 1行）']),
+      JSON.stringify(g));
+    await page.setViewportSize({ width: 1280, height: 420 });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await setStatus('closed');
+    await page.evaluate(() => { const b = document.querySelector('.proj-head .proj-fold'); if (b) b.click(); });
+    const n12 = await page.evaluate(async () => {
+      const t = Array.from(document.querySelectorAll('#now .tick')).find(x => x.textContent.includes('甲は'));
+      if (!t) return { noTick: true };
+      t.click();
+      await new Promise(res => setTimeout(res, 80));
+      const row = Array.from(document.querySelectorAll('.issue-card')).find(c => (c.querySelector('.ic-issue') || {}).textContent === '甲は A ではなく B ではないか');
+      const rc = row ? row.getBoundingClientRect() : null;
+      return { status: (document.querySelector('#f-status button.active') || {}).dataset.v, folded: (document.querySelector('.proj-head .proj-fold') || {}).textContent,
+        inView: !!rc && rc.top >= 0 && rc.bottom <= window.innerHeight, flash: !!row && row.classList.contains('flash') };
+    });
+    await page.emulateMedia({ reducedMotion: null });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    r.check('IS-LK12（札を押す: 表示を開いているに戻し・案件を開き・その論点の行へ飛んで光る）',
+      !n12.noTick && n12.status === 'open' && n12.folded === '▾' && n12.inView && n12.flash, JSON.stringify(n12));
+    const n13a = await search('論点のない');
+    const n13s = await nowNow();
+    await search('');
+    await loadNotes({ 'x.md': note({ title: '先のノート', lines: ['- [ ] 己は K ではなく L ではないか \u{1F4C5} ' + future] }) });
+    const n13e = await nowNow();
+    await loadNotes({});
+    const n13z = await nowNow();
+    r.check('IS-LK13（いまは検索に従う・急ぎが無ければ「急ぎのものはありません」・ノート0なら隠れる）',
+      eq(n13a, ['論点のないノート']) && eq((n13s.groups || []).map(x => x.ticks), [['論点のないノート（掘る 1行）']])
+      && n13e.empty === '急ぎのものはありません' && n13z.hidden === true, JSON.stringify([n13a, n13s.groups, n13e.empty, n13z.hidden]));
+    await loadNotes(NOW_FILES);
+    await page.evaluate(() => { const b = document.getElementById('now-fold'); if (b) b.click(); });
+    const n14a = await nowNow();
+    await page.waitForTimeout(400);   // 保存は 300ms 待ってから（ui.js の scheduleSave）
+    await page.reload();
+    await page.waitForLoadState('load');
+    await loadNotes(NOW_FILES);
+    const n14b = await nowNow();
+    await page.evaluate(() => { const b = document.getElementById('now-fold'); if (b) b.click(); });
+    const n14c = await nowNow();
+    await page.waitForTimeout(400);
+    r.check('IS-LK14（たたむ: 札の行が消え数は残る・読み直してもたたんだまま・ひらくで戻る）',
+      n14a.listHidden === true && eq(n14a.cnt, ['遅れ 2', '今日まで 1', '立て直す 1', '論点なし 1']) && n14b.listHidden === true && n14c.listHidden === false,
+      JSON.stringify([n14a.listHidden, n14b.listHidden, n14c.listHidden]));
   },
 };

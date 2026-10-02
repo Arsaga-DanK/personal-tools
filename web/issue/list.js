@@ -532,6 +532,7 @@ function renderCards() {
                         : 'このブラウザでは一覧を読み込めません（Chrome 系で開いてください）')
       : '該当なし';
     host.appendChild(p);
+    renderIssueNow();
     return;
   }
   // 案件ごとにまとめる（IS-Q23）。並びはノートの並び（締切順）で最初に出た順・案件なしは最後
@@ -548,6 +549,7 @@ function renderCards() {
     if (projFolded.has(k)) continue;
     for (let j = 0; j < byProj[k].length; j++) host.appendChild(noteCard(byProj[k][j]));
   }
+  renderIssueNow();   // 「いま」は一覧と同じタイミングで描き直す（web/issue/now.js）
 }
 
 // 案件の見出し（段2 — IS-LK9）: ▾ 名前・開いている N・閉じた M（ノートの数）・急ぎの数（開いたノートの論点を「いま」と同じ分け方で）。たためる

@@ -93,6 +93,7 @@ function savePayload() {
     input: v.length > FIELD_LIMIT ? { omitted: true } : v,
     title: $id('title').value,
     deadline: $id('deadline').value,
+    nowFolded: nowFolded,   // 「いま」をたたんだか（段2 — IS-LK14。宣言は now.js）
   };
 }
 function scheduleSave() {
@@ -121,6 +122,7 @@ function restore() {
   if (typeof data.deadline === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(data.deadline)) {
     $id('deadline').value = data.deadline;
   }
+  if (typeof data.nowFolded === 'boolean') nowFolded = data.nowFolded;
 }
 
 // サンプル投入ボタンは入力が空のときだけ表示（coding-rules「UI の標準形」）
