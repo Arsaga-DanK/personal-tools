@@ -16,7 +16,7 @@ CLAUDE.md（作業原則）と `docs/specs/`（ツール別契約）の間を埋
 
 | ファイル | 使うもの | 規約 |
 |---|---|---|
-| ui.js | `banner(el, kind, text)` / `copy(text, {selectEl})` / `feedback(btn, label)` | 引数順は **(要素, 種別, 文字列)**。ツール固有の引数差はラッパ（各ツールの `showBanner`）で吸収し、共通核は class+role+textContent+hidden だけ |
+| ui.js | `banner(el, kind, text)` / `copy(text, {selectEl})` / `feedback(btn, label)` / `nowStrip(box, spec)`・`flash(el)`（「いま」の欄と、飛んだ先を光らせる）/ `menu(actions, onPick)`・`menuKey(e, actions)`・`isTyping(el)`・`keyHint(a)`・`pointRect(x, y)`・`placeAt(pop, rect)`（行の操作のメニューとキー） | 引数順は **(要素, 種別, 文字列)**。ツール固有の引数差はラッパ（各ツールの `showBanner`）で吸収し、共通核は class+role+textContent+hidden だけ。**「いま」に何を入れるか・メニューにどの操作を並べるかは各ツール**。部品は見た目と操作だけ（2026-10-02・段1 — 下の「見た目と操作の決まり」） |
 | storage.js | `save/load/mountWarning`（export/import は必要なら） | キー `tools:<英名>`。**save 失敗の可視化は共通核がやる**（呼び出し側で戻り値チェック不要） |
 | config.js | `ToolConfig.get/set/all` ＋ `normDir/normDirList` | **環境依存の設定**（vault 名・フォルダ構成）だけを置く。キーは `tools:config` 固定で全ツール共有。**ui.js → storage.js の後に読む**。追加した設定キーは既定を「無効」側に倒す（下記） |
 | excel.js | `copy(html, text)` / `cellStyle(value, {header, align})` / `MANGLE_RES` | Excel 向けコピーは**必ず二重フレーバー**（execCommand 先行 — async clipboard は mso- 系をサニタイズする）。文字列化ガードの正本はここ。**表の組み立て（th/td・rowspan）は各ツールに書く** |
@@ -25,7 +25,7 @@ CLAUDE.md（作業原則）と `docs/specs/`（ツール別契約）の間を埋
 | tools.js | `ToolsList.TOOLS` / `CATEGORY_ORDER` / `filter(q)` / `recent()` / `recordUse(alias)` / `hrefFor(path)` / `hubHref()` / `currentAlias()` | **ツール登録簿の正本**（2026-09-24 に index.html から移設）。追加はここ1箇所。`path` は index.html 基準で書き、`web/` 配下からは `hrefFor` が剥がす。**絶対パスを書かない** |
 | launcher.js | `ToolLauncher.mount()` | `.tool-header` に［☰ ツール］を置く引き出し式メニュー（Cmd/Ctrl+K）。**ハブには載せない**。`lib/tools.js` の後に読む。契約は `docs/specs/launcher.md` |
 | handoff.js | `ToolHandoff.send(to, kind, text, path)` / `take(me)` / `peek(me)` | ツール間の受け渡し。**sessionStorage の一時バッファで正本ではない**。詳細は下の「ツール間の受け渡し」 |
-| edit.js | `ToolEdit.tabIndent(el, opts)` / `mountTodayShortcut()` / `today()` / `addDays(ymd, n)` / **`dateChips(input)`** / `noteFileName(title, ymd)`（vault のノート名規則。Check Issue と Plan Tasks で共有）/ `listItem` / `renumber` | 適用範囲の線引きは下の「UI の標準形」。**構造テキストの欄だけ**に入れる。`{mdList:true}` は**md を書く欄だけ**（下記） |
+| edit.js | `ToolEdit.tabIndent(el, opts)` / `mountTodayShortcut()` / `today()` / `addDays(ymd, n)` / **`dateChips(input)`** / `noteFileName(title, ymd)`（vault のノート名規則。Check Issue と Plan Tasks で共有）/ `fillDate(host, ymd, today)`・`dueWords(due, today)`（日付の表記 — 年＋月/日＋曜日・今年の年は薄く・N日遅れ）/ `listItem` / `renumber` | 適用範囲の線引きは下の「UI の標準形」。**構造テキストの欄だけ**に入れる。`{mdList:true}` は**md を書く欄だけ**（下記） |
 | fsa.js | `ToolFsa.handles(dbName)` → `{get, set}` / `ensurePermission(handle, mode)` / `available('dir'|'file')` | FSA ハンドルの IndexedDB 保存と権限確認（issue / taskboard）。**db 名はツールごと・変えない**（file:// は全ページ同一オリジン。TB-FS1 がピン）。vaultlint は二段階権限（read → 修復時 readwrite）なので使わない |
 
 - **共通化の条件**: 「同じ変更に N 箇所の編集が必要だった実測」または「2番目の利用者が生まれた瞬間」。
@@ -83,6 +83,26 @@ CLAUDE.md（作業原則）と `docs/specs/`（ツール別契約）の間を埋
 5. **既にあるデータから作る** — 他ツール・vault に既にある情報を再入力させない
    （taskboard の計画 → Gantt、アウトライン → Mindmap、付箋 → md）
 6. **成果物は貼って終わり** — PNG は白背景・内容トリム・2倍。クリップボード直行
+
+## 見た目と操作の決まり（Plan Tasks で利用者と決めたこと — 2026-10-02。全ツールの改修でここを満たす）
+
+出どころは `docs/specs/taskboard/decisions.md` の TB-Q66〜Q70 と `docs/audits/2026-10-02-issue-redesign.md`。
+**見た目の決まりは全ツール、振る舞いの決まりは一覧を扱うツール**（Plan Tasks・Check Issue・Check Vault）に当てる（利用者の判断）。
+
+見た目（全ツール）:
+1. **情報は削らず、見せ方で整理する**（利用者「表示されている情報自体は良い（削らない）」）— 字の強弱・余白・薄い罫線
+2. **見出しは2行**（`.app-head`・`.app-controls`）。説明文は題名の title、設定（vault 名など）は ⋯ の中、操作は1段
+3. **空欄に「—」を並べない**
+4. **長い名前は切って、全文は title**。🎯 が作るノート名の先頭の日付は一覧では省く
+5. **日付は `ToolEdit.fillDate`**（`2026/9/30(水)`・今年の年は薄く）。期限には `ToolEdit.dueWords`（N日遅れ／今日／あとN日）を添える
+6. **状態の色は1か所に1つ**（行の左端の帯・`--st-*`）。背景を塗って赤だらけにしない
+
+振る舞い（一覧を扱うツール）:
+7. **一番上に「いま」**（`ToolUI.nowStrip`）— 今やるものを種類ごとに1行。札を押すとその行へ飛んで光る（`ToolUI.flash`）
+8. **まとまりは表の中の見出し**にし、件数と急ぎの数を出してたためるようにする
+9. **行の操作は右クリックとキーでも**（`ToolUI.menu`・`menuKey`）。ボタンは残し、title にキーを添える（`ToolUI.keyHint`）。文字を打つ欄・モーダル中はキーを奪わない（`ToolUI.isTyping`）
+10. **消す・動かすの直後に［元に戻す］**（直前の1回だけ）
+11. **入口が2つある編集は同じ仕組みを共有する**（Plan Tasks で、その場の編集と編集画面の内容欄が食い違った — TB-X20）
 
 ## 提案が当たるかの判定（Mask Image の分析・2026-08-18）
 

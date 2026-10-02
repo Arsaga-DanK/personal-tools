@@ -120,6 +120,20 @@ module.exports = {
       lp12.head && lp12.ctl && lp12.disp === 'flex' && lp12.gap === '14px' && lp12.cdisp === 'flex'
       && css3.includes('.app-head {') && css3.includes('.app-controls {') && html3.includes('.tb-controls #view-tabs'), JSON.stringify(lp12));
 
+    /* ---------- TB-LP13: 2本目のツール（issue.html）でも部品が使える ---------- */
+    const p2 = await context.newPage();
+    await p2.goto(fileUrl('web/issue.html'));
+    const lp13 = await p2.evaluate(() => {
+      try {
+        const s = document.createElement('span'); ToolEdit.fillDate(s, '2026-10-02', '2026-10-01');
+        const a = ToolUI.menuKey(new KeyboardEvent('keydown', { key: 't', code: 'KeyT' }), [{ id: 'task', key: 't' }]);
+        return { date: s.textContent, key: a ? a.id : null, st: getComputedStyle(document.documentElement).getPropertyValue('--st-late').trim() !== '' };
+      } catch (e) { return { err: e.message }; }
+    });
+    await p2.close();
+    r.check('TB-LP13（Check Issue のページでも日付・キー・状態の色の部品が使える）',
+      lp13.date === '2026/10/2(金)' && lp13.key === 'task' && lp13.st === true, JSON.stringify(lp13));
+
     /* ---------- TB-LP7: 「いま」を描く ---------- */
     const lp7 = await safe(() => {
       const box = document.createElement('section'); document.body.appendChild(box);

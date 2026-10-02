@@ -17,4 +17,5 @@ Plan Tasks で作った見た目と操作を `lib/` に移し、Plan Tasks を�
 | TB-LP8 | `ToolUI.flash` | すぐ `.flash` が付き、1.4秒後には外れている。`.flash` の動きは `tool-flash`、動きを減らす設定では `none` |
 | TB-LP11 | `lib/ui.css` と `web/taskboard.html` の中身 | ui.css に `.row-menu-item` がある。taskboard.html に `.row-menu-item` が無い（`.popover:has(.row-menu)` は残る） |
 | TB-LP12 | Plan Tasks の見出し・`lib/ui.css` の中身 | `.tb-head` に `app-head`、`.tb-controls` に `app-controls` が付き、算出の display は flex・1行目の列の間は 14px。ui.css に `.app-head {` と `.app-controls {` がある（表示の切替の `.tb-controls #view-tabs` は taskboard.html に残る — 後ろの `.viewbar .tabs` に負けないため） |
+| TB-LP13 | Check Issue のページ（issue.html）で部品を呼ぶ | `ToolEdit.fillDate`（今日 2026-10-01 に 2026-10-02）が `2026/10/2(金)`・`ToolUI.menuKey` が T を受ける・`--st-late` が空でない（読み込み順 ui.js → … → edit.js でも、読み込み時に互いを参照しない） |
 | TB-LP9 | Plan Tasks のページ | 移した関数・定数が Plan Tasks 側に残っていない（`fillDate`・`dueWords`・`WEEKDAYS`、Task 4 で `rowActionForKey`・`TYPING_SEL` も） |

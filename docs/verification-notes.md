@@ -377,6 +377,7 @@ vault の「ファイル名の罠」を Python の heredoc で再現したとき
 
 - 判定手順: FAIL が0件なのに exit=1・総数が減っている → 「ハーネス自体のエラー」を grep → 該当ハーネスを単独で2回
 - 単独で再現しなければ一時的。**再現したら初めてコードを疑う**（index.html の起動時 goto を増やしていないか）
+- 2026-10-02 にも1回。文面は `page.goto: Navigation to "…/index.html" is interrupted by another navigation to "…/web/ddl2spec.html"`（同じ型 — 一括実行の起動の重なり）。ハブ単独と全体の再実行で pass
 
 ## 11. `obsidian://` など外部スキームへの遷移（2026-09-25 実測・headless Chromium）
 
