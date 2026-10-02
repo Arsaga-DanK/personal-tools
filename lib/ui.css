@@ -380,11 +380,12 @@ nav.modes a[aria-current="page"] { background: var(--accent); color: #fff; font-
 .now-badge.k-today { color: var(--st-today); background: color-mix(in srgb, var(--st-today) 16%, transparent); }
 .now-badge.k-doing { color: var(--st-doing); background: color-mix(in srgb, var(--st-doing) 16%, transparent); }
 .now-badge.k-should { color: var(--st-today); border: 1px dashed var(--st-should); }
-.now .ticks { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
-.now .tick { border: 1px solid var(--border); background: var(--bg); border-radius: 8px; padding: 2px 9px; font-size: 13px;
+/* 札は .now の中に限る。:where で強さを .tick と同じに保つ（button:hover の枠の色が効くように — TB-LP14） */
+:where(.now) .ticks { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+:where(.now) .tick { border: 1px solid var(--border); background: var(--bg); border-radius: 8px; padding: 2px 9px; font-size: 13px;
   max-width: min(30em, 100%); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
-.now .tick-par { color: var(--muted); font-size: 12px; }
-.now .tick-rel { color: var(--st-late); font-size: 12px; }
+:where(.now) .tick-par { color: var(--muted); font-size: 12px; }
+:where(.now) .tick-rel { color: var(--st-late); font-size: 12px; }
 .now-empty { font-size: 12.5px; color: var(--muted); padding: 4px 0 2px; }
 @media (max-width: 760px) { .now-group { grid-template-columns: 1fr; gap: 4px; } }
 /* 札から飛んだ行・カードを少しのあいだ光らせる（TB-NW4・ToolUI.flash） */

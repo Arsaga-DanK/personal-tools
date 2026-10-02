@@ -26,8 +26,10 @@ module.exports = {
     r.check('TB-LP1（ToolEdit.fillDate: 2026/8/1(土) で今年の年は .yr・来年は 2027/1/5(火)・空は書かない・形の違う文字はそのまま）',
       eq(lp1, [{ text: '2026/8/1(土)', yr: '2026/', title: '2026-08-01' }, { text: '2027/1/5(火)', yr: '', title: '2027-01-05' },
         { text: '', yr: '', title: '' }, { text: '2026/8/1', yr: '', title: '2026/8/1' }]), JSON.stringify(lp1));
-    const lp2 = await safe(() => ['2026-08-01', '2026-08-04', '2026-08-05', '2026-08-20'].map(d => ToolEdit.dueWords(d, '2026-08-04')));
-    r.check('TB-LP2（ToolEdit.dueWords: 3日遅れ／今日／明日／あと16日）', eq(lp2, ['3日遅れ', '今日', '明日', 'あと16日']), JSON.stringify(lp2));
+    const lp2 = await safe(() => ['2026-08-01', '2026-08-04', '2026-08-05', '2026-08-20', '2026/8/1', ''].map(d => ToolEdit.dueWords(d, '2026-08-04'))
+      .concat([ToolEdit.dueWords('2026-08-04', '2026/8/4')]));
+    r.check('TB-LP2（ToolEdit.dueWords: 3日遅れ／今日／明日／あと16日・形の違う日付と空には言葉を付けない）',
+      eq(lp2, ['3日遅れ', '今日', '明日', 'あと16日', '', '', '']), JSON.stringify(lp2));
 
     /* ---------- TB-LP9: 移したものが Plan Tasks に残っていない ---------- */
     const lp9 = await page.evaluate((names) => names.filter(n => { try { return (0, eval)('typeof ' + n) !== 'undefined'; } catch (e) { return false; } }),
@@ -133,6 +135,27 @@ module.exports = {
     await p2.close();
     r.check('TB-LP13（Check Issue のページでも日付・キー・状態の色の部品が使える）',
       lp13.date === '2026/10/2(金)' && lp13.key === 'task' && lp13.st === true, JSON.stringify(lp13));
+
+    /* ---------- TB-LP14: 「いま」の札にポインタを乗せると枠がアクセント色（変更前と同じ — 点検で見つかった後退） ---------- */
+    await session(['# tasks', '', '## A', '', '- [ ] 遅れ 📅 2026-08-01', ''].join('\n'));
+    await page.evaluate(() => document.querySelector('[data-view="list"]').click());
+    const tickBox = await page.evaluate(() => { const t = document.querySelector('#now .tick'); if (!t) return null;
+      const rc = t.getBoundingClientRect(); return { x: Math.round(rc.left + 10), y: Math.round(rc.top + rc.height / 2) }; });
+    let lp14 = { noTick: true };
+    if (tickBox) {
+      await page.mouse.move(tickBox.x, tickBox.y);
+      await page.waitForTimeout(250);   // button の transition（.15s）が終わるのを待つ
+      lp14 = await page.evaluate(() => {
+        const t = document.querySelector('#now .tick');
+        const probe = document.createElement('div'); probe.style.border = '1px solid var(--accent)'; document.body.appendChild(probe);
+        const accent = getComputedStyle(probe).borderTopColor; probe.remove();
+        return { hovered: t.matches(':hover'), border: getComputedStyle(t).borderTopColor, accent };
+      });
+      await page.mouse.move(1, 1);
+    }
+    r.check('TB-LP14（「いま」の札にポインタを乗せると枠がアクセント色 — button:hover が効く）',
+      !lp14.noTick && lp14.hovered && lp14.border === lp14.accent, JSON.stringify(lp14));
+    await session(F1);
 
     /* ---------- TB-LP7: 「いま」を描く ---------- */
     const lp7 = await safe(() => {
