@@ -444,22 +444,7 @@ function rowState(t, today) {
   if (t.start && t.start <= today && t.status === ST_TODO) return 'should';
   return '';
 }
-// 日付の表示（TB-V5・TB-Q68）: 「2026/10/5(月)」。今年の年は薄く（.yr）、今年でない年はふつうの濃さで目に留まるように。
-// 正確な日付は title。曜日は dayNum（1970-01-01＝木曜が 0）から
-const WEEKDAYS = '日月火水木金土';
-function fillDate(host, ymd, today) {
-  if (!ymd) return;
-  const p = ymd.split('-');
-  const rest = (+p[1]) + '/' + (+p[2]) + '(' + WEEKDAYS[(dayNum(ymd) + 4) % 7] + ')';
-  if (p[0] === String(today).slice(0, 4)) {
-    const y = document.createElement('span');
-    y.className = 'yr';
-    y.textContent = p[0] + '/';
-    host.appendChild(y);
-    host.appendChild(document.createTextNode(rest));
-  } else host.textContent = p[0] + '/' + rest;
-  host.title = ymd;
-}
+// 日付の表示（2026/10/5(月)）と期限の隣の言葉（N日遅れ）は lib/edit.js の ToolEdit.fillDate / dueWords（2026-10-02 に移設 — TB-LP1・LP2）
 // 一覧の関連ノートのチップの文字（TB-W4）: 🎯 が作る「<日付>_<内容>」の先頭の日付を省いて中身を見せる。
 // 日付しか無い名前（デイリーノート）は省かない。title とリンク先は全文のまま
 function noteChipLabel(name) { return name.replace(/^\d{4}-\d{2}-\d{2}[_ ](?=\S)/, ''); }
@@ -523,12 +508,6 @@ function renderSecHead(name, list, today) {
   });
   return tr;
 }
-// 期限の隣の言葉（TB-V5）: N日遅れ／今日／明日／あとN日
-function dueWords(due, today) {
-  const d = diffDays(today, due);
-  return d < 0 ? (-d) + '日遅れ' : d === 0 ? '今日' : d === 1 ? '明日' : 'あと' + d + '日';
-}
-
 function renderRow(t, today) {
   const tr = document.createElement('tr');
   if (t.finished) tr.className = 'row-done';
@@ -716,7 +695,7 @@ function renderRow(t, today) {
   const tdStart = document.createElement('td');
   tdStart.className = 'cell-start';
   const startSpan = document.createElement('span');
-  fillDate(startSpan, t.start, today);   // 空欄は空白（「—」を並べない）
+  ToolEdit.fillDate(startSpan, t.start, today);   // 空欄は空白（「—」を並べない）
   tdStart.appendChild(startSpan);
   if (!t.hasCR) {
     tdStart.title = 'クリックで開始日を設定';
@@ -727,7 +706,7 @@ function renderRow(t, today) {
   const tdDue = document.createElement('td');
   tdDue.className = 'cell-due';
   const dueSpan = document.createElement('span');
-  fillDate(dueSpan, t.due, today);
+  ToolEdit.fillDate(dueSpan, t.due, today);
   // 遅れ・今日は文字の色だけ（背景は塗らない — 状態は行の左端の帯が示す。TB-V5）。クラス名は従来どおり
   if (!t.finished && t.due) {
     if (t.due < today) dueSpan.className = 'due-over';
@@ -737,7 +716,7 @@ function renderRow(t, today) {
   if (!t.finished && t.due) {
     const w = document.createElement('span');
     w.className = 'due-rel' + (t.due < today ? ' late' : t.due === today ? ' today' : '');
-    w.textContent = dueWords(t.due, today);
+    w.textContent = ToolEdit.dueWords(t.due, today);
     tdDue.appendChild(w);
   }
   if (!t.hasCR) tdDue.addEventListener('click', (e) => openDatePopover(e.currentTarget, t, 'due'));

@@ -51,6 +51,7 @@ fixture で行う。
 | [archive.md](taskboard/archive.md) | 完了アーカイブ | 15〜19・AR・A |
 | [issue-link.md](taskboard/issue-link.md) | Check Issue との往復 | H・N |
 | [fixtures.md](taskboard/fixtures.md) | fixture F1〜F15 とテストフック | — |
+| [parts.md](taskboard/parts.md) | 共通部品へ移したもの（日付・状態の色・いま・光らせる・メニューとキー・見出し2行） | LP |
 | [decisions.md](taskboard/decisions.md) | 決定事項（TB-Q 番号・採否と理由） | — |
 
 ## 要件対応表
