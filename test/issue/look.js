@@ -215,5 +215,84 @@ module.exports = {
     r.check('IS-LK14（たたむ: 札の行が消え数は残る・読み直してもたたんだまま・ひらくで戻る）',
       n14a.listHidden === true && eq(n14a.cnt, ['遅れ 2', '今日まで 1', '立て直す 1', '論点なし 1']) && n14b.listHidden === true && n14c.listHidden === false,
       JSON.stringify([n14a.listHidden, n14b.listHidden, n14c.listHidden]));
+
+    /* ---------- IS-LK15〜LK18: 右クリックとキー ---------- */
+    await page.evaluate(() => { const e = document.getElementById('cfg-vault'); e.value = 'V'; e.dispatchEvent(new Event('change')); });
+    await setStatus('all');
+    await loadNotes({
+      'm.md': note({ title: '操作のノート', lines: [
+        '- [ ] 甲は A ではなく B ではないか \u{1F4C5} ' + future,
+        '- [ ] 乙は C ではなく D ではないか \u{1F4C5} ' + future + ' [[切り出し先]]',
+        '- [x] 丙は E ではなく F ではないか \u{1F4C5} 2026-09-20 ✅ 2026-09-22 当たり'] }),
+    });
+    const rowAt = (t) => page.evaluate((x) => {
+      const c = Array.from(document.querySelectorAll('.issue-card')).find(a => (a.querySelector('.ic-issue') || {}).textContent === x);
+      if (!c) return null; const rc = c.querySelector('.ic-issue').getBoundingClientRect();
+      return { x: Math.round(rc.left + 20), y: Math.round(rc.top + rc.height / 2) };
+    }, t);
+    const menuItems = () => page.evaluate(() => { const p = document.getElementById('row-pop');
+      if (!p || p.hidden) return null; const rc = p.getBoundingClientRect();
+      return { items: Array.from(p.querySelectorAll('[role=menuitem]')).map(b => b.querySelector('.rm-label').textContent + ' ' + b.querySelector('kbd').textContent),
+        left: Math.round(rc.left), top: Math.round(rc.top) }; });
+    const rightClick = async (pt) => {
+      await page.evaluate(() => { window.__ctx = null; document.addEventListener('contextmenu', e => { window.__ctx = e.defaultPrevented; }, { once: true }); });
+      await page.mouse.click(pt.x, pt.y, { button: 'right' }); await page.waitForTimeout(40);
+      return page.evaluate(() => window.__ctx);
+    };
+    const pk = await rowAt('甲は A ではなく B ではないか');
+    const lk15a = { prevented: await rightClick(pk), menu: await menuItems() };
+    await page.keyboard.press('Escape');
+    const pc = await rowAt('丙は E ではなく F ではないか');
+    await rightClick(pc);
+    const lk15b = await menuItems();
+    await page.keyboard.press('Escape');
+    const link = await page.evaluate(() => { const a = document.querySelector('.ic-spun'); if (!a) return null; const rc = a.getBoundingClientRect(); return { x: Math.round(rc.left + 6), y: Math.round(rc.top + rc.height / 2) }; });
+    const lk15c = link ? { prevented: await rightClick(link), menu: await menuItems() } : null;
+    r.check('IS-LK15（右クリックのメニュー: 開いた論点は4つ・ポインタの位置／閉じた論点は Obsidian で開く だけ／リンクの上は既定のメニュー）',
+      lk15a.prevented === true && !!lk15a.menu && eq(lk15a.menu.items, ['タスクにする… T', 'ちゃんと立てる… R', '閉じる… X', 'Obsidian で開く O'])
+      && Math.abs(lk15a.menu.left - pk.x) <= 8 && Math.abs(lk15a.menu.top - pk.y) <= 8
+      && !!lk15b && eq(lk15b.items, ['Obsidian で開く O']) && !!lk15c && lk15c.prevented === false && lk15c.menu === null,
+      JSON.stringify({ lk15a, lk15b, lk15c }));
+    await rightClick(pk);
+    await page.evaluate(() => { const b = Array.from(document.querySelectorAll('#row-pop [role=menuitem]')).find(x => x.querySelector('.rm-label').textContent === 'ちゃんと立てる…'); if (b) b.click(); });
+    const lk16a = await page.evaluate(() => !document.getElementById('wizard').hidden);
+    await page.keyboard.press('Escape');
+    await rightClick(pk);
+    const pc2 = await rowAt('乙は C ではなく D ではないか');
+    await page.mouse.move(pc2.x, pc2.y);
+    await page.keyboard.press('x');
+    const lk16b = await page.evaluate(() => ({ open: !document.getElementById('close-modal').hidden, target: document.getElementById('cm-target').textContent }));
+    await page.keyboard.press('Escape');
+    await rightClick(pk);
+    await page.keyboard.press('Escape');
+    const lk16c = await menuItems();
+    r.check('IS-LK16（メニューの［ちゃんと立てる…］でウィザード／メニューを開いて別の行に乗せて X はメニューの行／Esc で閉じる）',
+      lk16a && lk16b.open && lk16b.target.includes('甲は') && lk16c === null, JSON.stringify({ lk16a, lk16b, lk16c }));
+    const lk17 = {};
+    await page.evaluate(() => {
+      window.__orig = { s: window.sendToTasks, o: window.openObsidian }; window.__calls = [];
+      window.sendToTasks = (it) => window.__calls.push('task:' + it.issue);
+      window.openObsidian = (h) => window.__calls.push('open:' + (h.startsWith('obsidian://open?vault=V&file=') ? 'ok' : h));
+    });
+    const hoverKey = async (t, key) => { const p = await rowAt(t); if (!p) return; await page.mouse.move(p.x + 1, p.y); await page.mouse.move(p.x, p.y); await page.keyboard.press(key); await page.waitForTimeout(40); };
+    await hoverKey('甲は A ではなく B ではないか', 't');
+    await hoverKey('甲は A ではなく B ではないか', 'o');
+    await hoverKey('甲は A ではなく B ではないか', 'r');
+    lk17.wizard = await page.evaluate(() => !document.getElementById('wizard').hidden);
+    await page.keyboard.press('Escape');
+    await page.click('#f-q'); await hoverKey('甲は A ではなく B ではないか', 't');
+    lk17.typed = await page.evaluate(() => document.getElementById('f-q').value);
+    await page.evaluate(() => { const f = document.getElementById('f-q'); f.value = ''; f.dispatchEvent(new Event('input', { bubbles: true })); document.activeElement.blur(); });
+    await page.waitForTimeout(300);
+    await hoverKey('甲は A ではなく B ではないか', 'Meta+t');
+    await page.mouse.move(5, 5); await page.keyboard.press('t');
+    lk17.calls = await page.evaluate(() => { const c = window.__calls.slice(); window.sendToTasks = window.__orig.s; window.openObsidian = window.__orig.o; return c; });
+    r.check('IS-LK17（乗せて T＝タスクにする・O＝Obsidian で開く・R＝ウィザード／検索欄・Cmd・乗っていないときは何もしない）',
+      eq(lk17.calls, ['task:甲は A ではなく B ではないか', 'open:ok']) && lk17.wizard && lk17.typed === 't', JSON.stringify(lk17));
+    const lk18 = await page.evaluate(() => Array.from(document.querySelectorAll('.ic-menu .ic-task, .ic-menu .ic-frame, .ic-menu .ic-close')).slice(0, 3).map(b => b.title));
+    r.check('IS-LK18（⋯ の中のボタンの title にキー）',
+      lk18.length === 3 && lk18[0].endsWith('（キー T・右クリックでも）') && lk18[1].endsWith('（キー R・右クリックでも）') && lk18[2].endsWith('（キー X・右クリックでも）'),
+      JSON.stringify(lk18));
+    await page.evaluate(() => { const e = document.getElementById('cfg-vault'); e.value = ''; e.dispatchEvent(new Event('change')); });
   },
 };

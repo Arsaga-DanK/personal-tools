@@ -338,7 +338,7 @@ function card(it) {
     tb.type = 'button';
     tb.className = 'ic-task';
     tb.textContent = 'タスクにする…';
-    tb.title = 'Plan Tasks の追加画面を、この論点を添えて開く';
+    tb.title = 'Plan Tasks の追加画面を、この論点を添えて開く' + keyHintFor('task');
     tb.addEventListener('click', function () { more.open = false; sendToTasks(it); });
     menu.appendChild(tb);
   }
@@ -347,12 +347,14 @@ function card(it) {
     fb.type = 'button';
     fb.className = 'ic-frame';
     fb.textContent = it.kind === 'line' ? 'ちゃんと立てる…' : 'このノートに問いを立てる…';
+    fb.title = (it.kind === 'line' ? '5段に切り出す' : 'このノートの先頭に5段を差し込む') + keyHintFor('frame');
     fb.addEventListener('click', function () { more.open = false; wzOpenFor(it); });
     menu.appendChild(fb);
     const cb = document.createElement('button');
     cb.type = 'button';
     cb.className = 'ic-close';
     cb.textContent = '閉じる…';
+    cb.title = '当たり／外れ／未決 を残して閉じる' + keyHintFor('close');
     cb.addEventListener('click', function () { more.open = false; openCloseModal(it); });
     menu.appendChild(cb);
   }
@@ -713,6 +715,70 @@ $id('cfg-vault').addEventListener('change', function () {
 
 $id('pick-btn').addEventListener('click', function () { loadIssues(true); });
 $id('reload-btn').addEventListener('click', function () { loadIssues(false); });
+/* ---------- 論点の行の右クリックとキー（段2 — IS-LK15〜LK18・Plan Tasks の TB-RM と同じ作り） ----------
+   メニューの見た目・キーの読み方・文字を打っている最中の判定・置き場所は lib/ui.js の ToolUI。何をするか・どの行に効くかはここ。
+   出す項目は ⋯ と同じ条件 */
+const ISSUE_ACTIONS = [
+  { id: 'task',  key: 't', keyLabel: 'T', icon: '＋', label: 'タスクにする…',
+    can: function (it) { return it.status !== 'closed'; }, run: function (it) { sendToTasks(it); } },
+  { id: 'frame', key: 'r', keyLabel: 'R', icon: '✎', label: 'ちゃんと立てる…',
+    can: function (it) { return it.status !== 'closed' && !(it.kind === 'line' && it.link); }, run: function (it) { wzOpenFor(it); } },
+  { id: 'close', key: 'x', keyLabel: 'X', icon: '✓', label: '閉じる…',
+    can: function (it) { return it.status !== 'closed' && !(it.kind === 'line' && it.link); }, run: function (it) { openCloseModal(it); } },
+  { id: 'open',  key: 'o', keyLabel: 'O', icon: '↗', label: 'Obsidian で開く',
+    can: function (it) { return !!obsidianHref(it.name); }, run: function (it) { openObsidian(obsidianHref(it.name)); } },
+];
+function openObsidian(href) { location.href = href; }   // 外部スキーム。テストで差し替える（IS-LK17）
+function actionsFor(it) {
+  return ISSUE_ACTIONS.filter(function (a) { return a.can(it); }).map(function (a) {
+    return a.id === 'frame' && it.kind !== 'line' ? Object.assign({}, a, { label: 'このノートに問いを立てる…' }) : a;
+  });
+}
+function keyHintFor(id) { return ToolUI.keyHint(ISSUE_ACTIONS.find(function (a) { return a.id === id; })); }
+let menuFor = null;   // メニューを開いている論点（キーで選んだときに効く先）
+function closeRowPop() { $id('row-pop').hidden = true; menuFor = null; }
+function openRowPop(it, x, y) {
+  const acts = actionsFor(it);
+  if (!acts.length) return false;
+  const pop = $id('row-pop');
+  pop.textContent = '';
+  pop.appendChild(ToolUI.menu(acts, function (a) { closeRowPop(); a.run(it); }));
+  pop.hidden = false;
+  menuFor = it;
+  ToolUI.placeAt(pop, ToolUI.pointRect(x, y));
+  return true;
+}
+// 右クリック: リンク・入力欄の上ではブラウザのメニューを奪わない
+$id('cards').addEventListener('contextmenu', function (e) {
+  const art = e.target.closest && e.target.closest('.issue-card');
+  if (!art || e.target.closest('a, input, textarea, select')) return;
+  const it = cardOf.get(art);
+  if (it && openRowPop(it, e.clientX, e.clientY)) e.preventDefault();
+});
+document.addEventListener('mousedown', function (e) {
+  const p = $id('row-pop');
+  if (!p.hidden && !p.contains(e.target)) closeRowPop();
+});
+// キーが効く論点: メニューが開いていればその論点、無ければポインタを乗せている行
+function issueKeyTarget() {
+  if (!$id('wizard').hidden || !$id('close-modal').hidden) return null;
+  if (menuFor) return menuFor;
+  if (ToolUI.isTyping(document.activeElement)) return null;
+  if (document.querySelector('#cards .ic-edit')) return null;   // 論点を書いている最中
+  const art = document.querySelector('#cards .issue-card:hover');
+  return art ? (cardOf.get(art) || null) : null;
+}
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape' && !$id('row-pop').hidden) { closeRowPop(); return; }
+  const it = issueKeyTarget();
+  if (!it) return;
+  const a = ToolUI.menuKey(e, actionsFor(it));
+  if (!a) return;
+  e.preventDefault();
+  closeRowPop();
+  a.run(it);
+});
+
 $id('f-status').addEventListener('click', function (e) {
   const b = e.target.closest('button[data-v]');
   if (b) setStatusFilter(b.dataset.v);
