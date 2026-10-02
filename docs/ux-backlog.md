@@ -14,6 +14,7 @@
 
 | 日付 | ファイル | 内容 |
 |---|---|---|
+| 2026-10-02 | [2026-10-02-issue-redesign.md](audits/2026-10-02-issue-redesign.md) | Check Issue の作り直し（問い→分かったこと・待ち・閉じどき）と Plan Tasks で決めたことの横展開（6段） |
 | 2026-09-25 | [2026-09-25-structure.md](audits/2026-09-25-structure.md) | 構成の組み替え設計（同名フォルダで分割・ゲート） |
 | 2026-09-24 | [2026-09-24-textbox-todo.md](audits/2026-09-24-textbox-todo.md) | 「ただのテキストボックス入力」の棚卸し（未着手） |
 | 2026-08-18 | [2026-08-18-usage-diagnosis.md](audits/2026-08-18-usage-diagnosis.md) | 使用実態の診断と Draw Gantt の凍結 |
