@@ -403,3 +403,17 @@ nav.modes a[aria-current="page"] { background: var(--accent); color: #fff; font-
 .row-menu-item .rm-label { flex: 1; }
 .row-menu-item kbd { font: 11px/1.5 ui-monospace, Menlo, monospace; color: var(--muted);
   border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; }
+
+/* ---------- 見出し2行（2026-10-02 に Plan Tasks から移設 — TB-V6。段2で Check Issue・段5で全ツールへ）----------
+   1行目 .app-head＝ツール・題名（説明は title）・モード・状態・⋯、2行目 .app-controls＝操作。中身が上に来る */
+.app-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 0 0 8px; }
+.app-head .tool-header { margin: 0; }
+.app-head h1 { margin: 0; font-size: 20px; cursor: help; }
+.app-head nav.modes { margin: 0; }
+.app-head .spacer { flex: 1 1 auto; }
+.app-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 4px 0 12px; }
+.app-controls .tabs button { border: 0; border-radius: 0; padding: 4px 10px; font-size: 13px; }
+.app-controls .tabs button + button { border-left: 1px solid var(--border); }
+.app-controls .tabs button.active { background: var(--accent); color: var(--accent-text); box-shadow: none; }
+.app-controls .opts { gap: 6px 10px; }
+.app-controls .opts select { padding-left: 6px; padding-right: 4px; }

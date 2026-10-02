@@ -42,24 +42,13 @@
   .sec-st.today { color: var(--st-today); }
   .sec-st.doing { color: var(--st-doing); }
   #task-table tr.sec-row.drop-sec td { box-shadow: inset 0 -2px 0 var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
-  /* 見出しを2行に（TB-V6） */
-  .tb-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 0 0 8px; }
-  .tb-head .tool-header { margin: 0; }
+  /* 見出しを2行に（TB-V6）。型は lib/ui.css の .app-head・.app-controls（2026-10-02 に移設 — TB-LP12）。ここは Plan Tasks 固有の部分だけ */
   .tb-file .autosave-note { color: var(--muted); font-size: 12px; }
-  .tb-head h1 { margin: 0; font-size: 20px; cursor: help; }
-  .tb-head nav.modes { margin: 0; }
-  .tb-head .spacer { flex: 1 1 auto; }
   .tb-head .toolbar.tb-file { margin: 0; padding: 0; background: none; border: 0; box-shadow: none; gap: 10px; font-size: 13px; }
-  .tb-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 4px 0 12px; }
   .tb-controls > #viewbar, .tb-controls > #main-toolbar { display: contents; }
   /* 表示の切替は小さな切り替えボタンの形（1行に並べると、下線のタブは浮いて見える。幅も詰める） */
   /* .viewbar .tabs（横いっぱいに伸ばす指定）が後ろにあるので、id で強くする */
   .tb-controls #view-tabs { margin: 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; gap: 0; flex: 0 0 auto; background: var(--panel); }
-  .tb-controls .tabs button { border: 0; border-radius: 0; padding: 4px 10px; font-size: 13px; }
-  .tb-controls .tabs button + button { border-left: 1px solid var(--border); }
-  .tb-controls .tabs button.active { background: var(--accent); color: var(--accent-text); box-shadow: none; }
-  .tb-controls .opts { gap: 6px 10px; }
-  .tb-controls .opts select { padding-left: 6px; padding-right: 4px; }
   .tb-controls #btn-add-form, .tb-controls #btn-copy { padding-left: 10px; padding-right: 10px; }
   .tb-controls #f-q { width: 9.5em; }
   .tb-controls #main-toolbar .spacer { order: 1; flex: 1 1 auto; }
@@ -281,7 +270,7 @@
 <body>
 <main class="app-wide">
   <!-- 見出しは2行（TB-V6）: 1行目＝ツール・題名・タスク/イシュー・ファイル・保存の状態・件数・⋯。説明文は題名の title に置く（消さない） -->
-  <header class="tb-head">
+  <header class="tb-head app-head">
     <p class="tool-header"><a href="../index.html">← ツール一覧</a></p>
     <h1 title="vault の tasks.md（正本）を表形式で閲覧・編集 — 完了・開始日・期限・優先度、計画ビュー（タイムライン）、Excel用コピー">Plan Tasks</h1>
     <nav class="modes" aria-label="モード">
@@ -312,7 +301,7 @@
   <div class="banner" id="banner" hidden></div>
 
   <!-- 2行目（TB-V6）: 表示の切替・＋タスク追加・絞り込み・並び順・検索・Excel用コピー・⋯ を1つの段に（id は不変） -->
-  <div class="tb-controls">
+  <div class="tb-controls app-controls">
   <div class="viewbar" id="viewbar" hidden>
     <div class="tabs" id="view-tabs">
       <button data-view="list">リスト</button>

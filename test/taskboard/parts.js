@@ -108,6 +108,18 @@ module.exports = {
       css2.includes('.row-menu-item') && !html2.includes('.row-menu-item') && html2.includes('.popover:has(.row-menu)'),
       JSON.stringify([css2.includes('.row-menu-item'), html2.includes('.row-menu-item')]));
 
+    /* ---------- TB-LP12: 見出し2行の型 ---------- */
+    const css3 = fs.readFileSync(path.join(REPO, 'lib/ui.css'), 'utf8');
+    const html3 = fs.readFileSync(path.join(REPO, 'web/taskboard.html'), 'utf8');
+    const lp12 = await page.evaluate(() => {
+      const h = document.querySelector('.tb-head'), c = document.querySelector('.tb-controls');
+      return { head: !!h && h.classList.contains('app-head'), ctl: !!c && c.classList.contains('app-controls'),
+        disp: h ? getComputedStyle(h).display : '', gap: h ? getComputedStyle(h).columnGap : '', cdisp: c ? getComputedStyle(c).display : '' };
+    });
+    r.check('TB-LP12（見出し2行は lib/ui.css の .app-head・.app-controls・表示の切替の id の指定は Plan Tasks に残る）',
+      lp12.head && lp12.ctl && lp12.disp === 'flex' && lp12.gap === '14px' && lp12.cdisp === 'flex'
+      && css3.includes('.app-head {') && css3.includes('.app-controls {') && html3.includes('.tb-controls #view-tabs'), JSON.stringify(lp12));
+
     /* ---------- TB-LP7: 「いま」を描く ---------- */
     const lp7 = await safe(() => {
       const box = document.createElement('section'); document.body.appendChild(box);

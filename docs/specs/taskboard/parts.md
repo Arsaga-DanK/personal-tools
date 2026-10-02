@@ -16,4 +16,5 @@ Plan Tasks で作った見た目と操作を `lib/` に移し、Plan Tasks を�
 | TB-LP7 | `ToolUI.nowStrip` に 遅れ（数を出す・札1）・今日まで（数を出す・札0）・開始日を過ぎた（数を出さない・札1）→ 札を押す・たたむを押す → たたんだ状態で → 札0 | 見出しは「いま」「遅れ 1」「今日まで 0」（点は `now-dot k-late`・`k-today`）。行は「遅れ 1」「開始日を過ぎた 1」だけ（今日までの行は出さない）。札の文字と title・押すと onClick・たたむで onFold が1回・「たたむ ▴」→「ひらく ▾」と一覧が隠れる。札0なら「急ぎのものはありません」で数は 0 |
 | TB-LP8 | `ToolUI.flash` | すぐ `.flash` が付き、1.4秒後には外れている。`.flash` の動きは `tool-flash`、動きを減らす設定では `none` |
 | TB-LP11 | `lib/ui.css` と `web/taskboard.html` の中身 | ui.css に `.row-menu-item` がある。taskboard.html に `.row-menu-item` が無い（`.popover:has(.row-menu)` は残る） |
+| TB-LP12 | Plan Tasks の見出し・`lib/ui.css` の中身 | `.tb-head` に `app-head`、`.tb-controls` に `app-controls` が付き、算出の display は flex・1行目の列の間は 14px。ui.css に `.app-head {` と `.app-controls {` がある（表示の切替の `.tb-controls #view-tabs` は taskboard.html に残る — 後ろの `.viewbar .tabs` に負けないため） |
 | TB-LP9 | Plan Tasks のページ | 移した関数・定数が Plan Tasks 側に残っていない（`fillDate`・`dueWords`・`WEEKDAYS`、Task 4 で `rowActionForKey`・`TYPING_SEL` も） |
