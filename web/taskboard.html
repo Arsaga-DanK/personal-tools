@@ -20,7 +20,6 @@
   #task-table tbody tr.row-top:hover { background: color-mix(in srgb, var(--accent) 13%, transparent); }
   #task-table tr.row-top .body-text { font-weight: 650; }
   /* 見た目の第1段（TB-V4〜V6・TB-Q66） */
-  #task-table, #now { --st-late: var(--error); --st-today: #d08770; --st-doing: #81a1c1; --st-should: color-mix(in srgb, #d08770 50%, transparent); }
   #task-table tr.s-late td.cell-st { box-shadow: inset 4px 0 0 var(--st-late); }
   #task-table tr.s-today td.cell-st { box-shadow: inset 4px 0 0 var(--st-today); }
   #task-table tr.s-doing td.cell-st { box-shadow: inset 4px 0 0 var(--st-doing); }
@@ -43,11 +42,6 @@
   .sec-st.today { color: var(--st-today); }
   .sec-st.doing { color: var(--st-doing); }
   #task-table tr.sec-row.drop-sec td { box-shadow: inset 0 -2px 0 var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
-  /* 今年の年は薄く（TB-V5・TB-Q68）。今年でない年は .yr を付けないのでふつうの濃さ */
-  #task-table .yr { font-size: 11px; color: var(--muted); opacity: .85; }
-  .due-rel { display: block; font-size: 11.5px; color: var(--muted); line-height: 1.3; }
-  .due-rel.late { color: var(--st-late); font-weight: 600; }
-  .due-rel.today { color: var(--st-today); font-weight: 600; }
   /* 見出しを2行に（TB-V6） */
   .tb-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 0 0 8px; }
   .tb-head .tool-header { margin: 0; }
@@ -207,38 +201,6 @@
     border: 1px solid var(--border); border-radius: 8px; padding: 10px;
     box-shadow: 0 4px 16px rgba(0,0,0,.18); display: flex; flex-direction: column; gap: 8px; }
   .popover .row-btns { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-  /* 「いま」（TB-NW1〜NW8）。.now と .now-list には display を書かない（hidden 属性で隠すため） */
-  .now { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow);
-    padding: 8px 14px 6px; margin: 0 0 12px; }
-  .now-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
-  .now-title { font-weight: 700; font-size: 14px; letter-spacing: .06em; }
-  .now-cnt { font-size: 12.5px; color: var(--muted); display: inline-flex; align-items: center; gap: 5px; }
-  .now-cnt b { color: var(--text); font-variant-numeric: tabular-nums; }
-  .now-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
-  .now-dot.k-late { background: var(--st-late); }
-  .now-dot.k-today { background: var(--st-today); }
-  .now-dot.k-doing { background: var(--st-doing); }
-  .now-fold { margin-left: auto; font-size: 12px; padding: 2px 8px; border: 0; background: transparent; color: var(--muted); }
-  .now-list { list-style: none; margin: 6px 0 0; padding: 0; }
-  .now-group { display: grid; grid-template-columns: 9.5em 1fr; gap: 10px; align-items: start; padding: 6px 0;
-    border-top: 1px solid var(--border); }
-  .now-group:first-child { border-top: 0; }
-  .now-badge { font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; justify-self: start; white-space: nowrap; margin-top: 3px; }
-  .now-badge.k-late { color: var(--st-late); background: color-mix(in srgb, var(--st-late) 16%, transparent); }
-  .now-badge.k-today { color: var(--st-today); background: color-mix(in srgb, var(--st-today) 16%, transparent); }
-  .now-badge.k-doing { color: var(--st-doing); background: color-mix(in srgb, var(--st-doing) 16%, transparent); }
-  .now-badge.k-should { color: var(--st-today); border: 1px dashed var(--st-should); }
-  .ticks { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
-  .tick { border: 1px solid var(--border); background: var(--bg); border-radius: 8px; padding: 2px 9px; font-size: 13px;
-    max-width: min(30em, 100%); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
-  .tick-par { color: var(--muted); font-size: 12px; }
-  .tick-rel { color: var(--st-late); font-size: 12px; }
-  .now-empty { font-size: 12.5px; color: var(--muted); padding: 4px 0 2px; }
-  @media (max-width: 760px) { .now-group { grid-template-columns: 1fr; gap: 4px; } }
-  /* 札から飛んだ行を少しのあいだ光らせる（TB-NW4） */
-  #task-table tbody tr.flash { animation: row-flash 1.3s ease-out; }
-  @keyframes row-flash { from { background: color-mix(in srgb, var(--accent) 35%, transparent); } to { background: transparent; } }
-  @media (prefers-reduced-motion: reduce) { #task-table tbody tr.flash { animation: none; outline: 2px solid var(--accent); } }
   /* 行の右クリックのメニュー（TB-RM1）。項目は行の高さで狙いやすく、右にキーを出して使ううちに覚えられるように */
   .popover:has(.row-menu) { padding: 4px; }
   .row-menu { display: flex; flex-direction: column; min-width: 13em; }

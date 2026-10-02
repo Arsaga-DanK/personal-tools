@@ -33,5 +33,20 @@ module.exports = {
     const lp9 = await page.evaluate((names) => names.filter(n => { try { return (0, eval)('typeof ' + n) !== 'undefined'; } catch (e) { return false; } }),
       ['fillDate', 'dueWords', 'WEEKDAYS']);
     r.check('TB-LP9（移した関数・定数が Plan Tasks 側に残っていない）', eq(lp9, []), JSON.stringify(lp9));
+
+    /* ---------- TB-LP10: CSS の置き場所 ---------- */
+    const css = fs.readFileSync(path.join(REPO, 'lib/ui.css'), 'utf8');
+    const html = fs.readFileSync(path.join(REPO, 'web/taskboard.html'), 'utf8');
+    const lp10 = {
+      libMissing: ['--st-late:', '--st-today:', '--st-doing:', '--st-should:', '.due-rel', '.now-badge', '@keyframes tool-flash'].filter(s => !css.includes(s)),
+      tbLeft: ['--st-late:', '.now-badge', 'row-flash', '.due-rel {'].filter(s => html.includes(s)),
+    };
+    const stVar = () => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--st-late').trim());
+    lp10.light = await stVar();
+    await page.emulateMedia({ colorScheme: 'dark' });
+    lp10.dark = await stVar();
+    await page.emulateMedia({ colorScheme: null });
+    r.check('TB-LP10（状態の色・日付・いま・光らせるの CSS は lib/ui.css に1つだけ・ライトでもダークでも --st-late がある）',
+      eq(lp10.libMissing, []) && eq(lp10.tbLeft, []) && lp10.light !== '' && lp10.dark !== '', JSON.stringify(lp10));
   },
 };
