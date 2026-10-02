@@ -96,7 +96,7 @@
   .note-card .note-add { margin-left: auto; }
   .note-stats { font-size: 12px; color: var(--muted); }
   .note-card .issue-card { background: transparent; border: 0; border-top: 1px solid var(--border);
-    border-radius: 0; box-shadow: none; padding: 8px 0 2px; margin-top: 4px; }
+    border-radius: 0; box-shadow: none; padding: 8px 0 2px 12px; margin-top: 4px; }   /* 左 12px は状態の帯（4px）と印を離すため — IS-LK6 */
   .ic-line { display: flex; align-items: baseline; gap: 8px; }
   .ic-line .ic-issue { flex: 1 1 auto; margin: 0; }
   .ic-line .ic-due { margin-left: 0; }
@@ -148,6 +148,7 @@
   .app-head .autosave-note { color: var(--muted); font-size: 12px; }
   .app-head .summary { margin: 0; font-size: 13px; }
   .app-controls #f-q { width: 14em; }
+  .tally { margin: 0 0 8px; font-size: 13px; }   /* 閉じた論点の成績表（すべて・閉じた のとき）— 見出しの1行目からここへ（IS-LK1） */
   /* 論点の行（段2 — IS-LK6〜LK8）。状態は左端の帯1つだけ（赤だらけにしない） */
   .issue-card.s-late { box-shadow: inset 4px 0 0 var(--st-late); }
   .issue-card.s-today { box-shadow: inset 4px 0 0 var(--st-today); }
@@ -219,6 +220,7 @@
   </details>
 
   <section id="now" class="now" aria-label="いま" hidden></section>
+  <p class="summary tally" id="tally" hidden></p>
   <div id="cards"></div>
   <div id="row-pop" class="row-pop" hidden></div>
 

@@ -523,7 +523,10 @@ function renderCards() {
     const cnt = function (v) { return closed.filter(function (c) { return c.verdict === v; }).length; };
     if (closed.length) tally = '　閉じた ' + closed.length + '：当たり ' + cnt('当たり') + '・外れ ' + cnt('外れ') + '・未決 ' + cnt('未決');
   }
-  $id('summary').textContent = notes.length === 0 ? '' : total + '件（' + label + '）' + tally;
+  $id('summary').textContent = notes.length === 0 ? '' : total + '件（' + label + '）';
+  // 成績表は見出しの1行目に入れると長くなって ⋯ が次の行へ落ちる（2026-10-02 の点検）。一覧の上に1行で出す
+  $id('tally').textContent = tally.trim();
+  $id('tally').hidden = !tally;
   if (notes.length === 0) $id('howto').open = true;   // 初見は使い方を開いておく（R10）
   $id('howto').hidden = notes.length > 0 && !howtoShown;   // ノートがあれば ⋯ から開く（IS-LK4）
   if (groups.length === 0) {

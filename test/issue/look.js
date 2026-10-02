@@ -39,8 +39,24 @@ module.exports = {
         // 見出しの下の最初の中身（「いま」があればそれ、無ければ最初のカード — Task 3 で「いま」が上に入る）
         cardTop: (() => { const n = document.getElementById('now'); return n && !n.hidden ? top('#now') : top('.note-card'); })() };
     });
-    r.check('IS-LK1（見出し2行: 説明は h1 の title・vault 名と再読込は ⋯ の中・1行目と2行目がそれぞれ同じ段・見出しの下の最初の中身が 300px より上）',
-      lk1.noSub && lk1.h1Title.includes('論点') && lk1.inMore && lk1.row1 && lk1.row2 && lk1.cardTop !== null && lk1.cardTop < 300,
+    // 表示が「すべて」「閉じた」でも1行目があふれない（成績表で件数が長くなる — 2026-10-02 の点検で見つかった）・⋯ のメニューが画面の中
+    lk1.views = {};
+    for (const v of ['all', 'closed']) {
+      await setStatus(v);
+      lk1.views[v] = await page.evaluate(() => {
+        const top = sel => { const e = document.querySelector(sel); return e ? Math.round(e.getBoundingClientRect().top) : null; };
+        const ts = ['#pick-btn', '#summary', '#issue-more > summary'].map(top);
+        const more = document.getElementById('issue-more'); more.open = true;
+        const panel = more.querySelector('.more-panel').getBoundingClientRect();
+        more.open = false;
+        return { band: Math.max(...ts) - Math.min(...ts) <= 14, panelLeft: Math.round(panel.left), ctlTop: top('#f-status') };
+      });
+    }
+    await setStatus('open');
+    lk1.openCtlTop = await page.evaluate(() => Math.round(document.getElementById('f-status').getBoundingClientRect().top));
+    r.check('IS-LK1（見出し2行: 説明は h1 の title・vault 名と再読込は ⋯ の中・1行目と2行目がそれぞれ同じ段・見出しの下の最初の中身が 300px より上・すべて／閉じた でも1行目があふれず ⋯ が画面の中・2行目が上下しない）',
+      lk1.noSub && lk1.h1Title.includes('論点') && lk1.inMore && lk1.row1 && lk1.row2 && lk1.cardTop !== null && lk1.cardTop < 300
+      && ['all', 'closed'].every(v => lk1.views[v].band && lk1.views[v].panelLeft >= 0 && lk1.views[v].ctlTop === lk1.openCtlTop),
       JSON.stringify(lk1));
 
     /* ---------- IS-LK2: 表示の切替のボタン ---------- */
@@ -116,6 +132,10 @@ module.exports = {
         pl = byText('丙は E ではなく F ではないか'), cl = byText('丁は G ではなく H ではないか'), empty = cards.find(c => c.querySelector('.ic-issue.is-empty'));
       return {
         st: [ko, ot, w, pl, cl].map(c => c ? st(c) : 'none'),
+        // 帯（左端の 4px）と行の最初の印（✓／⚠）が重ならない — 2026-10-02 の点検で見つかった
+        gap: [ko, w].map(c => { if (!c) return -1; const first = c.querySelector('.ic-line').firstElementChild;
+          return Math.round(first.getBoundingClientRect().left - c.getBoundingClientRect().left); }),
+        noDue: empty ? (empty.querySelector('.ic-due') || {}).textContent || '' : '',
         shadowLate: ko ? shadow(ko) : '', lateColor: probe('--st-late'), rethinkColor: probe('--st-rethink'), shadowRethink: w ? shadow(w) : '',
         dueKo: ko ? due(ko) : null, dueCl: cl ? due(cl) : null,
         labDo: Array.from(document.querySelectorAll('.note-head .lab-do')).map(e => e.textContent),
@@ -125,12 +145,12 @@ module.exports = {
       };
     });
     r.check('IS-LK6（論点の行の状態の帯: 遅れ・今日・立て直す・なし・閉じたはなし）',
-      eq(lk.st, ['s-late', 's-today', 's-rethink', '', '']) && lk.shadowLate.includes(lk.lateColor) && lk.shadowRethink.includes(lk.rethinkColor),
-      JSON.stringify([lk.st, lk.shadowLate, lk.lateColor, lk.shadowRethink, lk.rethinkColor]));
+      eq(lk.st, ['s-late', 's-today', 's-rethink', '', '']) && lk.shadowLate.includes(lk.lateColor) && lk.shadowRethink.includes(lk.rethinkColor)
+      && lk.gap.every(g => g >= 8), JSON.stringify([lk.st, lk.shadowLate, lk.lateColor, lk.shadowRethink, lk.rethinkColor, lk.gap]));
     r.check('IS-LK7（締切の title は ISO・遅れは「3日遅れ」・閉じたは「閉じた 2026/9/22(火)」で赤くしない）',
       !!lk.dueKo && lk.dueKo.title === past && lk.dueKo.rel === '3日遅れ' && lk.dueKo.late
-      && !!lk.dueCl && lk.dueCl.text.startsWith('閉じた ') && lk.dueCl.text.includes('9/22(火)') && lk.dueCl.title === '2026-09-22' && !lk.dueCl.over && lk.dueCl.rel === '',
-      JSON.stringify([lk.dueKo, lk.dueCl]));
+      && !!lk.dueCl && lk.dueCl.text.startsWith('閉じた ') && lk.dueCl.text.includes('9/22(火)') && lk.dueCl.title === '2026-09-22' && !lk.dueCl.over && lk.dueCl.rel === ''
+      && lk.noDue === '締切なし', JSON.stringify([lk.dueKo, lk.dueCl, lk.noDue]));
     r.check('IS-LK8（ノートの見出しに「やること」・開いた論点にだけ「問い」・⚠ の下に直し方）',
       lk.labDo.length === 3 && lk.labDo.every(t => t === 'やること') && eq(lk.labQ, [true, false, false])
       && lk.fix.startsWith('→ 直すなら ') && lk.fix.includes('ではないか'), JSON.stringify([lk.labDo, lk.labQ, lk.fix]));
@@ -279,7 +299,15 @@ module.exports = {
     await hoverKey('甲は A ではなく B ではないか', 'o');
     await hoverKey('甲は A ではなく B ではないか', 'r');
     lk17.wizard = await page.evaluate(() => !document.getElementById('wizard').hidden);
+    await page.keyboard.press('x');   // ウィザードの最中の X は閉じる画面を開かない
+    lk17.closeInWizard = await page.evaluate(() => !document.getElementById('close-modal').hidden);
     await page.keyboard.press('Escape');
+    // 論点を書いている最中（.ic-edit が開いている）は、欄からフォーカスを外していても別の行で T が効かない
+    await page.evaluate(() => { const q = Array.from(document.querySelectorAll('.ic-issue')).find(b => b.textContent === '甲は A ではなく B ではないか'); if (q) q.click();
+      if (document.activeElement) document.activeElement.blur(); });
+    lk17.editing = await page.evaluate(() => !!document.querySelector('#cards .ic-edit'));
+    await hoverKey('乙は C ではなく D ではないか', 't');
+    await page.evaluate(() => { const no = Array.from(document.querySelectorAll('#cards .ic-edit button')).find(b => b.textContent === 'やめる'); if (no) no.click(); });
     await page.click('#f-q'); await hoverKey('甲は A ではなく B ではないか', 't');
     lk17.typed = await page.evaluate(() => document.getElementById('f-q').value);
     await page.evaluate(() => { const f = document.getElementById('f-q'); f.value = ''; f.dispatchEvent(new Event('input', { bubbles: true })); document.activeElement.blur(); });
@@ -288,7 +316,8 @@ module.exports = {
     await page.mouse.move(5, 5); await page.keyboard.press('t');
     lk17.calls = await page.evaluate(() => { const c = window.__calls.slice(); window.sendToTasks = window.__orig.s; window.openObsidian = window.__orig.o; return c; });
     r.check('IS-LK17（乗せて T＝タスクにする・O＝Obsidian で開く・R＝ウィザード／検索欄・Cmd・乗っていないときは何もしない）',
-      eq(lk17.calls, ['task:甲は A ではなく B ではないか', 'open:ok']) && lk17.wizard && lk17.typed === 't', JSON.stringify(lk17));
+      eq(lk17.calls, ['task:甲は A ではなく B ではないか', 'open:ok']) && lk17.wizard && lk17.closeInWizard === false && lk17.editing === true
+      && lk17.typed === 't', JSON.stringify(lk17));
     const lk18 = await page.evaluate(() => Array.from(document.querySelectorAll('.ic-menu .ic-task, .ic-menu .ic-frame, .ic-menu .ic-close')).slice(0, 3).map(b => b.title));
     r.check('IS-LK18（⋯ の中のボタンの title にキー）',
       lk18.length === 3 && lk18[0].endsWith('（キー T・右クリックでも）') && lk18[1].endsWith('（キー R・右クリックでも）') && lk18[2].endsWith('（キー X・右クリックでも）'),

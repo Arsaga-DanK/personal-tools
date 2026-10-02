@@ -494,7 +494,7 @@ module.exports = {
     const cards = Array.from(document.querySelectorAll('.issue-card'));
     const os = cards.find(c => c.querySelector('.ic-issue').textContent.includes('OS のみ'));
     const out = {
-      summary: document.getElementById('summary').textContent,
+      summary: document.getElementById('summary').textContent + ' ' + ((document.getElementById('tally') || {}).textContent || ''),
       metaOS: Array.from(os.querySelectorAll('.ic-meta li')).map(li => li.textContent).join(' | '),
       dueOS: ((os.querySelector('.ic-due span[title]')) || {}).title || '',
       overClass: os.querySelector('.ic-due').className,
