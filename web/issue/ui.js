@@ -149,6 +149,8 @@ $id('copy-tasks-btn').addEventListener('click', () => {
     ToolUI.feedback($id('copy-tasks-btn'), ok ? '✓ コピーしました' : 'コピーできませんでした'));
 });
 document.addEventListener('keydown', e => {
+  // 一覧の中の欄（論点・分かったこと）で打った Enter は欄のもの。ここで作成まで走ると vault に「無題」のノートができる（IS-DG10）
+  if (e.defaultPrevented || (e.target.closest && e.target.closest('#cards .ic-edit'))) return;
   if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
     e.preventDefault();
     // 直接保存できるなら作成、できないならコピー（＝そのときの唯一の経路）

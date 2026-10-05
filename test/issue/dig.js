@@ -2,10 +2,10 @@
 /* test/issue/dig.js — 節: 分かったこと・待ち・掘るを読む（段3）
    入口: test/issue.js（ctx を受け取る。単独実行は node test/issue.js dig）
    前の節はページを移したまま終わることがあるので、Check Issue を開き直してから始める（FSA のダミーは addInitScript なので残る）。
-   照合する ID: IS-DG1〜DG9。期待値の正本は docs/specs/issue.md */
+   照合する ID: IS-DG1〜DG12。期待値の正本は docs/specs/issue.md */
 module.exports = {
   name: 'dig',
-  ids: 'IS-DG1〜DG9',
+  ids: 'IS-DG1〜DG12',
   async run(ctx) {
     const { page, r, eq, fileUrl } = ctx;
     await page.setViewportSize({ width: 1280, height: 900 });
@@ -61,7 +61,7 @@ module.exports = {
     const CLOSED = ['---', 'status: open', '---', '# 閉じた論点のノート', '', '## 論点', '',
       '- [x] 戊は I ではなく J ではないか \u{1F4C5} 2026-09-20 ✅ 2026-09-22 当たり', '\t- 分かったことの記録', ''].join('\n');
     const WAITLATE = ['---', 'status: open', '---', '# 遅れのノート', '', '## 論点', '',
-      '- [ ] 己は K ではなく L ではないか \u{1F4C5} ' + past, '\t- 待ち: 先方', '- [ ] 庚は M ではなく N ではないか \u{1F4C5} ' + past, ''].join('\n');
+      '- [ ] 己は 手順書が書けないのは運用チームの承認を待っているからではなく、手順そのものがまだ決まっていないからではないか \u{1F4C5} ' + past, '\t- 待ち: 先方', '- [ ] 庚は M ではなく N ではないか \u{1F4C5} ' + past, ''].join('\n');
     await setStatus('all');
     await loadNotes({ 'one.md': NOTE1, 'closed.md': CLOSED, 'late.md': WAITLATE });
     const kidsOf = (t) => page.evaluate((x) => {
@@ -110,11 +110,14 @@ module.exports = {
       && dg5.empty.banner.includes('空です') && dg5.empty.file === expect2 && dg5.closed,
       JSON.stringify({ opened: dg5.opened, f1: dg5.file1 === expect1, s1: dg5.shown1, f2: dg5.file2 === expect2, s2: dg5.shown2, empty: dg5.empty.banner, closed: dg5.closed }));
 
-    const dg6 = await page.evaluate(() => Array.from(document.querySelectorAll('#now .tick')).map(t => ({ text: t.textContent, wait: !!t.querySelector('.tick-wait') }))
-      .filter(t => t.text.includes('己は') || t.text.includes('庚は')));
-    r.check('IS-DG6（いまの札: 待ちの子がある遅れの論点にだけ「 ⏳ 待ち」）',
-      dg6.length === 2 && dg6.find(t => t.text.includes('己は')).wait === true && dg6.find(t => t.text.includes('己は')).text.endsWith(' ⏳ 待ち')
-      && dg6.find(t => t.text.includes('庚は')).wait === false, JSON.stringify(dg6));
+    // 札は幅で切れる（… で省く）。論点が長くても ⏳ 待ち が札の幅の中に見えていること（2026-10-05 の点検 — 最後に置くと切れていた）
+    const dg6 = await page.evaluate(() => Array.from(document.querySelectorAll('#now .tick')).filter(t => t.textContent.includes('己は') || t.textContent.includes('庚は')).map(t => {
+      const w = t.querySelector('.tick-wait'), tr = t.getBoundingClientRect(), wr = w ? w.getBoundingClientRect() : null;
+      return { ki: t.textContent.includes('己は'), wait: !!w, visible: !!wr && wr.left >= tr.left && wr.right <= tr.right + 1, title: t.title };
+    }));
+    const ki = dg6.find(t => t.ki), kou = dg6.find(t => !t.ki);
+    r.check('IS-DG6（いまの札: 待ちの子がある遅れの論点にだけ ⏳ 待ち — 論点が長くても札の幅の中に見える・title に「⏳ 待ち: 先方」）',
+      dg6.length === 2 && ki.wait && ki.visible && ki.title.includes('⏳ 待ち: 先方') && !kou.wait && !kou.title.includes('⏳'), JSON.stringify(dg6));
 
     // 欄を開いたまま（フォーカスは外す）別の行に乗せて T。sendToTasks は呼ばれたかだけを記録する
     await openAdd('甲は A ではなく B ではないか');
@@ -125,6 +128,19 @@ module.exports = {
     const dg7 = await page.evaluate(() => { const c = window.__calls.slice(); window.sendToTasks = window.__orig;
       const no = Array.from(document.querySelectorAll('.ic-edit button')).find(b => b.textContent === 'やめる'); if (no) no.click(); return c; });
     r.check('IS-DG7（［＋ 分かったこと］の欄を開いている最中は、別の行で T が効かない）', eq(dg7, []), JSON.stringify(dg7));
+
+    /* ---------- IS-DG10: 欄の Cmd+Enter は1行足すだけ（貼り付けからの作成 IS-U6 を発火させない） ---------- */
+    const before10 = await page.evaluate(() => Object.keys(window.__fsa.files).sort());
+    await openAdd('乙は C ではなく D ではないか');
+    if (await page.$('.ic-edit .ic-kid-input')) {
+      await page.focus('.ic-edit .ic-kid-input');
+      await page.keyboard.type('Cmd で足す');
+      await page.keyboard.press('Meta+Enter');
+      await page.waitForTimeout(400);
+    }
+    const dg10 = await page.evaluate(() => ({ files: Object.keys(window.__fsa.files).sort(), one: window.__fsa.files['one.md'] }));
+    r.check('IS-DG10（欄で Cmd+Enter: その論点に1行足すだけ・新しいノートを作らない）',
+      eq(dg10.files, before10) && dg10.one.includes('\t- Cmd で足す'), JSON.stringify({ before10, files: dg10.files }));
 
     /* ---------- IS-DG8・DG9: 掘るを読む ---------- */
     const DIGNOTE = ['---', 'status: open', '---', '# 掘るのノート', '', '## 論点', '', '- [ ] 辛は O ではなく P ではないか', '', '## 掘る', '',
@@ -174,5 +190,26 @@ module.exports = {
     const dg9 = { kept: (await digOf('掘るのノート')).open, nodig: await digOf('掘るの無いノート') };
     r.check('IS-DG9（掘るを読むは描き直しても開いたまま・掘るの無いノートは details が無く .note-stats だけ）',
       dg9.kept === true && !dg9.nodig.missing && !dg9.nodig.has && dg9.nodig.plainStats, JSON.stringify(dg9));
+
+    /* ---------- IS-DG11: 字下げの深い行で固まらない（入れ子の量指定の総当たりを避ける） ---------- */
+    const dg11 = await safe(() => {
+      const sp = ' '.repeat(40), t = ['## 論点', '- [ ] 癸は S ではなく T ではないか', sp + '"key": 1,', '', '## 掘る', sp + '"key": 1,', ''].join('\n');
+      const ms = (f) => { const t0 = performance.now(); f(); return Math.round(performance.now() - t0); };
+      return { lines: ms(() => window.issue.issueLines(t)), add: ms(() => window.issue.addKidLine(t, 1, 'x')),
+        stats: ms(() => window.issue.noteStats(t)), dig: ms(() => renderDig(window.issue.digText(t))) };
+    });
+    r.check('IS-DG11（空白 40 個で始まる行: 読む・足す・数える・掘るを読む がそれぞれ 100ms 以内）',
+      typeof dg11 === 'object' && Object.values(dg11).every(v => v < 100), JSON.stringify(dg11));
+
+    /* ---------- IS-DG12: 全角空白は見出しにも字下げにもしない（Obsidian と同じ） ---------- */
+    const dg12 = await safe(() => {
+      const t = ['## 掘る', '- a', '#　メモ', '- b', '- c', '## 結論', '- z', ''].join('\n');
+      const md = renderDig(['　## x', '###　y', '### z'].join('\n'));
+      return { dig: window.issue.digText(t), n: window.issue.noteStats(t).dig,
+        h: Array.from(md.querySelectorAll('.md-h')).map(x => x.textContent), p: Array.from(md.querySelectorAll('p:not(.md-h)')).map(x => x.textContent) };
+    });
+    r.check('IS-DG12（# と全角空白で掘るが切れない・量にも数える／［掘るを読む］の見出しは ### z だけ・ほかは素の文字）',
+      typeof dg12 === 'object' && dg12.dig === ['- a', '#　メモ', '- b', '- c'].join('\n') && dg12.n === 4
+      && eq(dg12.h, ['z']) && eq(dg12.p, ['　## x', '###　y']), JSON.stringify(dg12));
   },
 };

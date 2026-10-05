@@ -403,7 +403,7 @@ function issueLines(text) {
     // 直後のインデントされた箇条書きは「分かったこと」（閉じるときに子行として置く）
     const notes = [];
     for (let j = k + 1; j < r[1]; j++) {
-      const c = lines[j].match(/^(?:\t| {2,})+[-*+]\s+(.*)$/);   // 子の子も読む（段3 — IS-DG1）
+      const c = lines[j].match(/^(?=\t| {2})[\t ]+[-*+]\s+(.*)$/);   // 子の子も読む（段3 — IS-DG1）。字下げは (?:\t| {2,})+ と書かない — 入れ子の繰り返しは空白の長い行で固まる（IS-DG11）
       if (!c) break;
       notes.push(c[1].trim());
     }
@@ -451,7 +451,7 @@ function addKidLine(text, lineNo, sub) {
   if (lineNo < 0 || lineNo >= lines.length) return lines.join('\n');
   let last = lineNo, indent = '\t';
   for (let j = lineNo + 1; j < lines.length; j++) {
-    const c = lines[j].match(/^((?:\t| {2,})+)[-*+]\s+/);
+    const c = lines[j].match(/^((?=\t| {2})[\t ]+)[-*+]\s+/);   // 字下げの照合は上の issueLines と同じ（IS-DG11）
     if (!c) break;
     if (last === lineNo) indent = c[1];
     last = j;
@@ -653,8 +653,8 @@ function digText(text) {
   const out = [];
   let level = 0, fence = false;   // level: 0 = 掘るの外、それ以外は掘るの見出しの # の数
   for (const l of nfc(text).replace(/\r\n?/g, '\n').split('\n')) {
-    if (/^\s*```/.test(l)) fence = !fence;
-    const h = fence ? null : l.match(/^(#{1,6})\s+(.*?)\s*$/);
+    if (/^[ \t]*```/.test(l)) fence = !fence;
+    const h = fence ? null : l.match(/^(#{1,6})[ \t]+(.*?)[ \t]*$/);   // 見出しは半角空白かタブだけ（全角空白は文字 — Obsidian と同じ・IS-DG12）
     if (level && h && h[1].length <= level) break;
     if (!level) { if (h && h[2].trim() === '掘る') level = h[1].length; continue; }
     out.push(l);

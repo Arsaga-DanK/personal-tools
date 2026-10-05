@@ -28,7 +28,8 @@ function renderIssueNow() {
   });
 }
 
-// 札: 「⚠ 」（遅れ・今日までの ⚠ の論点）＋「ノート名（12字）› 」＋論点＋「（N日遅れ）」。論点がまだ無いノートは「ノート名（掘る N行）」
+// 札: 「⚠ 」（遅れ・今日までの ⚠ の論点）＋「⏳ 待ち 」＋「ノート名（12字）› 」＋論点＋「（N日遅れ）」。論点がまだ無いノートは「ノート名（掘る N行）」
+// 札は幅で切れる（… で省く）ので、印は前に置く（待ちを最後に置くと長い論点で見えなかった — IS-DG6）
 function issueTick(x, kind) {
   const cs = Array.from(x.n.title);
   const short = cs.length > 12 ? cs.slice(0, 12).join('') + '…' : cs.join('');
@@ -36,13 +37,15 @@ function issueTick(x, kind) {
     return { parts: [{ text: x.n.title }, { text: '（掘る ' + noteStats(x.n.text).dig + '行）', cls: 'tick-par' }],
       title: x.n.title + ' — 論点を一行で書く', onClick: function () { jumpToIssue(x.n, null); } };
   }
+  const waits = (x.c.kids || []).filter(function (s) { return s.kind === 'wait'; }).map(function (s) { return s.text; });
   const parts = [];
   if (x.c.warn > 0 && kind !== 'rethink') parts.push({ text: '⚠ ', cls: 'tick-warn' });
+  if (waits.length) parts.push({ text: '⏳ 待ち ', cls: 'tick-wait' });   // 段3 — IS-DG6
   parts.push({ text: short + ' › ', cls: 'tick-par' });
   parts.push({ text: x.c.issue });
   if (kind === 'late') parts.push({ text: '（' + (-dayDiff(x.c.deadline)) + '日遅れ）', cls: 'tick-rel' });
-  if ((x.c.kids || []).some(function (s) { return s.kind === 'wait'; })) parts.push({ text: ' ⏳ 待ち', cls: 'tick-wait' });   // 段3 — IS-DG6
-  return { parts: parts, title: x.n.title + ' › ' + x.c.issue, onClick: function () { jumpToIssue(x.n, x.c); } };
+  return { parts: parts, title: x.n.title + ' › ' + x.c.issue + (waits.length ? '（⏳ 待ち: ' + waits.join('・') + '）' : ''),
+    onClick: function () { jumpToIssue(x.n, x.c); } };
 }
 
 // 札から一覧へ: 表示が「閉じた」なら「開いている」に、たたんだ案件を開いて描き直し、その行（論点なしはノート）へ飛んで光らせる

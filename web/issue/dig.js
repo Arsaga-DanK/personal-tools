@@ -21,22 +21,25 @@ function digInline(host, text) {
   if (at < text.length) host.appendChild(document.createTextNode(text.slice(at)));
 }
 
+// 前後の半角空白とタブだけを落とす（trim は全角空白も落とすので、全角空白で始まる行が見出しに化ける — IS-DG12）
+function digStrip(s) { return s.replace(/^[ \t]+/, '').replace(/[ \t]+$/, ''); }
+
 function renderDig(text) {
   const box = document.createElement('div');
   box.className = 'md';
   const lines = String(text).split('\n');
   for (let i = 0; i < lines.length; i++) {
-    const raw = lines[i], l = raw.trim();
-    if (!l || l.startsWith('>')) continue;                       // 空行・注記（止め時の案内）は出さない
+    const raw = lines[i], l = digStrip(raw);
+    if (!raw.trim() || l.startsWith('>')) continue;              // 空行・注記（止め時の案内）は出さない
     if (l.startsWith('```')) {                                   // ブロックは中身をそのまま（閉じていなければ最後まで）
       const body = [];
-      for (i++; i < lines.length && !lines[i].trim().startsWith('```'); i++) body.push(lines[i]);
+      for (i++; i < lines.length && !digStrip(lines[i]).startsWith('```'); i++) body.push(lines[i]);
       const pre = document.createElement('pre');
       pre.textContent = body.join('\n');
       box.appendChild(pre);
       continue;
     }
-    const h = l.match(/^#{1,6}\s+(.*)$/);
+    const h = l.match(/^#{1,6}[ \t]+(.*)$/);                    // 見出しは半角空白かタブだけ（Obsidian と同じ）
     if (h) {                                                     // 小見出し（掘るの中の ### …）
       const p = document.createElement('p');
       p.className = 'md-h';
@@ -46,7 +49,7 @@ function renderDig(text) {
     }
     if (l.startsWith('|')) {                                     // 表（続く | の行をまとめる。区切りの行は出さない）
       const rows = [];
-      while (i < lines.length && lines[i].trim().startsWith('|')) { rows.push(lines[i].trim()); i++; }
+      while (i < lines.length && digStrip(lines[i]).startsWith('|')) { rows.push(digStrip(lines[i])); i++; }
       i--;
       const wrap = document.createElement('div');
       wrap.className = 'md-tw';
@@ -73,7 +76,8 @@ function renderDig(text) {
       box.appendChild(d);
       continue;
     }
-    const li = raw.match(/^((?:\t| {2,})*)(?:([-*+])(?:\s+\[([ xX])\])?|(\d+)\.)\s+(.*)$/);
+    // 字下げを (?:\t| {2,})* と書かない — 入れ子の繰り返しは空白の長い行で固まる（IS-DG11）。深さは下で数える
+    const li = raw.match(/^([\t ]*)(?:([-*+])(?:[ \t]+\[([ xX])\])?|(\d+)\.)[ \t]+(.*)$/);
     if (li) {
       const depth = (li[1].match(/\t| {2,4}/g) || []).length;
       const row = document.createElement('div');
