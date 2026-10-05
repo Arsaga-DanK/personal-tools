@@ -27,7 +27,7 @@ web/         ブラウザツール。web/<alias>.html が入口（URL は変え�
              1,000 行を超えたツールは同名フォルダ web/<alias>/<節>.js に節ごとのスクリプトを持つ
              （現在 taskboard / issue。規約は coding-rules「ファイルの分割」）
 lib/         web ツールの共通コード。ui.css / ui.js / storage.js / fsa.js / config.js / sql.js / excel.js / mmd.js /
-             edit.js / handoff.js / tools.js（ツール登録簿の正本）/ launcher.js（引き出し式のツールメニュー）
+             edit.js / handoff.js / tasklinks.js（タスクとイシューのつながりの写し）/ tools.js（ツール登録簿の正本）/ launcher.js（引き出し式のツールメニュー）
              同梱ライブラリは lib/vendor/（現在 mermaid のみ。作法は coding-rules.md）
 docs/        coding-rules.md（実装規約の正本）/ verification-notes.md（検証の罠）/ todo.md（作業キュー）/
              ux-backlog.md（改善判断の記録）/ tool-backlog.md（ツール候補）
@@ -93,7 +93,7 @@ test/        検証ハーネス（`./test/run [ツール名] [節名]`。書き�
   不正入力でも落ちず警告表示して最善の出力を出す
 - 完成したら index.html の TOOLS 配列に登録する
 - 各ツールは `<main>` 直下に `.tool-header`（「← ツール一覧」リンク＋自動保存の注記）を置く
-- ブラウザツールの永続データの正本は Obsidian vault 側のファイルに置く（第一号: `tasks.md`）。localStorage は UI 状態（オプション・タブ等）と環境依存の設定（`lib/config.js`）のみ
+- ブラウザツールの永続データの正本は Obsidian vault 側のファイルに置く（第一号: `tasks.md`）。localStorage は UI 状態（オプション・タブ等）と環境依存の設定（`lib/config.js`）、それに数え直せる表示用の写し（`lib/tasklinks.js` — 時刻つき・古ければ使わない）のみ
 - **vault のフォルダ名・vault 名をコードに書かない**（利用者ごとに違う）。`lib/config.js` に置き、画面の設定欄で編集させる（作法は `docs/coding-rules.md`「vault 連携」）
 - **1ファイル 1,000 行を超えたら同名フォルダに分ける**（`test/run` が警告する。切り方は coding-rules「ファイルの分割」— URL・テスト ID・フックは変えない）
 
@@ -104,7 +104,7 @@ test/        検証ハーネス（`./test/run [ツール名] [節名]`。書き�
 
 - **ビルド前提（Vite/React 等）にしない**: 「使用時にビルド・インストール不要」の土台が消える。
   さらにこの環境は **asdf shim のため GUI 起動時に node が動かない**ことを実測済み（下の CLI の制約）で、
-  その不安定さを日々の開発に持ち込むことになる。**995チェックの検証機構が
+  その不安定さを日々の開発に持ち込むことになる。**1008チェックの検証機構が
   `file://` 実機＋`window.<英名>` フックの上に建っている**ことも重い
   （実機通しでしか出ない欠陥を実際に2件検出している）
 - **Electron / Tauri にしない**: 100〜200MB のバイナリ・macOS の署名・更新機構・

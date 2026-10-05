@@ -25,6 +25,7 @@ CLAUDE.md（作業原則）と `docs/specs/`（ツール別契約）の間を埋
 | tools.js | `ToolsList.TOOLS` / `CATEGORY_ORDER` / `filter(q)` / `recent()` / `recordUse(alias)` / `hrefFor(path)` / `hubHref()` / `currentAlias()` | **ツール登録簿の正本**（2026-09-24 に index.html から移設）。追加はここ1箇所。`path` は index.html 基準で書き、`web/` 配下からは `hrefFor` が剥がす。**絶対パスを書かない** |
 | launcher.js | `ToolLauncher.mount()` | `.tool-header` に［☰ ツール］を置く引き出し式メニュー（Cmd/Ctrl+K）。**ハブには載せない**。`lib/tools.js` の後に読む。契約は `docs/specs/launcher.md` |
 | handoff.js | `ToolHandoff.send(to, kind, text, path)` / `take(me)` / `peek(me)` | ツール間の受け渡し。**sessionStorage の一時バッファで正本ではない**。詳細は下の「ツール間の受け渡し」 |
+| tasklinks.js | `ToolTaskLinks.nameOf(link)` / `count(tasks)` / `write(tasks, file)` / `read(now)` | タスクとイシューノートのつながりの**表示用の写し**（localStorage `tools:tasklinks`）。書くのは Plan Tasks（読み込み・保存のとき）、読むのは Check Issue。**正本は tasks.md**。時刻を持ち、読む側は時刻を出して 24時間より古ければ使わない（2026-10-05・段4 — TB-Q72） |
 | edit.js | `ToolEdit.tabIndent(el, opts)` / `mountTodayShortcut()` / `today()` / `addDays(ymd, n)` / **`dateChips(input)`** / `noteFileName(title, ymd)`（vault のノート名規則。Check Issue と Plan Tasks で共有）/ `fillDate(host, ymd, today)`・`dueWords(due, today)`（日付の表記 — 年＋月/日＋曜日・今年の年は薄く・N日遅れ）/ `listItem` / `renumber` | 適用範囲の線引きは下の「UI の標準形」。**構造テキストの欄だけ**に入れる。`{mdList:true}` は**md を書く欄だけ**（下記） |
 | fsa.js | `ToolFsa.handles(dbName)` → `{get, set}` / `ensurePermission(handle, mode)` / `available('dir'|'file')` | FSA ハンドルの IndexedDB 保存と権限確認（issue / taskboard）。**db 名はツールごと・変えない**（file:// は全ページ同一オリジン。TB-FS1 がピン）。vaultlint は二段階権限（read → 修復時 readwrite）なので使わない |
 
@@ -220,7 +221,7 @@ CLAUDE.md（作業原則）と `docs/specs/`（ツール別契約）の間を埋
 ## 保存（localStorage）
 
 - **正本は vault 側**（永続データ）。localStorage は UI 状態・「その場の入力」・
-  **環境依存の設定**（lib/config.js）の3種だけ
+  **環境依存の設定**（lib/config.js）の3種と、**数え直せる表示用の写し**（lib/tasklinks.js — 正本から数え直せて、時刻を持ち、古ければ使わないものだけ。2026-10-05）
 - payload の復元は**キーごとに型・値域ガード**（boolean 判定・列挙 includes）。未知値は既定へ
 - 1フィールド 100KB 超は保存せず `{omitted: true}` を入れて**次回起動時に通知**（黙って捨てない）
 - 入力を保存するツールはデバウンス保存＋ **pagehide / visibilitychange(hidden) でフラッシュ**
