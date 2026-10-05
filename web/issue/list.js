@@ -451,6 +451,8 @@ function noteHeader(n) {
   t.className = 'note-name';
   t.textContent = n.title;
   row.appendChild(t);
+  const tk = noteTasksChip(n);   // タスク N・済み M（段4 — IS-TK2）
+  if (tk) row.appendChild(tk);
   const add = document.createElement('button');
   add.type = 'button';
   add.className = 'note-add';
@@ -570,6 +572,7 @@ async function saveAddIssue(n, line, due) {
 function renderCards() {
   const host = $id('cards');
   host.textContent = '';
+  refreshTaskLinks();   // 写しは描くたびに読み直す（段4 — web/issue/tasks.js）
   const label = { open: '開いているもの', all: 'すべて', closed: '閉じたもの' }[statusFilter()];
   const groups = notes.filter(matchesSearch).map(function (n) { return { n: n, cards: visibleCards(n) }; })
     .filter(function (g) { return g.cards.length > 0; });
@@ -584,6 +587,7 @@ function renderCards() {
     if (closed.length) tally = '　閉じた ' + closed.length + '：当たり ' + cnt('当たり') + '・外れ ' + cnt('外れ') + '・未決 ' + cnt('未決');
   }
   $id('summary').textContent = notes.length === 0 ? '' : total + '件（' + label + '）';
+  renderLinksAt();
   // 成績表は見出しの1行目に入れると長くなって ⋯ が次の行へ落ちる（2026-10-02 の点検）。一覧の上に1行で出す
   $id('tally').textContent = tally.trim();
   $id('tally').hidden = !tally;

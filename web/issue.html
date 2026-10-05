@@ -193,6 +193,11 @@
   .md code { font: 12px ui-monospace, Menlo, monospace; background: var(--bg); padding: 0 3px; border-radius: 3px; }
   .md pre { font: 12px ui-monospace, Menlo, monospace; background: var(--bg); padding: 6px 8px; border-radius: 6px; margin: 4px 0; overflow-x: auto; white-space: pre; }
   .md .md-h { font-weight: 700; margin: 8px 0 2px; }
+  /* タスクとのつながり（段4 — IS-TK2）。数はノート名の右・＋論点の左 */
+  .app-head .links-at { font-size: 12px; color: var(--muted); }
+  .note-card .note-tasks { margin-left: auto; font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .note-card .note-tasks.all-done { color: var(--success); font-weight: 600; }
+  .note-card .note-tasks + .note-add { margin-left: 0; }
 </style>
 </head>
 <body>
@@ -208,6 +213,7 @@
     <span class="spacer"></span>
     <button id="pick-btn">📂 04_Issues を開く</button>
     <span class="summary" id="summary"></span>
+    <span class="links-at" id="links-at" hidden></span>
     <details class="more-menu" id="issue-more">
       <summary title="vault 名・再読込・使い方">⋯</summary>
       <div class="more-panel">
@@ -316,11 +322,13 @@
 <script src="../lib/launcher.js"></script>
 <script src="../lib/edit.js"></script>
 <script src="../lib/handoff.js"></script>
+<script src="../lib/tasklinks.js"></script>
 <script src="issue/engine.js"></script>
 <script src="issue/ui.js"></script>
 <script src="issue/list.js"></script>
 <script src="issue/now.js"></script>
 <script src="issue/dig.js"></script>
+<script src="issue/tasks.js"></script>
 <script src="issue/wizard.js"></script>
 <script>
 'use strict';
