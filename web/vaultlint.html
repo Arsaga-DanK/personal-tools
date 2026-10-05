@@ -18,6 +18,14 @@
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
   .issue-block th { background: var(--panel); font-family: inherit; }
+  /* 表を読みやすく（段6 — coding-rules「見た目と操作の決まり」1〜5）。名前が主・フォルダは薄く・ファイル名の罠だけ等幅 */
+  .issue-block td.vl-file, .issue-block td.vl-date { font-family: inherit; }
+  .issue-block td.vl-file.raw { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .vl-name { font-weight: 600; white-space: pre; }
+  .vl-dir { color: var(--muted); font-size: 11.5px; margin-left: 8px; }
+  .issue-block h2 { display: flex; align-items: baseline; gap: 6px; }
+  .vl-fold { border: 0; background: none; padding: 0 2px; color: var(--muted); cursor: pointer; font-size: 12px; box-shadow: none; }
+  .vl-fold:hover { transform: none; box-shadow: none; }
   /* vault のフォルダ構成の設定（利用者ごとに違うためコードに持たない） */
   #settings { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: flex-end; margin: 10px 0; }
   #settings label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
@@ -83,6 +91,7 @@
 <script src="../lib/tools.js"></script>
 <script src="../lib/launcher.js"></script>
 <script src="../lib/config.js"></script>
+<script src="../lib/edit.js"></script>
 <script src="vaultlint/engine.js"></script>
 <script src="vaultlint/fix.js"></script>
 <script src="vaultlint/ui.js"></script>

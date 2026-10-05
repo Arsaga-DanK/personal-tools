@@ -347,10 +347,11 @@ const IDEO_SPACE = '\u3000';
     const cells = Array.from(document.querySelectorAll('.issue-block td')).map(e => e.textContent);
     document.getElementById('copy-btn').click();
     await new Promise(d => setTimeout(d, 60));
-    return { summary, cells, copied: window.__copied, copyHidden: document.getElementById('copy-btn').hidden };
+    return { summary, cells, copied: window.__copied, copyHidden: document.getElementById('copy-btn').hidden,
+      fileTitle: (document.querySelector('.issue-block td.vl-file') || {}).title };
   });
   r.check('VL-U1（サマリ・表・報告コピー）',
-    u1.summary.includes('問題 1 件') && u1.cells.includes('a.md') && u1.cells.includes('c')
+    u1.summary.includes('問題 1 件') && u1.cells.includes('a') && u1.fileTitle === 'a.md' && u1.cells.includes('c')
     && u1.copyHidden === false
     && u1.copied.includes('## リンク切れ（1件）') && u1.copied.includes('a.md:1 → c'),
     JSON.stringify(u1));
@@ -378,10 +379,11 @@ const IDEO_SPACE = '\u3000';
     return {
       summary: document.getElementById('summary').textContent,
       okCount: document.querySelectorAll('.issue-ok').length,
+      okKinds: (document.querySelector('.issue-ok') || { dataset: {} }).dataset.kinds,
     };
   });
   r.check('VL-U3（健全な vault は全クラス「問題なし」）',
-    u3.summary.includes('問題 0 件') && u3.okCount === 5, JSON.stringify(u3));   // Inbox 棚卸しで5クラス
+    u3.summary.includes('問題 0 件') && u3.okCount === 1 && u3.okKinds === '5', JSON.stringify(u3));   // Inbox 棚卸しで5種類を1行に（段6）
 
   /* ========== VL-U6: Inbox 未設定なら「問題なし」ではなくクラス自体を出さない ========== */
   const u6 = await page.evaluate(() => {
@@ -389,11 +391,12 @@ const IDEO_SPACE = '\u3000';
       null, { privateDirs: [] });   // inboxDir 未設定
     return {
       okCount: document.querySelectorAll('.issue-ok').length,
+      okKinds: (document.querySelector('.issue-ok') || { dataset: {} }).dataset.kinds,
       hasInboxHeading: document.getElementById('results').textContent.includes('Inbox 棚卸し'),
     };
   });
   r.check('VL-U6（Inbox 未設定時は棚卸しクラスを表示しない — 未検査を「問題なし」と偽らない）',
-    u6.okCount === 4 && u6.hasInboxHeading === false, JSON.stringify(u6));
+    u6.okCount === 1 && u6.okKinds === '4' && u6.hasInboxHeading === false, JSON.stringify(u6));
 
   /* ========== VL-U5: 修復の UI フロー（選択 → コミット確認 → 実行 → ログ → 再スキャン） ========== */
   const u5 = await page.evaluate(async () => {
@@ -493,6 +496,54 @@ const IDEO_SPACE = '\u3000';
   r.check('VL-L1（設定欄は ⋯ の中: 初回は開いて出し理由は ⋯ を指す・保存で閉じて選択が有効・設定済みで開くと閉じている）',
     l1a.open && l1a.inside && l1a.note.includes('⋯') && !l1b.open && l1b.disabled === false && !l1c.open,
     JSON.stringify({ l1a, l1b, l1c }));
+
+  /* ========== VL-T1〜T4: 表を読みやすく（段6） ========== */
+  const SP2 = String.fromCharCode(0x20, 0x20);   // 連続半角スペース（ファイル名の罠）
+  const T_FILES = [
+    { path: '10_Projects/ITK/計画.md', text: '[[ネットワーク構成]]' },
+    { path: '00_Inbox/2026-09-20.md', text: '- メモ' },
+    { path: '04_Issues/2026-09-20_ゴールの仮決め.md', text: '---\nstatus: closed\nclosed: 2026-10-01\n---\n# ゴールの仮決め' },
+    { path: '30_Resources/用語' + SP2 + '集.md', text: '' },
+  ];
+  const T_CFG = { privateDirs: [], inboxDir: '00_Inbox', archiveDir: '90_Archive/daily', issueDir: '04_Issues', closedDir: '90_Archive/{YYYY}' };
+  const t1 = await page.evaluate(([files, cfg]) => {
+    window.vaultlint.test.run(files, '2026-10-05', cfg);
+    const cell = (key) => { const td = document.querySelector('#results section[data-key="' + key + '"] td.vl-file'); if (!td) return null;
+      return { name: (td.querySelector('.vl-name') || {}).textContent, dir: (td.querySelector('.vl-dir') || {}).textContent || '', title: td.title, raw: td.classList.contains('raw') }; };
+    return { broken: cell('brokenLinks'), inbox: cell('inbox'), closed: cell('closedIssues'), bad: cell('badNames'),
+      date: (document.querySelector('#results section[data-key="closedIssues"] td.vl-date') || {}).textContent || '',
+      dash: document.getElementById('results').textContent.includes('—') };
+  }, [T_FILES, T_CFG]);
+  r.check('VL-T1（ファイルの欄: 名前が主でフォルダは薄く・.md と先頭の日付を落とす・デイリーは日付の表記・title は全パス・ファイル名の罠はそのまま）',
+    eq(t1.broken, { name: '計画', dir: '10_Projects/ITK', title: '10_Projects/ITK/計画.md', raw: false })
+    && eq(t1.inbox, { name: '2026/9/20(日)', dir: '00_Inbox', title: '00_Inbox/2026-09-20.md', raw: false })
+    && eq(t1.closed, { name: 'ゴールの仮決め', dir: '04_Issues', title: '04_Issues/2026-09-20_ゴールの仮決め.md', raw: false })
+    && eq(t1.bad, { name: '用語' + SP2 + '集.md', dir: '30_Resources', title: '30_Resources/用語' + SP2 + '集.md', raw: true }), JSON.stringify(t1));
+  r.check('VL-T2（閉じた日は 2026/10/1(木)・「—」がどこにも無い）', t1.date === '2026/10/1(木)' && t1.dash === false, JSON.stringify({ date: t1.date, dash: t1.dash }));
+  const t3 = await page.evaluate(() => {
+    window.vaultlint.test.run([{ path: 'a.md', text: '[[c]]' }], '2026-10-05', { privateDirs: [], inboxDir: '00_Inbox' });
+    return { keys: Array.from(document.querySelectorAll('#results section[data-key]')).map(s => s.dataset.key),
+      ok: Array.from(document.querySelectorAll('.issue-ok')).map(p => p.textContent) };
+  });
+  r.check('VL-T3（0件の種類は表を作らず最後に1行 — 検査した種類だけ）',
+    eq(t3.keys, ['brokenLinks']) && eq(t3.ok, ['問題なし ✅ 添付消失・ファイル名の罠・重複ベース名・Inbox 棚卸し']), JSON.stringify(t3));
+  const t4 = await page.evaluate(() => {
+    const run = () => window.vaultlint.test.run([{ path: 'a.md', text: '[[c]]' }], '2026-10-05', { privateDirs: [] });
+    // 未実装でも落ちずに fail として数える（ボタンや節が無ければ null）
+    const sec = () => document.querySelector('#results section[data-key="brokenLinks"]');
+    const fold = () => { const b = sec() && sec().querySelector('.vl-fold'); if (b) b.click(); };
+    const state = () => { const s = sec(); const w = s && s.querySelector('.table-wrap'), b = s && s.querySelector('.vl-fold');
+      return w && b ? { hidden: w.hidden, btn: b.textContent } : null; };
+    run();
+    fold();
+    const a = state();
+    run();
+    const b = state();
+    fold();
+    return { a, b, c: state() };
+  });
+  r.check('VL-T4（種類の ▾ で表をたたむ・描き直しても残る・もう一度で戻る）',
+    eq(t4, { a: { hidden: true, btn: '▸' }, b: { hidden: true, btn: '▸' }, c: { hidden: false, btn: '▾' } }), JSON.stringify(t4));
 
   /* ========== VL-U4: 幅390px ========== */
   await page.setViewportSize({ width: 390, height: 800 });
