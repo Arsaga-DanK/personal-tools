@@ -25,7 +25,7 @@ LICENSE      MIT
 index.html   ハブ。ツール一覧の正本は lib/tools.js の TOOLS（1行足すとハブにも引き出しメニューにも載る）
 web/         ブラウザツール。web/<alias>.html が入口（URL は変えない）。
              1,000 行を超えたツールは同名フォルダ web/<alias>/<節>.js に節ごとのスクリプトを持つ
-             （現在 taskboard / issue。規約は coding-rules「ファイルの分割」）
+             （現在 taskboard / issue / vaultlint。規約は coding-rules「ファイルの分割」）
 lib/         web ツールの共通コード。ui.css / ui.js / storage.js / fsa.js / config.js / sql.js / excel.js / mmd.js /
              edit.js / handoff.js / tasklinks.js（タスクとイシューのつながりの写し）/ tools.js（ツール登録簿の正本）/ launcher.js（引き出し式のツールメニュー）
              同梱ライブラリは lib/vendor/（現在 mermaid のみ。作法は coding-rules.md）
@@ -104,7 +104,7 @@ test/        検証ハーネス（`./test/run [ツール名] [節名]`。書き�
 
 - **ビルド前提（Vite/React 等）にしない**: 「使用時にビルド・インストール不要」の土台が消える。
   さらにこの環境は **asdf shim のため GUI 起動時に node が動かない**ことを実測済み（下の CLI の制約）で、
-  その不安定さを日々の開発に持ち込むことになる。**1034チェックの検証機構が
+  その不安定さを日々の開発に持ち込むことになる。**1042チェックの検証機構が
   `file://` 実機＋`window.<英名>` フックの上に建っている**ことも重い
   （実機通しでしか出ない欠陥を実際に2件検出している）
 - **Electron / Tauri にしない**: 100〜200MB のバイナリ・macOS の署名・更新機構・

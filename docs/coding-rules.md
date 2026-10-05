@@ -16,7 +16,7 @@ CLAUDE.md（作業原則）と `docs/specs/`（ツール別契約）の間を埋
 
 | ファイル | 使うもの | 規約 |
 |---|---|---|
-| ui.js | `banner(el, kind, text)` / `copy(text, {selectEl})` / `feedback(btn, label)` / `nowStrip(box, spec)`・`flash(el)`（「いま」の欄と、飛んだ先を光らせる）/ `menu(actions, onPick)`・`menuKey(e, actions)`・`isTyping(el)`・`keyHint(a)`・`pointRect(x, y)`・`placeAt(pop, rect)`（行の操作のメニューとキー） | 引数順は **(要素, 種別, 文字列)**。ツール固有の引数差はラッパ（各ツールの `showBanner`）で吸収し、共通核は class+role+textContent+hidden だけ。**「いま」に何を入れるか・メニューにどの操作を並べるかは各ツール**。部品は見た目と操作だけ（2026-10-02・段1 — 下の「見た目と操作の決まり」） |
+| ui.js | `banner(el, kind, text)` / `copy(text, {selectEl})` / `feedback(btn, label)` / `nowStrip(box, spec)`（`kinds[].total` で数を件数にできる — Check Vault）・`flash(el)`（「いま」の欄と、飛んだ先を光らせる）/ `menu(actions, onPick)`・`menuKey(e, actions)`・`isTyping(el)`・`keyHint(a)`・`pointRect(x, y)`・`placeAt(pop, rect)`（行の操作のメニューとキー） | 引数順は **(要素, 種別, 文字列)**。ツール固有の引数差はラッパ（各ツールの `showBanner`）で吸収し、共通核は class+role+textContent+hidden だけ。**「いま」に何を入れるか・メニューにどの操作を並べるかは各ツール**。部品は見た目と操作だけ（2026-10-02・段1 — 下の「見た目と操作の決まり」） |
 | storage.js | `save/load/mountWarning`（export/import は必要なら） | キー `tools:<英名>`。**save 失敗の可視化は共通核がやる**（呼び出し側で戻り値チェック不要） |
 | config.js | `ToolConfig.get/set/all` ＋ `normDir/normDirList` | **環境依存の設定**（vault 名・フォルダ構成）だけを置く。キーは `tools:config` 固定で全ツール共有。**ui.js → storage.js の後に読む**。追加した設定キーは既定を「無効」側に倒す（下記） |
 | excel.js | `copy(html, text)` / `cellStyle(value, {header, align})` / `MANGLE_RES` | Excel 向けコピーは**必ず二重フレーバー**（execCommand 先行 — async clipboard は mso- 系をサニタイズする）。文字列化ガードの正本はここ。**表の組み立て（th/td・rowspan）は各ツールに書く** |
