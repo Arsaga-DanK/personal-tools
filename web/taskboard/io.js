@@ -133,7 +133,7 @@ function hideBanner() { el('banner').hidden = true; }
 
 /* ---------- 読込・保存 ---------- */
 
-function loadText(text, adapter) {
+function loadText(text, adapter, opts) {
   if (text.length > MAX_CHARS) {
     showBanner('error', '入力が上限（200万文字）を超えたため読み込みを中止しました');
     return false;
@@ -143,7 +143,7 @@ function loadText(text, adapter) {
   state.lines = toLines(text);
   state.lastUndo = null;   // 読み込んだら戻す記録は捨てる（別のファイルの行は戻せない — TB-UZ6）
   state.loaded = true;
-  state.demo = false;
+  state.demo = !!(opts && opts.demo);   // デモは写しを書かない（TB-LN5）
   state.hasCRFile = text.includes('\r');
   // 展開・折り畳みは読み込んだファイルに紐づくので捨てる
   // （行番号もセクション名も別のファイルでは通じない。ボードの子で踏んだのと同じ型）
@@ -158,6 +158,7 @@ function loadText(text, adapter) {
   }
   render();
   updateFileBar();
+  publishTaskLinks();   // 読み込んだら数え直す（TB-LN3）
   applyPendingTask();       // Check Issue から来ていれば、読み込めた今この場で追加画面を開く
   return true;
 }
@@ -256,6 +257,7 @@ async function doSave(opts) {
   state.snapshot = text;
   for (const l of state.lines) l.orig = l.raw;
   render();
+  publishTaskLinks();   // 保存したら数え直す（TB-LN4）
   const msg = (counts.changed + counts.added > 0)
     ? '（変更' + counts.changed + '行・追加' + counts.added + '行）'
     : (removed > 0 ? '（' + removed + '行を削除）' : '（行の移動）');
@@ -391,6 +393,12 @@ function issueNoteMd(title, tasksName, today, project) {
 function tasksBaseName() {
   const n = state.adapter && state.adapter.name;
   return (n && /\.md$/i.test(n)) ? n.replace(/\.md$/i, '') : 'tasks';
+}
+/* タスクとイシューノートのつながりの写し（lib/tasklinks.js・段4 — TB-LN3〜LN5）。正本は tasks.md のまま。
+   読み込んだとき・保存したときに数え直す。デモは書かない（実データの写しを上書きしない） */
+function publishTaskLinks() {
+  if (!state.loaded || state.demo || !window.ToolTaskLinks) return;
+  ToolTaskLinks.write(parseDoc(state.lines).tasks, state.adapter && state.adapter.name);
 }
 // 自動保存を待たずに今保存する。外部スキームへ遷移する前に使う —
 // 未保存のままだと beforeunload が離脱確認を出す（obsidian:// でも発火する。実測・verification-notes §11）
@@ -538,7 +546,7 @@ function demoText() {
 }
 function loadDemo() {
   const text = demoText();
-  loadText(text, makeMemoryAdapter(text));
+  loadText(text, makeMemoryAdapter(text), { demo: true });
   state.demo = true;
   render();
   updateFileBar();

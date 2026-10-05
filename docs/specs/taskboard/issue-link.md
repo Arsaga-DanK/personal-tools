@@ -1,6 +1,6 @@
 # taskboard — Check Issue との往復
 
-> **何を決めているか**: 論点からのタスク受け取りと、タスクから考える場所（イシューノート）へ。  **テスト ID**: TB-H2〜H4・N1〜N6  **決定の記録**: decisions.md
+> **何を決めているか**: 論点からのタスク受け取りと、タスクから考える場所（イシューノート）へ。  **テスト ID**: TB-H2〜H4・N1〜N8・LN1〜LN5  **決定の記録**: decisions.md
 > 2026-09-25 に docs/specs/taskboard.md（目次）から移動。内容は書き換えていない（docs/audits/2026-09-25-structure.md §6）。
 
 ## Check Issue からの受け取り（TB-H2/H3 — 2026-09-24。R8「タスクは論点の下に生まれる」）
@@ -58,3 +58,21 @@
 | TB-N7 | 関連ノート（frontmatter なし）が実在する行の［🎯］ | 開くだけだが、ノートに `project: <セクション>` の frontmatter が足される（tasks は不変） |
 | TB-N8 | `fillProject(text, 'PEW')`: frontmatter なし／`status:` と複数行 tags あり／`project: ITK` あり／`project:` 空／`a: b` を含む値 | 作る／`status:` の直後に挿入／**不変**／埋める／`project: "a: b"` |
 
+## タスクとのつながりの写し（TB-LN1〜LN5 — 2026-10-05・段4・TB-Q72）
+
+設計: `docs/audits/2026-10-02-issue-redesign.md`（4 データ「タスクとのつながり」）。計画: `docs/audits/2026-10-05-issue-redesign-plan-4.md`。
+Check Issue だけでは閉じどきが分からなかった（先方に確認のタスクは 9/29 に済んでいるのに、論点は開いたまま「6日遅れ」）。
+
+- tasks.md を**読み込んだとき**（開く・外の変更の読み直し）と**保存したとき**に、関連ノート `[[…]]` ごとに **タスクの数・済みの数・最後に済んだ日**を数え、
+  `lib/tasklinks.js` の `ToolTaskLinks.write` で localStorage `tools:tasklinks`（lib/storage.js の封筒）に `{ at, file, notes }` を書く
+- **正本は tasks.md のまま**。これは数え直せる表示用の写し。読む側（Check Issue）は時刻を出し、24時間より古ければ使わない
+- 名前は `[[名前|別名]]`・`[[フォルダ/名前.md#見出し]]` → `名前`（NFC）。1つのタスクに同じ名前が2つあっても1つ。済み = 完了と中止。最後に済んだ日 = ✅ の日付の最大
+- **デモは書かない**（実データの写しを上書きしない）
+
+| ID | 操作 | 期待 |
+|---|---|---|
+| TB-LN1 | `nameOf` に `名前\|別名`・`04_Issues/名前.md#見出し`・濁点が分かれた「か＋U+3099」・空 | `名前`・`名前`・「が」・'' |
+| TB-LN2 | `count` に 同じ名前が2つのタスク・未完・日付の無い中止・リンクの無いタスク・別の日の完了・`__proto__` | `{"a":{"total":3,"done":2,"last":"2026-09-29"},"b":{"total":1,"done":1,"last":""},"__proto__":{"total":1,"done":0,"last":""}}`。`({}).total` は undefined のまま |
+| TB-LN3 | `[[2026-09-25_先方に確認]]` のタスク3つ（未完・完了 ✅ 2026-08-01・中止）を読み込む | 写しの `notes` が `{ total: 3, done: 2, last: '2026-08-01' }`・`file` は読み込んだファイルの名前・`at` は5秒以内 |
+| TB-LN4 | 未完の1つを完了にして保存 | 写しが `{ total: 3, done: 3, last: <今日> }` に変わる |
+| TB-LN5 | 写しを置いてから［デモデータを表示］ | 写しは前のまま |
