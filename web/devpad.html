@@ -36,9 +36,11 @@
 </head>
 <body>
 <main class="app-wide">
-  <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">入力と設定は自動保存されます</span></p>
-  <h1>Convert Data</h1>
-  <p class="subtitle">開発ユーティリティ集 — 各タブは独立動作（1機能のエラーは他に波及しません）</p>
+  <!-- 見出し2行（段5 — lib/ui.css の .app-head・.app-controls。coding-rules「見た目と操作の決まり」2）。説明は h1 の title -->
+  <header class="app-head">
+    <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">入力と設定は自動保存されます</span></p>
+    <h1 title="開発ユーティリティ集 — 各タブは独立動作（1機能のエラーは他に波及しません）">Convert Data</h1>
+  </header>
 
   <div class="tabs" id="tabbar"></div>
 

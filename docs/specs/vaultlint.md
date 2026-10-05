@@ -137,8 +137,8 @@ before/after・スキップと理由）を表示＋コピー可 → 自動で再
 
 ## 画面構成
 
-- `<main class="app">` 直下: `.tool-header`（「← ツール一覧」＋「このツールは何も保存・変更しません」）
-- `<h1>Check Vault</h1>`・subtitle
+- `<main class="app">` 直下: `.tool-header`（「← ツール一覧」＋「このツールは何も保存・変更しません」） — 見出し2行（`header.app-head` の中。説明は h1 の title — 2026-10-05 段5・HUB-28。設定 `#settings` は段6で決めるので今の場所のまま）
+- `<h1>Check Vault</h1>`（説明は title）
 - ［vault フォルダを選択］ボタン（`showDirectoryPicker`。**Chrome 系限定** —
   API が無いブラウザではボタンを無効化して理由を表示）／［再スキャン］（選択済みのとき）
 - 結果: サマリ行（`ファイル N・ノート M・リンク L ／ 問題 K 件`）＋クラス別の表

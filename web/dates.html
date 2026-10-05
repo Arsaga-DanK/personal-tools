@@ -19,9 +19,11 @@
 </head>
 <body>
 <main class="app">
-  <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">係数などの設定のみ自動保存（日付は保存しません）</span></p>
-  <h1>Calc Dates</h1>
-  <p class="subtitle">日付・営業日・工数の計算 — 祝日は内閣府CSV由来の 2020〜2027年 を同梱（オフライン完結）</p>
+  <!-- 見出し2行（段5 — lib/ui.css の .app-head・.app-controls。coding-rules「見た目と操作の決まり」2）。説明は h1 の title -->
+  <header class="app-head">
+    <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">係数などの設定のみ自動保存（日付は保存しません）</span></p>
+    <h1 title="日付・営業日・工数の計算 — 祝日は内閣府CSV由来の 2020〜2027年 を同梱（オフライン完結）">Calc Dates</h1>
+  </header>
 
   <div class="banner" id="banner" hidden></div>
 

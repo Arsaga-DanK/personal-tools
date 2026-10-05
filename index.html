@@ -165,10 +165,13 @@
 </head>
 <body>
 <main class="app-wide">
-  <h1>Personal Tools</h1>
-  <p class="subtitle">打ち始めると絞り込み・Enter で先頭を開く（詳しい説明はマウスを乗せると出ます）</p>
+  <!-- 見出し（段5 — lib/ui.css の .app-head）。ハブは ☰ ツールを持たない（LA-01）ので1行目は題名だけ。説明は h1 の title と検索欄の title -->
+  <header class="app-head">
+    <h1 title="打ち始めると絞り込み・Enter で先頭を開く（詳しい説明はマウスを乗せると出ます）">Personal Tools</h1>
+  </header>
   <div class="search-row">
-    <input type="text" id="search" placeholder="検索（名前・説明・用途・カテゴリ。/ でフォーカス）" autocomplete="off">
+    <input type="text" id="search" placeholder="検索（名前・説明・用途・カテゴリ。/ でフォーカス）" autocomplete="off"
+      title="打ち始めると絞り込み・Enter で先頭を開く（詳しい説明はマウスを乗せると出ます）">
     <button type="button" id="router-toggle" aria-expanded="false" aria-controls="router"
       title="Excelの表・JSON・DDL・tasks.md などを貼ると、行ける道具が出ます">データから探す</button>
     <button type="button" id="copy-notes" title="Obsidian のノートに貼る用のリンク集をコピー（このハブと全ツールへの直リンク。パスはいま開いている場所から作ります）">Obsidian 用のリンク集</button>

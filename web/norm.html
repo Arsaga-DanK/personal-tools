@@ -38,11 +38,24 @@
 </head>
 <body>
 <main class="app-wide">
-  <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">設定は自動保存されます</span></p>
-  <h1>Normalize Text</h1>
-  <p class="subtitle">日本語テキストの表記ゆれを正規化 — 変更文字はハイライト（hoverで変更前を表示）</p>
+  <!-- 見出し2行（段5 — lib/ui.css の .app-head・.app-controls。coding-rules「見た目と操作の決まり」2）。説明は h1 の title。
+       設定の書き出し・読み込みは ⋯ の中（#opts の外 — 読み込みの file input の change が #opts の「保存して変換し直す」に届かないように） -->
+  <header class="app-head">
+    <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">設定は自動保存されます</span></p>
+    <h1 title="日本語テキストの表記ゆれを正規化 — 変更文字はハイライト（hoverで変更前を表示）">Normalize Text</h1>
+    <span class="spacer"></span>
+    <details class="more-menu" id="norm-more">
+      <summary title="設定の書き出し・読み込み">⋯</summary>
+      <div class="more-panel">
+        <button id="export-btn">設定をエクスポート</button>
+        <button id="import-btn">設定をインポート</button>
+        <input type="file" id="import-file" accept="application/json" hidden>
+      </div>
+    </details>
+  </header>
 
-  <div class="toolbar opts" id="opts">
+  <!-- 2行目: 変換のオプション（id="opts" — change で保存して変換し直す）と、最後に［結果をコピー］。オプションが多いので2段に折り返す -->
+  <div class="app-controls opts" id="opts">
     <label class="toggle" title="互換文字を一括変換（①→1、㈱→(株)、：→:、！→! など）。破壊的なので既定OFF。ONにしても有効な他の変換が優先されます"><input type="checkbox" id="opt-nfkc"> NFKC一括</label>
     <label class="toggle" title="Ａ⇄A、１⇄1（英数字のみ。：や（）等の全角記号は対象外 — 記号も変換するには「NFKC一括」をON）"><input type="checkbox" id="opt-alnum" checked> 英数字統一</label>
     <label title="英数字の統一先">統一先: <select id="opt-alnum-target">
@@ -71,14 +84,7 @@
     <label class="toggle" title="環境で化けやすい文字（丸数字・㈱等の組文字・﨑髙等の異体字・絵文字・NBSP等の不可視文字）を検出して赤でハイライト。変換はしません"><input type="checkbox" id="opt-attention" checked> 要注意文字を検出</label>
     <span class="spacer"></span>
     <label class="toggle" title="変更文字の上に変更前をルビ表示（タッチ環境向け。コピーには混入しません）"><input type="checkbox" id="opt-ruby"> 変更前を注記表示</label>
-  </div>
-
-  <div class="toolbar">
     <button class="primary" id="copy-btn" title="Cmd/Ctrl+Enter">結果をコピー</button>
-    <span class="spacer"></span>
-    <button id="export-btn">設定をエクスポート</button>
-    <button id="import-btn">設定をインポート</button>
-    <input type="file" id="import-file" accept="application/json" hidden>
   </div>
 
   <div class="banner" id="banner" hidden></div>

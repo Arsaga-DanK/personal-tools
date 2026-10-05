@@ -82,11 +82,13 @@
 </head>
 <body>
 <main class="app-wide">
-  <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">画像は保存されません（この画面の中だけ・機密画像を残さない）</span></p>
-  <h1>Mask Image</h1>
-  <p class="subtitle">スクショのマスキングと注釈 — モザイク/黒塗り/白塗りで隠す・枠/矢印/テキスト/番号で説明・切り抜き → 図形は選択で移動・サイズ変更・色変え → PNG コピー。ぼかしは復元リスクがあるため非搭載</p>
+  <!-- 見出し2行（段5 — lib/ui.css の .app-head・.app-controls。coding-rules「見た目と操作の決まり」2）。説明は h1 の title -->
+  <header class="app-head">
+    <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">画像は保存されません（この画面の中だけ・機密画像を残さない）</span></p>
+    <h1 title="スクショのマスキングと注釈 — モザイク/黒塗り/白塗りで隠す・枠/矢印/テキスト/番号で説明・切り抜き → 図形は選択で移動・サイズ変更・色変え → PNG コピー。ぼかしは復元リスクがあるため非搭載">Mask Image</h1>
+  </header>
 
-  <div class="toolbar" id="tools">
+  <div class="app-controls" id="tools">
     <span class="tool-group" role="group" aria-label="ツール">
       <label class="tool-btn" title="図形をクリックで選択。ドラッグで移動・ハンドルでサイズ変更・Delete で削除"><input type="radio" name="tool" value="select"><span class="tb-face"><span class="tb-icon">⌖</span>選択</span></label>
       <label class="tool-btn" title="ドラッグした範囲をピクセル化して隠す"><input type="radio" name="tool" value="mosaic" checked><span class="tb-face"><span class="tb-icon">▦</span>モザイク</span></label>

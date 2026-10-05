@@ -27,11 +27,13 @@
 </head>
 <body>
 <main class="app">
-  <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">検査は読み取りのみ。修復は選択して承認したときだけ書き込みます</span></p>
-  <h1>Check Vault</h1>
-  <p class="subtitle">vault の健全性チェック — リンク切れ・添付消失・ファイル名の罠・Inbox のデイリーを検出し、承認した修復を実行</p>
+  <!-- 見出し2行（段5 — lib/ui.css の .app-head・.app-controls。coding-rules「見た目と操作の決まり」2）。説明は h1 の title -->
+  <header class="app-head">
+    <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">検査は読み取りのみ。修復は選択して承認したときだけ書き込みます</span></p>
+    <h1 title="vault の健全性チェック — リンク切れ・添付消失・ファイル名の罠・Inbox のデイリーを検出し、承認した修復を実行">Check Vault</h1>
+  </header>
 
-  <div class="toolbar">
+  <div class="app-controls">
     <button class="primary" id="pick">vault フォルダを選択</button>
     <button id="rescan" hidden>再スキャン</button>
     <button id="copy-btn" hidden>報告をコピー</button>
