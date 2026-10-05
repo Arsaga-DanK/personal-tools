@@ -41,6 +41,7 @@ function issueTick(x, kind) {
   parts.push({ text: short + ' › ', cls: 'tick-par' });
   parts.push({ text: x.c.issue });
   if (kind === 'late') parts.push({ text: '（' + (-dayDiff(x.c.deadline)) + '日遅れ）', cls: 'tick-rel' });
+  if ((x.c.kids || []).some(function (s) { return s.kind === 'wait'; })) parts.push({ text: ' ⏳ 待ち', cls: 'tick-wait' });   // 段3 — IS-DG6
   return { parts: parts, title: x.n.title + ' › ' + x.c.issue, onClick: function () { jumpToIssue(x.n, x.c); } };
 }
 

@@ -393,6 +393,7 @@ nav.modes a[aria-current="page"] { background: var(--accent); color: #fff; font-
 :where(.now) .tick-par { color: var(--muted); font-size: 12px; }
 :where(.now) .tick-rel { color: var(--st-late); font-size: 12px; }
 :where(.now) .tick-warn { color: var(--st-rethink); font-weight: 700; }
+:where(.now) .tick-wait { color: var(--st-today); font-size: 12px; }
 .now-empty { font-size: 12.5px; color: var(--muted); padding: 4px 0 2px; }
 @media (max-width: 760px) { .now-group { grid-template-columns: 1fr; gap: 4px; } }
 /* 札から飛んだ行・カードを少しのあいだ光らせる（TB-NW4・ToolUI.flash） */

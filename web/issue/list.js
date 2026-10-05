@@ -33,6 +33,7 @@ function noteOf(text, fileName) {
       file: base.file, name: base.name, title: base.title,
       lineNo: L.lineNo, raw: L.raw, link: L.link,
       issue: L.text, deadline: L.due, doneDate: L.doneDate, conclusion: L.note || '',
+      kids: L.kids || [],   // 分かった・待ち・伝えた（段3 — IS-DG4。subs はサブイシューの数なので別の名前）
       // ノートが閉じていれば行も「閉じたもの」扱い（IS-Q20）
       status: (base.status === 'closed' || L.done) ? 'closed' : 'open', verdict: L.verdict,
       picture: '', subs: 0, ways: { '聞く': 0, '調べる': 0, '試す': 0 }, rows: [],
@@ -373,6 +374,34 @@ function card(it) {
     fix.textContent = '→ 直すなら ' + firstWarn.fix;
     art.appendChild(fix);
   }
+  // 分かった・⏳ 待ち・伝えた（段3 — IS-DG4）と［＋ 分かったこと］（IS-DG5）。開いている論点の行だけ（閉じたものは「判定 — 分かったこと」）
+  if (it.kind === 'line' && !closed) {
+    if (it.kids && it.kids.length) {
+      const box = document.createElement('div');
+      box.className = 'ic-kids';
+      const label = { learned: '分かった', wait: '⏳ 待ち', told: '伝えた' };
+      it.kids.forEach(function (s) {
+        const r = document.createElement('div');
+        r.className = 'ic-kid k-' + s.kind;
+        const k = document.createElement('span');
+        k.className = 'ic-kid-k';
+        k.textContent = label[s.kind];
+        const t = document.createElement('span');
+        t.className = 'ic-kid-t';
+        t.textContent = s.text;
+        r.append(k, t);
+        box.appendChild(r);
+      });
+      art.appendChild(box);
+    }
+    const add = document.createElement('button');
+    add.type = 'button';
+    add.className = 'ic-add-kid';
+    add.textContent = '＋ 分かったこと';
+    add.title = '分かったこと・今の見立てを1行（待ちなら「待ち: 」で始める）';
+    add.addEventListener('click', function () { openAddKid(art, add, it); });
+    art.appendChild(add);
+  }
   if (ul.childNodes.length) art.appendChild(ul);   // 空の一覧で余白を作らない
   art.appendChild(vlist);
   return art;
@@ -464,6 +493,37 @@ function noteHeader(n) {
 function noteCardOf(n) {
   return { kind: 'note', note: n, file: n.file, name: n.name, title: n.title, issue: '',
     hasFrontmatter: n.hasFrontmatter };
+}
+
+/* 論点の子に1行足す（段3 — IS-DG5）。欄は .ic-edit なので、書いている最中は行のキーが効かない（IS-DG7） */
+function openAddKid(art, btn, it) {
+  if (art.querySelector('.ic-edit')) return;
+  btn.hidden = true;
+  const box = document.createElement('div');
+  box.className = 'ic-edit';
+  const row = document.createElement('div');
+  row.className = 'ic-edit-row';
+  const input = mkText('', '', '分かったこと・今の見立て（待ちなら「待ち: 」で始める）');
+  input.className = 'ic-kid-input';
+  const ok = document.createElement('button');
+  ok.type = 'button'; ok.className = 'primary ic-kid-save'; ok.textContent = '足す';
+  ok.addEventListener('click', function () { saveKid(it, input.value); });
+  input.addEventListener('keydown', function (e) {
+    if (e.isComposing || e.keyCode === 229) return;   // 変換の確定の Enter で足さない
+    if (e.key === 'Enter') { e.preventDefault(); saveKid(it, input.value); }
+  });
+  const no = document.createElement('button');
+  no.type = 'button'; no.textContent = 'やめる';
+  no.addEventListener('click', renderCards);
+  row.append(input, ok, no);
+  box.appendChild(row);
+  art.insertBefore(box, btn);
+  input.focus();
+}
+async function saveKid(it, value) {
+  const text = nfc(value).trim();
+  if (text === '') { ToolUI.banner($id('banner'), 'warn', '空です（分かったことを1行で）'); return; }
+  await writeNote(it.note, function (cur) { return addKidLine(cur, it.lineNo, text); }, '「' + text + '」を足しました');
 }
 
 function openAddIssue(row, n) {
