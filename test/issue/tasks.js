@@ -2,10 +2,10 @@
 /* test/issue/tasks.js — 節: タスクとのつながり・閉じどき（段4）
    入口: test/issue.js（ctx を受け取る。単独実行は node test/issue.js tasks）
    写しは lib/storage.js の封筒で localStorage に置く（ToolStorage.save('tasklinks', …)）。IS-TK6・TK7 は同じページに iframe で Plan Tasks を開いて書かせる（別のタブの代わり — storage イベントは同じ保存領域のほかの文書に届く）。
-   照合する ID: IS-TK1〜TK7。期待値の正本は docs/specs/issue.md */
+   照合する ID: IS-TK1〜TK8。期待値の正本は docs/specs/issue.md */
 module.exports = {
   name: 'tasks',
-  ids: 'IS-TK1〜TK7',
+  ids: 'IS-TK1〜TK8',
   async run(ctx) {
     const { page, r, eq, fileUrl } = ctx;
     await page.setViewportSize({ width: 1280, height: 900 });
@@ -77,6 +77,38 @@ module.exports = {
       !!tk5.linksAt && tk5.linksAt.text.startsWith('タスクは古い（') && tk5.linksAt.band && tk5.linksAt.title.includes('24時間') && !tk5.chips.a && !tk5.chips.b && tk5.ripe === 0
       && ticksOf(tk5, '遅れ').some(t => t.includes('乙は')), JSON.stringify({ linksAt: tk5.linksAt, chips: tk5.chips, ripe: tk5.ripe }));
 
+    /* ---------- IS-TK3: 閉じどき — いまと案件の見出し ---------- */
+    await setCopy(COPY, 0);
+    const tk3 = await look();
+    const projMeta = await page.evaluate(() => Array.from(document.querySelectorAll('.proj-head')).map(h => ({ name: (h.querySelector('.proj-name') || {}).textContent, meta: (h.querySelector('.proj-meta') || {}).textContent })));
+    const itk = projMeta.find(p => p.name === 'ITK') || { meta: '' };
+    const ripeG = (tk3.groups || [])[(tk3.groups || []).length - 1] || { badge: '', ticks: [] };
+    r.check('IS-TK3（いま: 閉じどき 2 が最後の行・札「済んだ方（全部済み 9/29）」「書き殴りだけ（全部済み）」・b は遅れに出ず e は出る・c は論点なしに出ない／案件 ITK は 閉じどき 1 で 遅れ 無し）',
+      tk3.cnt.includes('閉じどき 2') && ripeG.badge === '閉じどき 2' && eq(ripeG.ticks.slice().sort(), ['書き殴りだけ（全部済み）', '済んだ方（全部済み 9/29）'].sort())
+      && !ticksOf(tk3, '遅れ').some(t => t.includes('乙は')) && ticksOf(tk3, '遅れ').some(t => t.includes('丁は'))
+      && !ticksOf(tk3, '論点がまだ無い').some(t => t.includes('書き殴りだけ'))
+      && itk.meta.includes('閉じどき 1') && !itk.meta.includes('遅れ'), JSON.stringify({ cnt: tk3.cnt, groups: tk3.groups, itk }));
+
+    /* ---------- IS-TK4: 閉じどき — 論点の行とカード ---------- */
+    const tk4 = await page.evaluate(() => {
+      const row = Array.from(document.querySelectorAll('.issue-card')).find(a => (a.querySelector('.ic-issue') || {}).textContent === '乙は C ではなく D ではないか');
+      const cardOfTitle = (t) => Array.from(document.querySelectorAll('.note-card')).find(s => (s.querySelector('.note-name') || {}).textContent === t);
+      const c = cardOfTitle('書き殴りだけ'), d = cardOfTitle('閉じた方');
+      return {
+        ripeClass: !!row && row.classList.contains('s-ripe'), over: !!row && !!row.querySelector('.ic-due.is-over'), late: !!row && !!row.querySelector('.due-rel.late'),
+        notice: row && row.querySelector('.ic-ripe') ? row.querySelector('.ic-ripe').textContent : '',
+        cNotice: c && c.querySelector('.ic-ripe') ? c.querySelector('.ic-ripe').textContent : '',
+        dRipe: !!(d && d.querySelector('.ic-ripe')),
+      };
+    });
+    await page.evaluate(() => { const row = Array.from(document.querySelectorAll('.issue-card')).find(a => (a.querySelector('.ic-issue') || {}).textContent === '乙は C ではなく D ではないか');
+      const b = row && row.querySelector('.ic-ripe-close'); if (b) b.click(); });
+    tk4.modal = await page.evaluate(() => ({ open: !document.getElementById('close-modal').hidden, target: document.getElementById('cm-target').textContent }));
+    await page.evaluate(() => { if (!document.getElementById('close-modal').hidden) closeCloseModal(); });
+    r.check('IS-TK4（閉じどきの行: 帯 s-ripe・締切を赤くしない・「✓ つながるタスクは全部済み（2026/9/29(火)）— 論点を閉じますか？閉じる…」・押すと閉じる画面／論点の無い c は「ノートを閉じますか？」・閉じたノートはならない）',
+      tk4.ripeClass && !tk4.over && !tk4.late && tk4.notice === '✓ つながるタスクは全部済み（2026/9/29(火)）— 論点を閉じますか？閉じる…'
+      && tk4.modal.open && tk4.modal.target.includes('乙は') && tk4.cNotice.includes('ノートを閉じますか？') && !tk4.dRipe, JSON.stringify(tk4));
+
     /* ---------- IS-TK6: 別のタブで Plan Tasks が読み込むと、再読込なしで描き直す ---------- */
     await clearCopy();
     const TASKS = ['## 作業', '- [x] 乙を聞く [[b]] ✅ 2026-09-29', '- [x] 乙を確かめる [[b|別名]] ✅ 2026-09-28', '- [ ] 甲を調べる [[a]]', ''].join('\n');
@@ -91,8 +123,8 @@ module.exports = {
     await tb.evaluate((t) => { window.taskboard.test.newSession(t); }, TASKS);
     await page.waitForTimeout(300);
     const tk6 = await look();
-    r.check('IS-TK6（別のタブで Plan Tasks が読み込む → 再読込なしで b は 全部済み ✓・a は タスク 1・済み 0）',
-      eq(tk6.chips.b, { text: '全部済み ✓', all: true }) && eq(tk6.chips.a, { text: 'タスク 1・済み 0', all: false }),
+    r.check('IS-TK6（別のタブで Plan Tasks が読み込む → 再読込なしで b は 全部済み ✓・a は タスク 1・済み 0・b の行に「閉じますか？」）',
+      eq(tk6.chips.b, { text: '全部済み ✓', all: true }) && eq(tk6.chips.a, { text: 'タスク 1・済み 0', all: false }) && tk6.ripe >= 1,
       JSON.stringify({ chips: tk6.chips, ripe: tk6.ripe }));
 
     /* ---------- IS-TK7: 書いている最中は描き直さない ---------- */
@@ -107,5 +139,21 @@ module.exports = {
     r.check('IS-TK7（書いている最中に別のタブで写しが変わっても描き直さない — 打った文字が残る）', tk7 === '書きかけ', JSON.stringify(tk7));
     await page.evaluate(() => { const no = Array.from(document.querySelectorAll('.ic-edit button')).find(b => b.textContent === 'やめる'); if (no) no.click(); });
     await page.evaluate(() => { const f = document.getElementById('tb-frame'); if (f) f.remove(); });
+
+    /* ---------- IS-TK8: 論点の行が空の閉じどきのノートは、ノートを閉じる（2026-10-05 に実データで — 空の行を閉じても意味が無い） ---------- */
+    await loadNotes({ 'f.md': note({ title: '空の論点だけ', lines: ['- [ ]  \u{1F4C5} ' + past] }) });
+    await setCopy({ f: { total: 1, done: 1, last: '' } }, 0);
+    const tk8 = await page.evaluate(() => {
+      const c = Array.from(document.querySelectorAll('.note-card')).find(s => (s.querySelector('.note-name') || {}).textContent === '空の論点だけ');
+      const n = c && c.querySelector('.ic-ripe');
+      const out = { empty: !!(c && c.querySelector('.ic-issue.is-empty')), notice: n ? n.textContent : '' };
+      const b = n && n.querySelector('.ic-ripe-close'); if (b) b.click();
+      out.target = document.getElementById('close-modal').hidden ? null : document.getElementById('cm-target').textContent;
+      out.kind = closing ? closing.kind : null;   // 閉じる画面が閉じる対象（list.js の closing — note ならノートを閉じる）
+      if (!document.getElementById('close-modal').hidden) closeCloseModal();
+      return out;
+    });
+    r.check('IS-TK8（論点の行が空の閉じどき: 「ノートを閉じますか？」・［閉じる…］の対象はノート名だけ）',
+      tk8.empty && tk8.notice === '✓ つながるタスクは全部済み — ノートを閉じますか？閉じる…' && tk8.target === '空の論点だけ' && tk8.kind === 'note', JSON.stringify(tk8));
   },
 };

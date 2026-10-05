@@ -53,6 +53,7 @@ function earliestDue(n) {
 // 論点の行の状態（段2 — IS-LK6）。行の色の帯と「いま」の分け方の正本。1つの行に1つだけ: 遅れ → 今日 → 立て直す（⚠）
 function cardState(it) {
   if (it.status === 'closed' || !it.issue) return '';
+  if (isRipe(it.note)) return 'ripe';   // 閉じどきが先（段4 — 遅れでも赤くしない・IS-TK4）
   const d = dayDiff(it.deadline);
   if (d !== null && d < 0) return 'late';
   if (d === 0) return 'today';
@@ -227,7 +228,7 @@ function card(it) {
   const due = document.createElement('span');
   const d = dayDiff(it.deadline);
   const closed = it.status === 'closed';
-  due.className = 'ic-due' + (!closed && d !== null && d < 0 ? ' is-over' : '');
+  due.className = 'ic-due' + (!closed && d !== null && d < 0 && st !== 'ripe' ? ' is-over' : '');
   // 日付は lib の ToolEdit.fillDate（2026/9/25(金)・今年の年は薄く）・期限の言葉は dueWords（段2 — IS-LK7）
   const dateSpan = function (ymd) { const s = document.createElement('span'); ToolEdit.fillDate(s, ymd, todayStr()); return s; };
   if (closed) {
@@ -239,7 +240,7 @@ function card(it) {
     const w = ToolEdit.dueWords(it.deadline, todayStr());
     if (w) {
       const rel = document.createElement('span');
-      rel.className = 'due-rel' + (d < 0 ? ' late' : d === 0 ? ' today' : '');
+      rel.className = 'due-rel' + (st === 'ripe' ? '' : d < 0 ? ' late' : d === 0 ? ' today' : '');
       rel.textContent = w;
       due.appendChild(rel);
     }
@@ -402,6 +403,7 @@ function card(it) {
     add.addEventListener('click', function () { openAddKid(art, add, it); });
     art.appendChild(add);
   }
+  if (!closed && isRipe(it.note)) art.appendChild(ripeNotice(it));   // 閉じますか？（段4 — IS-TK4）
   if (ul.childNodes.length) art.appendChild(ul);   // 空の一覧で余白を作らない
   art.appendChild(vlist);
   return art;
@@ -625,8 +627,9 @@ function renderCards() {
 function projHead(k) {
   const all = notes.filter(function (n) { return (n.project || '') === k && matchesSearch(n); });
   const open = all.filter(function (n) { return !(n.base && n.base.status === 'closed'); });
-  const cnt = { late: 0, today: 0, rethink: 0, noissue: 0 };
+  const cnt = { late: 0, today: 0, rethink: 0, noissue: 0, ripe: 0 };
   open.forEach(function (n) {
+    if (isRipe(n)) { cnt.ripe++; return; }   // 1つのノートは1か所 — 閉じどきが先（段4）
     if (!n.cards.some(function (c) { return c.issue; })) { cnt.noissue++; return; }
     n.cards.forEach(function (c) { const s = cardState(c); if (s) cnt[s]++; });
   });
@@ -644,7 +647,7 @@ function projHead(k) {
   const meta = document.createElement('span');
   meta.className = 'proj-meta';
   meta.appendChild(document.createTextNode('開いている ' + open.length + '・閉じた ' + (all.length - open.length)));
-  [['late', '遅れ'], ['today', '今日まで'], ['rethink', '立て直す'], ['noissue', '論点なし']].forEach(function (p) {
+  [['late', '遅れ'], ['today', '今日まで'], ['rethink', '立て直す'], ['noissue', '論点なし'], ['ripe', '閉じどき']].forEach(function (p) {
     if (!cnt[p[0]]) return;
     const s = document.createElement('span');
     s.className = 'ps-' + p[0];
