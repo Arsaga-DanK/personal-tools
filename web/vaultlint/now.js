@@ -45,6 +45,5 @@ function jumpToClass(key) {
   const sec = document.querySelector('#results section[data-key="' + key + '"]');
   if (!sec) return;
   if (vlFolded.has(key)) setClassFolded(sec, false);
-  sec.scrollIntoView({ block: 'start' });
-  ToolUI.flash(sec);
+  ToolUI.flash(sec, { block: 'start' });   // 頭を上に（表が画面より長いと、真ん中に着いて見出しが画面の外へ出た — VL-N4）
 }

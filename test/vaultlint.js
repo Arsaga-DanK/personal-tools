@@ -586,6 +586,35 @@ const IDEO_SPACE = '\u3000';
   r.check('VL-N3（走査する前は「いま」を出さない・健全なら「直すもの・片づけるものはありません ✅」）',
     !n3a.missing && n3a.hidden && !n3b.hidden && n3b.empty === '直すもの・片づけるものはありません ✅', JSON.stringify({ n3a, n3b }));
 
+  /* ========== VL-N4: 長い表への札でも見出しが見える（2026-10-05 の点検 — 真ん中に着いて見出しが画面の外へ出ていた） ========== */
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.evaluate(() => {
+    const text = Array.from({ length: 60 }, (_, k) => '[[無い' + k + ']]').join('\n');
+    window.vaultlint.test.run([{ path: 'a.md', text: text }, { path: 'b.md', text: '' }], '2026-10-05', { privateDirs: [] });
+    window.scrollTo(0, 0);
+    const tick = Array.from(document.querySelectorAll('#now .tick')).find(t => t.textContent === 'リンク切れ 60');
+    if (tick) tick.click();
+  });
+  await page.waitForTimeout(1200);   // なめらかなスクロールが止まるまで
+  const n4 = await page.evaluate(() => { const h = document.querySelector('#results section[data-key="brokenLinks"] h2'); return h ? Math.round(h.getBoundingClientRect().top) : null; });
+  r.check('VL-N4（表が画面より長くても、札を押すと種類の見出しが画面の上の方に見える）', n4 !== null && n4 >= 0 && n4 <= 200, JSON.stringify(n4));
+
+  /* ========== VL-T5: ふつうの名前は折り返す・ファイル名の罠は空白を詰めない（2026-10-05 の点検） ========== */
+  const t5 = await page.evaluate((sp2) => {
+    const long = '04_Issues/2026-09-20_' + 'とても長い題名のイシュー'.repeat(10) + '.md';
+    window.vaultlint.test.run([
+      { path: long, text: '---\nstatus: closed\nclosed: 2026-10-01\n---\n# a' },
+      { path: '30_Resources/foo' + sp2 + 'bar/y' + sp2 + 'z.md', text: '' },
+    ], '2026-10-05', { privateDirs: [], issueDir: '04_Issues', closedDir: '90_Archive/{YYYY}' });
+    const wrap = document.querySelector('#results section[data-key="closedIssues"] .table-wrap');
+    const raw = document.querySelector('#results section[data-key="badNames"] td.vl-file.raw');
+    const ws = (e) => (e ? getComputedStyle(e).whiteSpace : null);
+    return { overflow: wrap ? wrap.scrollWidth - wrap.clientWidth : null,
+      rawName: ws(raw && raw.querySelector('.vl-name')), rawDir: ws(raw && raw.querySelector('.vl-dir')) };
+  }, SP2);
+  r.check('VL-T5（長い名前は折り返して表が横にはみ出さない・ファイル名の罠の名前とフォルダは空白を詰めない）',
+    t5.overflow === 0 && t5.rawName === 'pre-wrap' && t5.rawDir === 'pre-wrap', JSON.stringify(t5));
+
   /* ========== VL-U4: 幅390px ========== */
   await page.setViewportSize({ width: 390, height: 800 });
   const u4 = await page.evaluate(() =>

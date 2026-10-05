@@ -21,7 +21,8 @@
   /* 表を読みやすく（段6 — coding-rules「見た目と操作の決まり」1〜5）。名前が主・フォルダは薄く・ファイル名の罠だけ等幅 */
   .issue-block td.vl-file, .issue-block td.vl-date { font-family: inherit; }
   .issue-block td.vl-file.raw { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-  .vl-name { font-weight: 600; white-space: pre; }
+  .vl-name { font-weight: 600; overflow-wrap: anywhere; }   /* ふつうの名前は折り返す（長い名前で表を横に広げない — VL-T5） */
+  .issue-block td.vl-file.raw .vl-name, .issue-block td.vl-file.raw .vl-dir { white-space: pre-wrap; }   /* ファイル名の罠は空白を詰めない（名前もフォルダも） */
   .vl-dir { color: var(--muted); font-size: 11.5px; margin-left: 8px; }
   .issue-block h2 { display: flex; align-items: baseline; gap: 6px; }
   .vl-fold { border: 0; background: none; padding: 0 2px; color: var(--muted); cursor: pointer; font-size: 12px; box-shadow: none; }
