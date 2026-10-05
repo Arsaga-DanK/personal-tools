@@ -25,7 +25,7 @@
 
 ## 画面構成
 
-- `<main class="app-wide">`・`.tool-header`（「入力とルールは自動保存されます」）
+- `<main class="app-wide">`・`.tool-header`（「入力とルールは自動保存されます」） — 見出し2行（`header.app-head` の中。説明は h1 の title・操作は2行目 `.app-controls` — 2026-10-05 段5・HUB-28）
 - ルール欄（`#rules`・小さめ textarea・placeholder あり）→ 2ペイン（入力 `#input` / 出力 `#output`）
 - ［結果をコピー］（primary・`title="Cmd/Ctrl+Enter"`・**コピー時に確定**）
 - サンプル投入（入力が空のときだけ表示。ルールと入力を同時投入）

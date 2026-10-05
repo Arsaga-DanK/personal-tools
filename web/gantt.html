@@ -76,11 +76,13 @@
 </head>
 <body>
 <main class="app-wide">
-  <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">入力とオプションは自動保存されます</span></p>
-  <h1>Draw Gantt</h1>
-  <p class="subtitle">タスクと期間の表 → ガントチャート画像（PNG コピー）— 管理はしない・資料貼り付け用。Markdown で書けて、tasks.md や計画表を貼るだけでも取り込めます</p>
+  <!-- 見出し2行（段5 — lib/ui.css の .app-head・.app-controls。coding-rules「見た目と操作の決まり」2）。説明は h1 の title -->
+  <header class="app-head">
+    <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">入力とオプションは自動保存されます</span></p>
+    <h1 title="タスクと期間の表 → ガントチャート画像（PNG コピー）— 管理はしない・資料貼り付け用。Markdown で書けて、tasks.md や計画表を貼るだけでも取り込めます">Draw Gantt</h1>
+  </header>
 
-  <div class="toolbar">
+  <div class="app-controls">
     <button class="primary" id="copy-btn" title="Cmd/Ctrl+Enter">PNG をコピー</button>
     <label class="toggle"><input type="checkbox" id="exclude-weekends" checked> 土日を除外</label>
     <span class="muted" id="text-hint" style="font-size:12px" hidden>1行=1タスク「名前⇥開始⇥終了か日数」。## 見出しはセクション・箇条書きや md テーブルもそのまま読めます（%% はコメント）</span>

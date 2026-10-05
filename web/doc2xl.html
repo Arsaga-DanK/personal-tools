@@ -12,11 +12,13 @@
 </head>
 <body>
 <main class="app-wide">
-  <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">入力は自動保存されます</span></p>
-  <h1>Export Outline</h1>
-  <p class="subtitle">Markdown 文書の見出し階層を Excel 用の階層表（大項目・中項目・小項目＋内容）に変換 — 正本は Markdown 側、Excel は納品時の生成物として運用します</p>
+  <!-- 見出し2行（段5 — lib/ui.css の .app-head・.app-controls。coding-rules「見た目と操作の決まり」2）。説明は h1 の title -->
+  <header class="app-head">
+    <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">入力は自動保存されます</span></p>
+    <h1 title="Markdown 文書の見出し階層を Excel 用の階層表（大項目・中項目・小項目＋内容）に変換 — 正本は Markdown 側、Excel は納品時の生成物として運用します">Export Outline</h1>
+  </header>
 
-  <div class="toolbar">
+  <div class="app-controls">
     <span class="opts">
       <label>階層列の見出し <select id="opt-names">
         <option value="default">大項目・中項目・小項目</option>

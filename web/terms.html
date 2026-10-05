@@ -13,11 +13,13 @@
 </head>
 <body>
 <main class="app-wide">
-  <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">入力とルールは自動保存されます</span></p>
-  <h1>Unify Terms</h1>
-  <p class="subtitle">用語統一表を原稿へ一括適用 — 同時置換・長い語優先（連鎖置換の事故を防ぐ）</p>
+  <!-- 見出し2行（段5 — lib/ui.css の .app-head・.app-controls。coding-rules「見た目と操作の決まり」2）。説明は h1 の title -->
+  <header class="app-head">
+    <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">入力とルールは自動保存されます</span></p>
+    <h1 title="用語統一表を原稿へ一括適用 — 同時置換・長い語優先（連鎖置換の事故を防ぐ）">Unify Terms</h1>
+  </header>
 
-  <div class="toolbar">
+  <div class="app-controls">
     <button class="primary" id="copy-btn" title="Cmd/Ctrl+Enter">結果をコピー</button>
     <span class="muted" style="font-size:12px">ルールは1行1件「変換前⇥変換後」（タブ区切り。Excel の2列をそのまま貼れる）または「変換前→変換後」。# 始まりはコメント</span>
   </div>

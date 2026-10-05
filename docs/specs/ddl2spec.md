@@ -46,10 +46,10 @@ PostgreSQL の DDL（`CREATE TABLE` ＋ `COMMENT ON`）と Markdown のテーブ
 
 ## 画面構成
 
-- `<main class="app-wide">` 直下: `.tool-header`（「← ツール一覧」＋「入力は自動保存されます」注記）
+- `<main class="app-wide">` 直下: `.tool-header`（「← ツール一覧」＋「入力は自動保存されます」注記） — 見出し2行（`header.app-head` の中。説明は h1 の title・操作は2行目 `.app-controls` — 2026-10-05 段5・HUB-28）
 - 2ペイン: 左=入力（placeholder あり）、右=出力（どちらも textarea）。
   左ペインタイトル横に **［サンプルを入れる］**（**入力が空のときだけ表示**。投入と同時に変換）
-- ツールバー（**ペインの上**・`.toolbar` — 2026-08-13 に他ツールと体裁統一）:
+- 操作の行（**ペインの上**・見出しの2行目 `.app-controls` — 2026-08-13 に他ツールと体裁統一・2026-10-05 に見出し2行へ）:
   ［DDL → 定義書］［定義書 → DDL］［出力をコピー］（**primary・title=Cmd/Ctrl+Enter**）
   ［Excel用コピー（TSV）］。**Cmd/Ctrl+Enter で出力をコピー**（excel2md・diff と同じ作法）
 - **コピー成功はボタンの ✓ フィードバック**（`ToolUI.feedback` — 全ツール標準。

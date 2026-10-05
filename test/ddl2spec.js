@@ -464,11 +464,11 @@ const GENERATED_DDL = [
     && s23b.input === 'create table t (a int);' && s23b.output === '',
     JSON.stringify([s23, s23b]));
 
-  /* ========== DS-24: 体裁（placeholder・primary・ツールバー位置・✓ フィードバック） ========== */
+  /* ========== DS-24: 体裁（placeholder・primary・操作の行（見出しの2行目）の位置・✓ フィードバック） ========== */
   const s24 = await page.evaluate(async () => {
     navigator.clipboard.writeText = () => Promise.resolve();
     const copy = document.getElementById('copy');
-    const toolbar = copy.closest('.toolbar');
+    const toolbar = copy.closest('.app-controls');   // 操作の行は見出しの2行目（段5 — 2026-10-05 に .toolbar から移した）
     const panes = document.querySelector('.panes');
     const toolbarAbovePanes = !!(toolbar && panes
       && (toolbar.compareDocumentPosition(panes) & Node.DOCUMENT_POSITION_FOLLOWING));
@@ -486,7 +486,7 @@ const GENERATED_DDL = [
       label: copy.textContent,
     };
   });
-  r.check('DS-24（placeholder・copy が primary/title・ツールバーが上・✓ フィードバック）',
+  r.check('DS-24（placeholder・copy が primary/title・操作の行（見出しの2行目）がペインの上・✓ フィードバック）',
     s24.placeholder && s24.primary && s24.title === 'Cmd/Ctrl+Enter'
     && s24.toolbarAbovePanes && s24.label === '✓ コピーしました',
     JSON.stringify(s24));

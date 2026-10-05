@@ -44,11 +44,13 @@
 </head>
 <body>
 <main class="app-wide">
-  <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">設定は自動保存されます</span></p>
-  <h1>Convert Table</h1>
-  <p class="subtitle">Excelのセル範囲（TSV）⇔ Markdown テーブルを双方向変換 — 貼り付けで結合セルを展開・表プレビュー上で列の揃え指定</p>
+  <!-- 見出し2行（段5 — lib/ui.css の .app-head・.app-controls。coding-rules「見た目と操作の決まり」2）。説明は h1 の title -->
+  <header class="app-head">
+    <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">設定は自動保存されます</span></p>
+    <h1 title="Excelのセル範囲（TSV）⇔ Markdown テーブルを双方向変換 — 貼り付けで結合セルを展開・表プレビュー上で列の揃え指定">Convert Table</h1>
+  </header>
 
-  <div class="toolbar">
+  <div class="app-controls">
     <label class="toggle"><input type="radio" name="direction" value="tsv2md" checked> TSV→MD</label>
     <label class="toggle"><input type="radio" name="direction" value="md2tsv"> MD→TSV</label>
     <label class="toggle"><input type="checkbox" id="opt-header" checked> 1行目をヘッダーにする</label>

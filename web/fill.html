@@ -20,11 +20,13 @@
 </head>
 <body>
 <main class="app-wide">
-  <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">テンプレと値は自動保存されます</span></p>
-  <h1>Fill Template</h1>
-  <p class="subtitle">定型文テンプレの差し込み — {{変数}} からフォームを自動生成して完成文を作る</p>
+  <!-- 見出し2行（段5 — lib/ui.css の .app-head・.app-controls。coding-rules「見た目と操作の決まり」2）。説明は h1 の title -->
+  <header class="app-head">
+    <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">テンプレと値は自動保存されます</span></p>
+    <h1 title="定型文テンプレの差し込み — {{変数}} からフォームを自動生成して完成文を作る">Fill Template</h1>
+  </header>
 
-  <div class="toolbar">
+  <div class="app-controls">
     <button class="primary" id="copy-btn" title="Cmd/Ctrl+Enter">結果をコピー</button>
     <span class="muted" style="font-size:12px">テンプレに {{変数}} を書くと入力欄が生成される。{{今日}} は日付が自動で入る（編集可）。テンプレ集の正本は vault のノートに置き、使うときに貼る</span>
   </div>

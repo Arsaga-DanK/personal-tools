@@ -423,7 +423,7 @@ nav.modes a[aria-current="page"] { background: var(--accent); color: #fff; font-
 .app-head h1 { margin: 0; font-size: 20px; cursor: help; }
 .app-head nav.modes { margin: 0; }
 .app-head .spacer { flex: 1 1 auto; }
-.app-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 4px 0 12px; }
+.app-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 4px 0 12px; font-size: 14px; }   /* 字の大きさは旧 .toolbar と同じ（段5 — 既定の 16px だとチェックの文字がボタンより大きく見えた。Plan Tasks・Check Issue の見た目は変わらない — 2026-10-05 に画素で確かめた）
 /* 表示の切替（横並びのボタン）の外枠。ツール側で後ろから .xxx .tabs の flex を上書きするときは id で強める（Plan Tasks の #view-tabs） */
 .app-controls .tabs { margin: 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; gap: 0; flex: 0 0 auto; background: var(--panel); }
 .app-controls .tabs button { border: 0; border-radius: 0; padding: 4px 10px; font-size: 13px; }
@@ -431,6 +431,7 @@ nav.modes a[aria-current="page"] { background: var(--accent); color: #fff; font-
 .app-controls .tabs button.active { background: var(--accent); color: var(--accent-text); box-shadow: none; }
 .app-controls .opts { gap: 6px 10px; }
 .app-controls .opts select { padding-left: 6px; padding-right: 4px; }
+.app-controls .spacer { flex: 1 1 auto; }   /* .toolbar .spacer の代わり（段5 — ツールバーを2行目にした） */
 
 /* ---------- ⋯ メニュー（2026-10-02 に Plan Tasks から移設 — 段2で Check Issue が2本目）----------
    低頻度の操作を畳む（常時11個は多すぎた — 2026-09-24 の利用者指摘） */

@@ -636,6 +636,42 @@ const { launch, fileUrl, createRunner, eq, TOOL_COUNT } = require('./helpers');
     && storageFail.hubHook === true,
     JSON.stringify(storageFail));
 
+  /* ---------- HUB-28・29: 見出し2行（段5 — 2026-10-05・docs/audits/2026-10-05-issue-redesign-plan-5.md） ----------
+     coding-rules「見た目と操作の決まり」2: 見出しは2行（1行目 header.app-head＝☰ ツール・← ツール一覧・保存の注記・題名・⋯、2行目 .app-controls＝操作）、
+     説明は題名の title（.subtitle を置かない）。ページごとに1件（どのツールが外れたかが見えるように）。ハブは .tool-header を持たない（h1 だけ） */
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const pages28 = [{ alias: 'index', href: 'index.html' }].concat(entries.map(e => ({ alias: e.alias, href: e.href })));
+  for (const p of pages28) {
+    await page.goto(fileUrl(p.href));
+    await page.waitForLoadState('load');
+    const h = await page.evaluate(() => {
+      const head = document.querySelector('main > header.app-head');
+      const h1 = head && head.querySelector('h1');
+      const ctl = document.querySelector('main > .app-controls');
+      const rb = (e) => e.getBoundingClientRect();
+      return {
+        head: !!head, toolHeader: !!(head && head.querySelector('.tool-header')),
+        h1Title: h1 ? h1.title.length : 0, subtitle: !!document.querySelector('.subtitle'),
+        headH: head ? Math.round(rb(head).height) : null,               // 1行目は1段（折り返さない）
+        gap: head && ctl ? Math.round(rb(ctl).top - rb(head).bottom) : null,   // 2行目は1行目のすぐ下
+      };
+    });
+    r.check('HUB-28（' + p.alias + ' — 見出し2行: header.app-head に' + (p.alias === 'index' ? '' : ' .tool-header と') + ' h1・説明は h1 の title・.subtitle 無し・1行目は1段・2行目はすぐ下）',
+      h.head && (p.alias === 'index' || h.toolHeader) && h.h1Title > 0 && !h.subtitle && h.headH !== null && h.headH <= 48
+      && (h.gap === null || h.gap <= 16), JSON.stringify(h));
+  }
+  // 狭い幅で横にはみ出さない（全ページ。見出しの2行が折り返すこと — 今は全ページ OK なので、壊さないための見張り）
+  await page.setViewportSize({ width: 390, height: 800 });
+  const over29 = [];
+  for (const p of pages28) {
+    await page.goto(fileUrl(p.href));
+    await page.waitForLoadState('load');
+    const w = await page.evaluate(() => [document.documentElement.scrollWidth, document.documentElement.clientWidth]);
+    if (w[0] > w[1]) over29.push(p.alias + ' ' + w.join('/'));
+  }
+  r.check('HUB-29（幅 390px で全ページ横にはみ出さない — 見出しの2行が折り返す）', over29.length === 0, JSON.stringify(over29));
+  await page.setViewportSize({ width: 1280, height: 900 });
+
   await browser.close();
   r.report('ハブ（index.html）');
 })().catch(e => {

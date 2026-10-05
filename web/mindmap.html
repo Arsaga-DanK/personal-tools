@@ -21,11 +21,13 @@
 </head>
 <body>
 <main class="app-wide">
-  <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">入力は自動保存されます</span></p>
-  <h1>Draw Mindmap</h1>
-  <p class="subtitle">Markdown のアウトライン → マインドマップ（mermaid 同梱）— 見出しと箇条書きで階層。Obsidian のノートをそのまま貼れて、書いたテキストもそのままノートに戻せる</p>
+  <!-- 見出し2行（段5 — lib/ui.css の .app-head・.app-controls。coding-rules「見た目と操作の決まり」2）。説明は h1 の title -->
+  <header class="app-head">
+    <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">入力は自動保存されます</span></p>
+    <h1 title="Markdown のアウトライン → マインドマップ（mermaid 同梱）— 見出しと箇条書きで階層。Obsidian のノートをそのまま貼れて、書いたテキストもそのままノートに戻せる">Draw Mindmap</h1>
+  </header>
 
-  <div class="toolbar">
+  <div class="app-controls">
     <button class="primary" id="copy-btn" title="Cmd/Ctrl+Enter">PNG をコピー</button>
     <span class="muted" style="font-size:12px">見出し（#・##）で階層・箇条書き（- 1.）は見出しの1つ下・字下げでさらに下。%% 始まりはコメント（図に出ない）</span>
   </div>

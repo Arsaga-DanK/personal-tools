@@ -49,11 +49,13 @@
 </head>
 <body>
 <main class="app-wide">
-  <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">付箋は自動保存されます</span></p>
-  <h1>Sort Ideas</h1>
-  <p class="subtitle">付箋ボード — ダブルクリックで付箋を置いて直接入力・ドラッグで並べ・色で分け・線で結ぶ → md アウトライン書き出し（Obsidian ノートへ）と PNG コピー</p>
+  <!-- 見出し2行（段5 — lib/ui.css の .app-head・.app-controls。coding-rules「見た目と操作の決まり」2）。説明は h1 の title -->
+  <header class="app-head">
+    <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">付箋は自動保存されます</span></p>
+    <h1 title="付箋ボード — ダブルクリックで付箋を置いて直接入力・ドラッグで並べ・色で分け・線で結ぶ → md アウトライン書き出し（Obsidian ノートへ）と PNG コピー">Sort Ideas</h1>
+  </header>
 
-  <div class="toolbar" id="tools">
+  <div class="app-controls" id="tools">
     <button type="button" id="add-note" title="中央に付箋を置いて入力を始める（空白のダブルクリックでも作れる）">＋ 付箋を追加</button>
     <button type="button" id="connect-mode" title="付箋を2回クリックして線で結ぶ（Esc でキャンセル）" aria-pressed="false">結線</button>
     <span class="tool-group" role="radiogroup" aria-label="付箋の色（選択中の付箋にも効く）">

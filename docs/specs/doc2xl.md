@@ -115,9 +115,9 @@ Markdown 文書の**見出し階層**を Excel 用の**階層表**（大項目�
 
 ## 画面構成
 
-- `<main class="app-wide">` 直下: `.tool-header`（「← ツール一覧」＋「入力は自動保存されます」）
+- `<main class="app-wide">` 直下: `.tool-header`（「← ツール一覧」＋「入力は自動保存されます」） — 見出し2行（`header.app-head` の中。説明は h1 の title・操作は2行目 `.app-controls` — 2026-10-05 段5・HUB-28）
   （2026-08-13 に他の2ペインツールと同じ 1200px へ統一 — 当初の `app`（900px）は後発の戻りだった）
-- `<h1>Export Outline</h1>`・subtitle（正本は Markdown 側、Excel は納品時の生成物）
+- `<h1>Export Outline</h1>`（説明は h1 の title — 正本は Markdown 側、Excel は納品時の生成物）
 - ツールバー: 階層列の見出し名 select（カスタム時はテキスト入力を表示）／
   「空セルを上の値で埋める」トグル／内容の単位 select／出力形式ラジオ（Markdown表 / TSV）／
   ［出力をコピー］（**primary・Cmd/Ctrl+Enter でも実行**。title にキー表記 — DX-U8）

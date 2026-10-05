@@ -15,11 +15,13 @@
 </head>
 <body>
 <main class="app-wide">
-  <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">入力は自動保存されます</span></p>
-  <h1>Document Schema</h1>
-  <p class="subtitle">PostgreSQL の DDL（CREATE TABLE ＋ COMMENT ON）⇔ テーブル定義書（Markdown表）を双方向変換 — 正本は DDL 側、定義書は生成物として運用します</p>
+  <!-- 見出し2行（段5 — lib/ui.css の .app-head・.app-controls。coding-rules「見た目と操作の決まり」2）。説明は h1 の title -->
+  <header class="app-head">
+    <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">入力は自動保存されます</span></p>
+    <h1 title="PostgreSQL の DDL（CREATE TABLE ＋ COMMENT ON）⇔ テーブル定義書（Markdown表）を双方向変換 — 正本は DDL 側、定義書は生成物として運用します">Document Schema</h1>
+  </header>
 
-  <div class="toolbar">
+  <div class="app-controls">
     <button id="to-spec">DDL → 定義書</button>
     <button id="to-ddl">定義書 → DDL</button>
     <button class="primary" id="copy" title="Cmd/Ctrl+Enter">出力をコピー</button>

@@ -30,8 +30,8 @@ Excel のセル範囲（TSV）⇔ Markdown テーブルを**双方向**に変換
 
 - `<main class="app-wide">`（Phase P で `app`→`app-wide` に変更。他4ツール（norm/diff/devpad/taskboard）が
   全て `app-wide` で excel2md だけ 900px だった。表プレビューを載せるため 1200px に揃える。P6）
-- `<main>` 直下: `.tool-header`（「← ツール一覧」リンク＋「設定は自動保存されます」注記）
-- 上部: タイトル＋1行説明。**1行説明（subtitle）と index.html の `desc` に「表プレビュー」を追記する**
+- `<main>` 直下: `.tool-header`（「← ツール一覧」リンク＋「設定は自動保存されます」注記） — 見出し2行（`header.app-head` の中。説明は h1 の title・操作は2行目 `.app-controls` — 2026-10-05 段5・HUB-28）
+- 上部: タイトル＋1行説明。**1行説明（h1 の title — 段5）と index.html の `desc` に「表プレビュー」を追記する**
   （現在はどちらも「結合セルの展開・列の揃え指定」までしか触れていない）
 - ツールバー: **方向切替ラジオ［TSV→MD｜MD→TSV］** / 「1行目をヘッダーにする」チェック /
   「セル前後の空白を除去」チェック（TSV→MD のみ有効） / **「プレビュー（揃え指定）」チェック**（既定ON・永続化） /

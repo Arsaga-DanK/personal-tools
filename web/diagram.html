@@ -21,11 +21,13 @@
 </head>
 <body>
 <main class="app-wide">
-  <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">入力は自動保存されます</span></p>
-  <h1>Draw Diagram</h1>
-  <p class="subtitle">テキストから図を描く（mermaid 同梱・オフライン完結）— フローチャート・シーケンス図などを書いて PNG コピー。図は常にライトテーマ（貼り付け先は白背景が相場）</p>
+  <!-- 見出し2行（段5 — lib/ui.css の .app-head・.app-controls。coding-rules「見た目と操作の決まり」2）。説明は h1 の title -->
+  <header class="app-head">
+    <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">入力は自動保存されます</span></p>
+    <h1 title="テキストから図を描く（mermaid 同梱・オフライン完結）— フローチャート・シーケンス図などを書いて PNG コピー。図は常にライトテーマ（貼り付け先は白背景が相場）">Draw Diagram</h1>
+  </header>
 
-  <div class="toolbar">
+  <div class="app-controls">
     <button class="primary" id="copy-btn" title="Cmd/Ctrl+Enter">PNG をコピー</button>
     <button id="copy-md" type="button" title="```mermaid ブロックとしてコピー（Obsidian のノートに貼るとそのまま図になり、あとから編集できます）">Obsidian 用にコピー</button>
     <button id="save-svg" type="button">SVG 保存</button>
