@@ -59,6 +59,7 @@ const state = {
   demo: false,       // デモデータ表示中（保存・アーカイブ無効）
   hasCRFile: false,  // CR 改行ファイル（表示のみ・追加/アーカイブ無効）
   archiveAdapter: null, archiveHandle: null,
+  archLinks: undefined,   // archive.md のタスクの数（lib/tasklinks.js の写しに足す — TB-LN6）。undefined = まだ知らない（前の写しから引き継ぐ）
   timeline: null,    // 直近の timelineModel（Excel 用コピーが参照する。リスト時は null）
   boardCols: null,   // 直近に描画したボードの列（キーボード移動が同じ集合を見るため）
   depGraph: null,    // 直近の依存グラフ（リスト・ボードの印と完了時の警告が参照する）
@@ -142,6 +143,7 @@ function loadText(text, adapter, opts) {
   state.snapshot = text;
   state.lines = toLines(text);
   state.lastUndo = null;   // 読み込んだら戻す記録は捨てる（別のファイルの行は戻せない — TB-UZ6）
+  state.archLinks = undefined;   // 別のファイルかもしれないので、写しを書くときに同じファイルの前の写しから引き継ぎ直す（TB-LN6）
   state.loaded = true;
   state.demo = !!(opts && opts.demo);   // デモは写しを書かない（TB-LN5）
   state.hasCRFile = text.includes('\r');
@@ -318,7 +320,10 @@ async function checkExternal() {
   lastCheck = now;
   let disk;
   try { disk = await state.adapter.read(); } catch (_) { return; }
-  if (nfc(disk) === nfc(state.snapshot)) return;
+  if (nfc(disk) === nfc(state.snapshot)) {
+    if (!isDirty()) publishTaskLinks();   // 変わっていなくても数え直す — 開いたままでも写しが 24時間で古くならない（TB-LN8）
+    return;
+  }
   if (isDirty()) {
     showBanner('warn', 'Obsidian側で変更されています。このまま保存すると中止されます。',
       [{ label: '変更を破棄して再読込', onClick: () => reloadFromAdapter(true) }]);
@@ -398,7 +403,15 @@ function tasksBaseName() {
    読み込んだとき・保存したときに数え直す。デモは書かない（実データの写しを上書きしない） */
 function publishTaskLinks() {
   if (!state.loaded || state.demo || !window.ToolTaskLinks) return;
-  ToolTaskLinks.write(parseDoc(state.lines).tasks, state.adapter && state.adapter.name);
+  const file = state.adapter && state.adapter.name;
+  // アーカイブ先を開いて眺めているときは書かない — 全部済みに見えて、ありもしない閉じどきを出す（TB-LN7）
+  if (file === archiveTargetName()) return;
+  // archive.md の数（アーカイブしたときに archive.js が数える）。まだ無ければ同じファイルの前の写しから引き継ぐ（TB-LN6）
+  if (state.archLinks === undefined) {
+    const prev = ToolTaskLinks.read();
+    state.archLinks = prev && prev.file === file ? prev.arch : null;
+  }
+  ToolTaskLinks.write(parseDoc(state.lines).tasks, file, state.archLinks);
 }
 // 自動保存を待たずに今保存する。外部スキームへ遷移する前に使う —
 // 未保存のままだと beforeunload が離脱確認を出す（obsidian:// でも発火する。実測・verification-notes §11）

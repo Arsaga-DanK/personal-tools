@@ -1,10 +1,10 @@
 'use strict';
 /* test/taskboard/links.js — 節: タスクとのつながりの写し（段4 — lib/tasklinks.js と、Plan Tasks が書くところ）
    入口: test/taskboard.js（ctx を受け取る。単独実行は node test/taskboard.js links）
-   照合する ID: TB-LN1〜LN5。期待値の正本は docs/specs/taskboard/issue-link.md */
+   照合する ID: TB-LN1〜LN8。期待値の正本は docs/specs/taskboard/issue-link.md */
 module.exports = {
   name: 'links',
-  ids: 'TB-LN1〜LN5',
+  ids: 'TB-LN1〜LN8',
   async run(ctx) {
     const { page, r, eq, fileUrl, session, TODAY } = ctx;
     await page.goto(fileUrl('web/taskboard.html'));
@@ -47,6 +47,47 @@ module.exports = {
     const ln4 = await copy();
     r.check('TB-LN4（完了にして保存すると写しが変わる: done 3・last 今日）',
       !!ln4 && typeof ln4 === 'object' && eq(ln4.notes, { '2026-09-25_先方に確認': { total: 3, done: 3, last: TODAY } }), JSON.stringify(ln4));
+
+    /* ---------- TB-LN6: アーカイブしたタスクも数える（2026-10-05 の点検 — 済んだタスクを archive.md へ移すと閉じどきが消えていた） ---------- */
+    const ARCH = ['## 作業', '- [x] 済んだ [[2026-09-25_先方に確認]] ✅ 2026-08-01', '- [ ] 残り [[別のノート]]', ''].join('\n');
+    await session(ARCH);
+    const ln6 = await page.evaluate(async () => {
+      // アーカイブは「表示に出ている済んだもの」だけが対象なので、済んだものを表示してから（archive ヘルパの TB-15 と同じ）
+      const cb = document.getElementById('f-done'); cb.checked = true; cb.dispatchEvent(new Event('change', { bubbles: true }));
+      const res = await window.__s.archive();
+      const after = ToolStorage.load('tasklinks');
+      window.__s.applyOps([{ type: 'editContent', line: 2, text: '残りを直した [[別のノート]]' }]);
+      await window.__s.save();
+      const saved = ToolStorage.load('tasklinks');
+      const sorted = (o) => o && Object.fromEntries(Object.keys(o).sort().map(k => [k, o[k]]));   // 名前の並びに意味は無い（tasks.md の分 → archive.md の分の順になる）
+      return { ok: res && res.ok, archive: window.__s.getArchiveText().includes('済んだ'), after: sorted(after && after.notes), saved: sorted(saved && saved.notes) };
+    });
+    const want6 = { '2026-09-25_先方に確認': { total: 1, done: 1, last: '2026-08-01' }, '別のノート': { total: 1, done: 0, last: '' } };
+    r.check('TB-LN6（アーカイブで archive.md へ移したタスクも数える — アーカイブの直後も、そのあとの保存でも）',
+      typeof ln6 === 'object' && ln6.ok && ln6.archive && eq(ln6.after, want6) && eq(ln6.saved, want6), JSON.stringify(ln6));
+
+    /* ---------- TB-LN7: archive.md を開いて眺めているときは書かない（全部済みに見えて、ありもしない閉じどきを出す） ---------- */
+    const ln7 = await safe(() => {
+      ToolStorage.save('tasklinks', { at: 1, file: 'sentinel', notes: {} });
+      const text = '# archive\n- [x] 済んだ [[x]] ✅ 2026-08-01\n';
+      loadText(text, Object.assign(makeMemoryAdapter(text), { name: archiveTargetName() }));
+      const d = ToolStorage.load('tasklinks');
+      return d ? d.file : null;
+    });
+    r.check('TB-LN7（アーカイブ先のファイルを開いたときは写しを書かない）', ln7 === 'sentinel', JSON.stringify(ln7));
+
+    /* ---------- TB-LN8: タブに戻ったら（外の変更が無くても）数え直す — 開いたままの Plan Tasks で写しが古くならない ---------- */
+    await session(TASKS);
+    const ln8 = await safe(async () => {
+      ToolStorage.save('tasklinks', { at: 1, file: '(メモリ)', notes: {} });
+      lastCheck = 0;   // 2秒の間引きを外す（io.js の let）
+      state.adapter.mode = 'fsa';   // checkExternal は実ファイル（fsa）のときだけ動く。メモリの読み書きのまま、その1回だけ fsa を名乗る
+      try { await checkExternal(); } finally { state.adapter.mode = 'memory'; }
+      const d = ToolStorage.load('tasklinks');
+      return d ? { age: Date.now() - d.at, n: Object.keys(d.notes).length } : null;
+    });
+    r.check('TB-LN8（タブに戻ると、外の変更が無くても写しを書き直す — 時刻が新しくなる）',
+      !!ln8 && typeof ln8 === 'object' && ln8.age < 5000 && ln8.n === 1, JSON.stringify(ln8));
 
     /* ---------- TB-LN5: デモは書かない ---------- */
     const ln5 = await safe(() => {

@@ -202,6 +202,8 @@ async function doArchive() {
   state.snapshot = text;
   for (const l of state.lines) l.orig = l.raw;
   render();
+  // archive.md も数えて写しを書き直す（済んだタスクを移した途端に閉じどきが消えないように — TB-LN6）
+  if (window.ToolTaskLinks) { state.archLinks = ToolTaskLinks.count(parseDoc(toLines(out)).tasks); publishTaskLinks(); }
   showBanner('success', 'アーカイブしました（' + lineNos.length + '行を ' + arch.name + ' へ移動）');
   return { ok: true, moved: lineNos.length };
 }

@@ -11,7 +11,8 @@ function refreshTaskLinks() { taskLinks = window.ToolTaskLinks ? ToolTaskLinks.r
 // ノートにつながるタスクの数。写しが無い・古いときは null（数を出さない）。つながりが無ければ total 0
 function tasksOf(n) {
   if (!taskLinks || !taskLinks.fresh || !n) return null;
-  const c = Object.prototype.hasOwnProperty.call(taskLinks.notes, n.name) ? taskLinks.notes[n.name] : null;
+  const key = ToolTaskLinks.nameOf(n.name);   // 写しの名前は NFC。macOS のファイル名は NFD で来るので、そろえてから引く（IS-TK10）
+  const c = Object.prototype.hasOwnProperty.call(taskLinks.notes, key) ? taskLinks.notes[key] : null;
   if (!c || typeof c.total !== 'number' || typeof c.done !== 'number') return { total: 0, done: 0, last: '' };
   return { total: c.total, done: c.done, last: typeof c.last === 'string' ? c.last : '' };
 }
@@ -33,8 +34,9 @@ function noteTasksChip(n) {
   return s;
 }
 
-// 見出しの1行目の「タスク 10/5 14:30 時点」／「タスクは未読込」／「タスクは古い（10/3）」。
-// 1行目の空きは約 180px（1280px）なので短く — 説明は title に（長い文は ⋯ を次の行へ落とした。2026-10-05 に実測 — IS-LK1・TK1・TK5）
+// 見出しの1行目の「タスク 14:30 時点」（今日）／「タスク 10/4 時点」（昨日以前）／「タスクは未読込」／「タスクは古い」。
+// 1行目の空きは約 180px（1280px）なので短く — 日付と時刻の全部は title に（「タスク 10/15 23:59 時点」は件数が2桁で ⋯ を次の行へ落とした。
+// 2026-10-05 に実測 — IS-LK1・TK1・TK5・TK9）
 function renderLinksAt() {
   const el = $id('links-at');
   if (!el) return;
@@ -44,11 +46,13 @@ function renderLinksAt() {
     el.title = 'Plan Tasks で tasks.md を開く（保存する）と、ノートごとのタスクの数と閉じどきが出ます';
     return;
   }
-  const d = new Date(taskLinks.at);
+  const d = new Date(taskLinks.at), now = new Date(Date.now());
   const md = (d.getMonth() + 1) + '/' + d.getDate();
-  const at = md + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  const hm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  const at = md + ' ' + hm;
+  const today = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
   const file = taskLinks.file || 'tasks.md';
-  el.textContent = taskLinks.fresh ? 'タスク ' + at + ' 時点' : 'タスクは古い（' + md + '）';
+  el.textContent = taskLinks.fresh ? 'タスク ' + (today ? hm : md) + ' 時点' : 'タスクは古い';   // 日付も付けない（件数が3桁のとき「タスクは古い（12/31）」でも ⋯ が落ちた — IS-TK9）
   el.title = taskLinks.fresh
     ? 'タスクの数は Plan Tasks が ' + file + ' を読んだ・保存した時点（' + at + '）のもの'
     : 'Plan Tasks が最後に数えたのは ' + at + '（' + file + '）。24時間より古いので数と閉じどきを出していません。Plan Tasks を開くと新しくなります';
@@ -59,8 +63,12 @@ function isRipe(n) {
   if (!n || (n.base && n.base.status === 'closed')) return false;
   const t = tasksOf(n);
   if (!t || t.total === 0 || t.done < t.total) return false;
-  return n.cards.some(function (c) { return c.status !== 'closed'; });
+  return n.cards.some(canCloseHere);
 }
+
+// このカードをここで閉じてよいか: 開いていて、切り出した論点の行（[[…]] の付いた行 — 答えは子のノートにある）でない。
+// ⋯ の 閉じる と同じ条件（list.js・IS-LK15）。閉じどきの「閉じますか？」もこれに従う（IS-TK11）
+function canCloseHere(c) { return c.status !== 'closed' && !(c.kind === 'line' && c.link); }
 
 // 閉じどきのカードの下: 「✓ つながるタスクは全部済み（2026/9/29(火)）— 論点を閉じますか？［閉じる…］」（IS-TK4）
 function ripeNotice(it) {

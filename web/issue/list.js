@@ -403,7 +403,7 @@ function card(it) {
     add.addEventListener('click', function () { openAddKid(art, add, it); });
     art.appendChild(add);
   }
-  if (!closed && isRipe(it.note)) art.appendChild(ripeNotice(it));   // 閉じますか？（段4 — IS-TK4）
+  if (canCloseHere(it) && isRipe(it.note)) art.appendChild(ripeNotice(it));   // 閉じますか？（段4 — IS-TK4・切り出した行には出さない IS-TK11）
   if (ul.childNodes.length) art.appendChild(ul);   // 空の一覧で余白を作らない
   art.appendChild(vlist);
   return art;

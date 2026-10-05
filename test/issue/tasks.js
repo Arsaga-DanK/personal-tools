@@ -2,10 +2,10 @@
 /* test/issue/tasks.js — 節: タスクとのつながり・閉じどき（段4）
    入口: test/issue.js（ctx を受け取る。単独実行は node test/issue.js tasks）
    写しは lib/storage.js の封筒で localStorage に置く（ToolStorage.save('tasklinks', …)）。IS-TK6・TK7 は同じページに iframe で Plan Tasks を開いて書かせる（別のタブの代わり — storage イベントは同じ保存領域のほかの文書に届く）。
-   照合する ID: IS-TK1〜TK8。期待値の正本は docs/specs/issue.md */
+   照合する ID: IS-TK1〜TK11。期待値の正本は docs/specs/issue.md */
 module.exports = {
   name: 'tasks',
-  ids: 'IS-TK1〜TK8',
+  ids: 'IS-TK1〜TK11',
   async run(ctx) {
     const { page, r, eq, fileUrl } = ctx;
     await page.setViewportSize({ width: 1280, height: 900 });
@@ -65,16 +65,16 @@ module.exports = {
     /* ---------- IS-TK2: 新しい写し — 時刻とノートの数 ---------- */
     await setCopy(COPY, 0);
     const tk2 = await look();
-    r.check('IS-TK2（新しい写し: 「タスク M/D HH:MM 時点」が件数と同じ帯・a は タスク 3・済み 2・b は 全部済み ✓・つながりの無い e には出ない）',
-      !!tk2.linksAt && /^タスク \d{1,2}\/\d{1,2} \d{2}:\d{2} 時点$/.test(tk2.linksAt.text) && tk2.linksAt.band
+    r.check('IS-TK2（新しい写し: 「タスク HH:MM 時点」（今日）が件数と同じ帯・a は タスク 3・済み 2・b は 全部済み ✓・つながりの無い e には出ない）',
+      !!tk2.linksAt && /^タスク \d{2}:\d{2} 時点$/.test(tk2.linksAt.text) && tk2.linksAt.band
       && eq(tk2.chips.a, { text: 'タスク 3・済み 2', all: false }) && eq(tk2.chips.b, { text: '全部済み ✓', all: true }) && tk2.chips.e === null,
       JSON.stringify({ linksAt: tk2.linksAt, chips: tk2.chips }));
 
     /* ---------- IS-TK5: 古い写し ---------- */
     await setCopy(COPY, 25 * 3600 * 1000);
     const tk5 = await look();
-    r.check('IS-TK5（25時間前の写し: 「タスクは古い（…）」が件数と同じ帯で title に 24時間・数も閉じどきも出ない・b の遅れは遅れに出る）',
-      !!tk5.linksAt && tk5.linksAt.text.startsWith('タスクは古い（') && tk5.linksAt.band && tk5.linksAt.title.includes('24時間') && !tk5.chips.a && !tk5.chips.b && tk5.ripe === 0
+    r.check('IS-TK5（25時間前の写し: 「タスクは古い」が件数と同じ帯で title に 24時間・数も閉じどきも出ない・b の遅れは遅れに出る）',
+      !!tk5.linksAt && tk5.linksAt.text === 'タスクは古い' && tk5.linksAt.band && tk5.linksAt.title.includes('24時間') && !tk5.chips.a && !tk5.chips.b && tk5.ripe === 0
       && ticksOf(tk5, '遅れ').some(t => t.includes('乙は')), JSON.stringify({ linksAt: tk5.linksAt, chips: tk5.chips, ripe: tk5.ripe }));
 
     /* ---------- IS-TK3: 閉じどき — いまと案件の見出し ---------- */
@@ -155,5 +155,50 @@ module.exports = {
     });
     r.check('IS-TK8（論点の行が空の閉じどき: 「ノートを閉じますか？」・［閉じる…］の対象はノート名だけ）',
       tk8.empty && tk8.notice === '✓ つながるタスクは全部済み — ノートを閉じますか？閉じる…' && tk8.target === '空の論点だけ' && tk8.kind === 'note', JSON.stringify(tk8));
+
+    /* ---------- IS-TK9: 見出しの1行目は一番長い形でも収まる（2026-10-05 の点検 — 「タスク 10/15 23:59 時点」と2桁の件数で ⋯ が落ちた） ---------- */
+    const tk9 = await page.evaluate(() => {
+      const realNow = Date.now;
+      const top = (s) => Math.round(document.querySelector(s).getBoundingClientRect().top);
+      const band = () => { const ts = ['#pick-btn', '#summary', '#links-at', '#issue-more > summary'].map(top); return Math.max(...ts) - Math.min(...ts) <= 14; };
+      const at = new Date(2026, 11, 31, 23, 59).getTime();
+      const view = (now) => {
+        Date.now = () => now;   // 写しの新しさと「今日か」は Date.now で決まる（描いたら元に戻す）
+        ToolStorage.save('tasklinks', { at, file: 'tasks.md', notes: {} });
+        renderCards();
+        document.getElementById('summary').textContent = '128件（開いているもの）';   // 件数が3桁でも
+        return { text: document.getElementById('links-at').textContent, band: band() };
+      };
+      try {
+        return { other: view(at + 2 * 3600 * 1000), same: view(at + 30 * 1000), stale: view(at + 30 * 3600 * 1000) };
+      } finally { Date.now = realNow; }
+    });
+    r.check('IS-TK9（見出しの1行目: 「タスク 12/31 時点」・「タスク 23:59 時点」・「タスクは古い」— 件数が3桁でも ⋯ まで同じ帯）',
+      tk9.other.text === 'タスク 12/31 時点' && tk9.other.band && tk9.same.text === 'タスク 23:59 時点' && tk9.same.band
+      && tk9.stale.text === 'タスクは古い' && tk9.stale.band, JSON.stringify(tk9));
+
+    /* ---------- IS-TK10: ファイル名が NFD でも当たる（macOS のファイル名は NFD で来る） ---------- */
+    const NFD = 'がス', NFC = 'がス';
+    const pre10 = await page.evaluate(([a, b]) => a !== b && a.normalize('NFC') === b, [NFD, NFC]);
+    await loadNotes({ [NFD + '.md']: note({ title: '濁点のノート', lines: ['- [ ] 壬は Q ではなく R ではないか'] }) });
+    await setCopy({ [NFC]: { total: 2, done: 1, last: '' } }, 0);
+    const tk10 = await page.evaluate(() => { const c = Array.from(document.querySelectorAll('.note-card')).find(s => (s.querySelector('.note-name') || {}).textContent === '濁点のノート');
+      const e = c && c.querySelector('.note-tasks'); return e ? e.textContent : null; });
+    r.check('IS-TK10（NFD のファイル名と NFC の写しの名前が当たる — 前提: NFD と NFC は違う文字列）', pre10 === true && tk10 === 'タスク 2・済み 1', JSON.stringify({ pre10, tk10 }));
+
+    /* ---------- IS-TK11: 切り出した論点の行は閉じる対象にしない（答えは子のノートにある — ⋯ の 閉じる と同じ） ---------- */
+    await loadNotes({
+      'p.md': note({ title: '切り出しただけ', lines: ['- [ ] 己は K ではなく L ではないか [[child]]'] }),
+      'q.md': note({ title: '切り出しと残り', lines: ['- [ ] 庚は M ではなく N ではないか [[child2]]', '- [ ] 辛は O ではなく P ではないか'] }),
+    });
+    await setCopy({ p: { total: 1, done: 1, last: '' }, q: { total: 1, done: 1, last: '' } }, 0);
+    const tk11 = await page.evaluate(() => {
+      const notice = (t) => { const c = Array.from(document.querySelectorAll('.issue-card')).find(a => (a.querySelector('.ic-issue') || {}).textContent === t); return c ? !!c.querySelector('.ic-ripe') : null; };
+      const g = Array.from(document.querySelectorAll('#now .now-group')).find(x => ((x.querySelector('.now-badge') || {}).textContent || '').startsWith('閉じどき'));
+      return { ki: notice('己は K ではなく L ではないか'), kou: notice('庚は M ではなく N ではないか'), shin: notice('辛は O ではなく P ではないか'),
+        ticks: g ? Array.from(g.querySelectorAll('.tick')).map(t => t.textContent) : [] };
+    });
+    r.check('IS-TK11（切り出した行だけのノートは閉じどきにならない・切り出した行には「閉じますか？」を出さず、開いた行にだけ出す）',
+      tk11.ki === false && tk11.kou === false && tk11.shin === true && eq(tk11.ticks, ['切り出しと残り（全部済み）']), JSON.stringify(tk11));
   },
 };
