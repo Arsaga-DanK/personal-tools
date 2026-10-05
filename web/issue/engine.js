@@ -384,6 +384,12 @@ function issueSectionRange(lines) {
   return [i, end];
 }
 
+/* 論点の行の子（段3 — IS-DG1）。記法は増やさない: 「待ち:」「待ち：」で始まれば待ち、「伝えた:」は伝えた（閉じるときに書く — openCloseModal）、それ以外は分かった */
+function kidOf(s) {
+  const m = String(s).match(/^(待ち|伝えた)\s*[:：]\s*(.*)$/);
+  return m ? { kind: m[1] === '待ち' ? 'wait' : 'told', text: m[2].trim() } : { kind: 'learned', text: String(s).trim() };
+}
+
 function issueLines(text) {
   const t = nfc(text).replace(/\r\n?/g, '\n');
   const lines = t.split('\n');
@@ -397,7 +403,7 @@ function issueLines(text) {
     // 直後のインデントされた箇条書きは「分かったこと」（閉じるときに子行として置く）
     const notes = [];
     for (let j = k + 1; j < r[1]; j++) {
-      const c = lines[j].match(/^(?:\t| {2,})[-*+]\s+(.*)$/);
+      const c = lines[j].match(/^(?:\t| {2,})+[-*+]\s+(.*)$/);   // 子の子も読む（段3 — IS-DG1）
       if (!c) break;
       notes.push(c[1].trim());
     }
@@ -405,6 +411,7 @@ function issueLines(text) {
       lineNo: k,
       raw: lines[k],
       note: notes.join(' / '),
+      kids: notes.map(kidOf),
       done: m[1].toLowerCase() === 'x',
       due: (rest.match(DUE_RE) || [])[1] || '',
       doneDate: (rest.match(DONE_RE) || [])[1] || '',
@@ -434,6 +441,22 @@ function addIssueLine(text, line, due) {
   }
   const at = topOfBody(lines, t);
   lines.splice(at, 0, ...['', '## 論点', '', body, '']);
+  return lines.join('\n');
+}
+
+/* 論点の行の子の最後（子の子があればその後）に1行足す（段3 — IS-DG2）。字下げは最初の子に合わせる（子が無ければタブ）。
+   ほかの行は変えない。行番号が範囲外ならそのまま返す */
+function addKidLine(text, lineNo, sub) {
+  const lines = nfc(text).replace(/\r\n?/g, '\n').split('\n');
+  if (lineNo < 0 || lineNo >= lines.length) return lines.join('\n');
+  let last = lineNo, indent = '\t';
+  for (let j = lineNo + 1; j < lines.length; j++) {
+    const c = lines[j].match(/^((?:\t| {2,})+)[-*+]\s+/);
+    if (!c) break;
+    if (last === lineNo) indent = c[1];
+    last = j;
+  }
+  lines.splice(last + 1, 0, indent + '- ' + nfc(sub).trim());
   return lines.join('\n');
 }
 
@@ -624,15 +647,28 @@ function toTasks(nextLines, opts) {
   }).join('\n');
 }
 
+/* 掘るの本文（段3 — IS-DG3・［掘るを読む］・量）。見出し「掘る」の次の行から、**同じか上の段の見出し**の手前まで
+   （小見出し `###` は中身）。``` の中の `# …` は見出しにしない（コマンドの注釈で切れないように）。末尾の空白は落とす */
+function digText(text) {
+  const out = [];
+  let level = 0, fence = false;   // level: 0 = 掘るの外、それ以外は掘るの見出しの # の数
+  for (const l of nfc(text).replace(/\r\n?/g, '\n').split('\n')) {
+    if (/^\s*```/.test(l)) fence = !fence;
+    const h = fence ? null : l.match(/^(#{1,6})\s+(.*?)\s*$/);
+    if (level && h && h[1].length <= level) break;
+    if (!level) { if (h && h[2].trim() === '掘る') level = h[1].length; continue; }
+    out.push(l);
+  }
+  return out.join('\n').replace(/\s+$/, '');
+}
+
 /* 一覧の見出しに出す量（IS-L11・IS-Q23）: 掘るの中身の行数・画像の埋め込み数・論点の行数。
-   掘るは空・「>」の注記・中身の無い「- 」を数えない（テンプレの骨だけで「掘る 3行」と出さない） */
+   掘るは空・「>」の注記・中身の無い「- 」を数えない（テンプレの骨だけで「掘る 3行」と出さない）。
+   掘るの本文は digText と同じ（数と［掘るを読む］の中身を食い違わせない — 段3） */
 function noteStats(text) {
   const t = nfc(text).replace(/\r\n?/g, '\n');
-  let dig = 0, inDig = false;
-  for (const l of t.split('\n')) {
-    const h = l.match(/^#{1,6}\s+(.*?)\s*$/);
-    if (h) { inDig = h[1].trim() === '掘る'; continue; }
-    if (!inDig) continue;
+  let dig = 0;
+  for (const l of digText(t).split('\n')) {
     const x = l.trim();
     if (x === '' || /^>/.test(x) || /^[-*+]\s*$/.test(x)) continue;
     dig++;
