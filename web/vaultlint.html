@@ -34,6 +34,13 @@
   /* ⋯ の中の設定（段6）。縦に並べて欄は幅いっぱい */
   .more-panel #settings { flex-direction: column; align-items: stretch; margin: 0; width: min(440px, 80vw); }
   .more-panel #settings input { min-width: 0; width: 100%; box-sizing: border-box; }
+  /* 「いま」の行の色（段6）。直す＝遅れと同じ赤・片づけ＝閉じどきと同じ緑・確認＝今日と同じ橙 */
+  .now-dot.k-fix { background: var(--st-late); }
+  .now-dot.k-tidy { background: var(--st-ripe); }
+  .now-dot.k-check { background: var(--st-today); }
+  .now-badge.k-fix { color: var(--st-late); background: color-mix(in srgb, var(--st-late) 16%, transparent); }
+  .now-badge.k-tidy { color: var(--st-ripe); background: color-mix(in srgb, var(--st-ripe) 16%, transparent); }
+  .now-badge.k-check { color: var(--st-today); background: color-mix(in srgb, var(--st-today) 16%, transparent); }
 </style>
 </head>
 <body>
@@ -81,6 +88,7 @@
 
 
   <div class="banner" id="banner" hidden></div>
+  <section class="now" id="now" hidden aria-label="いま"></section>
   <div id="runlog" class="issue-block" hidden></div>
   <p class="summary" id="summary"></p>
   <div id="results"></div>
@@ -95,6 +103,7 @@
 <script src="vaultlint/engine.js"></script>
 <script src="vaultlint/fix.js"></script>
 <script src="vaultlint/ui.js"></script>
+<script src="vaultlint/now.js"></script>
 <script src="vaultlint/fsa.js"></script>
 <script>
 'use strict';

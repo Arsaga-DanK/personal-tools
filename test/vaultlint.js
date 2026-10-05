@@ -545,6 +545,47 @@ const IDEO_SPACE = '\u3000';
   r.check('VL-T4（種類の ▾ で表をたたむ・描き直しても残る・もう一度で戻る）',
     eq(t4, { a: { hidden: true, btn: '▸' }, b: { hidden: true, btn: '▸' }, c: { hidden: false, btn: '▾' } }), JSON.stringify(t4));
 
+  /* ========== VL-N1〜N3: 一番上に「いま」（段6） ========== */
+  const N_FILES = [
+    { path: '10_Projects/ITK/計画.md', text: '[[ネットワーク構成]]\n![[構成図.png]]\n[[会議メモ]]' },   // リンク切れ2・添付消失1
+    { path: '20_Areas/読書メモ.md', text: '[[イシューからはじめよ]]\n![アーキ](img/arch.png)' },
+    { path: '30_Resources/用語' + SP2 + '集.md', text: '' },
+    { path: '00_Inbox/2026-09-20.md', text: '- [ ] 先方に連絡' },
+    { path: '00_Inbox/2026-09-21.md', text: '- メモ' },
+    { path: '00_Inbox/2026-09-22.md', text: '- メモ' },
+    { path: '00_Inbox/2026-09-23.md', text: '- [ ] 見積\n- [ ] 返信' },
+    { path: '04_Issues/2026-09-20_ゴールの仮決め.md', text: '---\nstatus: closed\nclosed: 2026-10-01\n---\n# a' },
+    { path: '04_Issues/2026-09-25_先方に確認.md', text: '---\nstatus: closed\nclosed: 2026-10-03\n---\n# b' },
+  ];
+  const nowOf = () => page.evaluate(() => {
+    const box = document.getElementById('now');
+    if (!box) return { missing: true };
+    return { hidden: box.hidden, cnt: Array.from(box.querySelectorAll('.now-cnt')).map(c => c.textContent.trim()),
+      groups: Array.from(box.querySelectorAll('.now-group')).map(g => ({ badge: g.querySelector('.now-badge').textContent, ticks: Array.from(g.querySelectorAll('.tick')).map(t => t.textContent) })),
+      empty: (box.querySelector('.now-empty') || {}).textContent || '' };
+  });
+  await page.evaluate(([files, cfg]) => window.vaultlint.test.run(files, '2026-10-05', cfg), [N_FILES, T_CFG]);
+  const n1 = await nowOf();
+  r.check('VL-N1（いま: 直す 6・片づけ 4・確認 2 — 数は件数・札は種類ごと）',
+    !n1.missing && !n1.hidden && eq(n1.cnt, ['直す 6', '片づけ 4', '確認 2'])
+    && eq(n1.groups, [{ badge: '直す 6', ticks: ['リンク切れ 3', '添付消失 2', 'ファイル名の罠 1'] }, { badge: '片づけ 4', ticks: ['古いデイリー 2', '閉じたイシュー 2'] },
+      { badge: '確認 2', ticks: ['未転記タスクのあるデイリー 2'] }]), JSON.stringify(n1));
+  const n2 = await page.evaluate(() => {
+    const sec = () => document.querySelector('#results section[data-key="brokenLinks"]');
+    if (!sec()) return { missing: true };
+    sec().querySelector('.vl-fold').click();
+    const tick = Array.from(document.querySelectorAll('#now .tick')).find(t => t.textContent === 'リンク切れ 3');
+    if (tick) tick.click();
+    return { hidden: sec().querySelector('.table-wrap').hidden, btn: sec().querySelector('.vl-fold').textContent, flash: sec().classList.contains('flash') };
+  });
+  r.check('VL-N2（札を押すとたたんだ表が開いて光る）', eq(n2, { hidden: false, btn: '▾', flash: true }), JSON.stringify(n2));
+  await page.reload();
+  const n3a = await nowOf();
+  await page.evaluate(() => window.vaultlint.test.run([{ path: 'a.md', text: '[[b]]' }, { path: 'b.md', text: '' }], '2026-10-05', { privateDirs: [] }));
+  const n3b = await nowOf();
+  r.check('VL-N3（走査する前は「いま」を出さない・健全なら「直すもの・片づけるものはありません ✅」）',
+    !n3a.missing && n3a.hidden && !n3b.hidden && n3b.empty === '直すもの・片づけるものはありません ✅', JSON.stringify({ n3a, n3b }));
+
   /* ========== VL-U4: 幅390px ========== */
   await page.setViewportSize({ width: 390, height: 800 });
   const u4 = await page.evaluate(() =>

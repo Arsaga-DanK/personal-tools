@@ -1,6 +1,6 @@
 'use strict';
 /* web/vaultlint/ui.js — 結果の表・報告・修復の選択（CLASS_DEFS・render）
-   入口: web/vaultlint.html（このファイルは単独では動かない）。前提: engine.js・fix.js（canDeleteLine）・lib/ui.js・lib/edit.js（ToolEdit.fillDate）・fsa.js の todayStr（描くときに呼ぶ）。読み込み時に実行する文は無い（宣言だけ）
+   入口: web/vaultlint.html（このファイルは単独では動かない）。前提: engine.js・fix.js（canDeleteLine）・lib/ui.js・lib/edit.js（ToolEdit.fillDate）・fsa.js の todayStr（描くときに呼ぶ）・now.js の renderVaultNow（描くときに呼ぶ）。読み込み時に実行する文は無い（宣言だけ）
    2026-10-05 に vaultlint.html から節ごとに分けた（段6 — 1,000 行を超えるため。coding-rules「ファイルの分割」） */
 /* ========== UI ========== */
 
@@ -149,6 +149,7 @@ function render(res, excluded, files) {
     el('copy-btn').hidden = true;
     el('fix-btn').hidden = true;
     el('commit-label').hidden = true;
+    renderVaultNow(res);   // 失敗したら「いま」も隠す（段6）
     return;
   }
   lastScan = { files: files || [], excluded };
@@ -229,5 +230,6 @@ function render(res, excluded, files) {
   const fixable = fixControls.length > 0;
   el('fix-btn').hidden = !fixable;
   el('commit-label').hidden = !fixable;
+  renderVaultNow(res);   // 「いま」は表と同じときに描き直す（段6 — now.js）
 }
 
