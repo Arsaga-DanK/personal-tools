@@ -358,6 +358,28 @@ const ALL_OFF = {
   r.check('NM-13（インポート成功バナーが表示される）',
     importMsg.includes('インポートしました'), JSON.stringify(importMsg));
 
+  /* ========== NM-14: ⋯ の書き出し／読み込みは押したら閉じる（段5 の点検 — 開いたままだと2行目の［結果をコピー］に重なる） ========== */
+  const nm14 = await page.evaluate(() => {
+    const more = document.getElementById('norm-more');
+    const copy = document.getElementById('copy-btn');
+    const hit = () => { const r = copy.getBoundingClientRect(); return document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) === copy; };
+    const fi = document.getElementById('import-file');
+    const origExport = ToolStorage.exportJson, origPick = fi.click;
+    ToolStorage.exportJson = () => true;   // ダウンロードしない
+    fi.click = () => {};                   // ファイルを選ぶ画面を出さない
+    const out = {};
+    try {
+      more.open = true; out.coveredWhenOpen = !hit();   // 前提: 開いた ⋯ は［結果をコピー］に重なる
+      document.getElementById('export-btn').click(); out.afterExport = { open: more.open, hit: hit() };
+      more.open = true;
+      document.getElementById('import-btn').click(); out.afterImport = { open: more.open, hit: hit() };
+    } finally { ToolStorage.exportJson = origExport; fi.click = origPick; more.open = false; }
+    return out;
+  });
+  r.check('NM-14（⋯ の［設定をエクスポート］［設定をインポート］は押すと ⋯ を閉じ、［結果をコピー］が押せる）',
+    nm14.coveredWhenOpen && !nm14.afterExport.open && nm14.afterExport.hit && !nm14.afterImport.open && nm14.afterImport.hit,
+    JSON.stringify(nm14));
+
   /* ========== コピー（実クリップボードを壊さない） ========== */
   await page.evaluate(() => localStorage.clear());
   await page.reload();

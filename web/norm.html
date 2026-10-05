@@ -531,12 +531,15 @@ el.copyBtn.addEventListener('click', () => {
   });
 });
 
-// 設定エクスポート/インポート（インポートは全置換 — DEV-Q4）
+// 設定エクスポート/インポート（インポートは全置換 — DEV-Q4）。
+// どちらも見出しの ⋯ の中なので、押したら ⋯ を閉じる（開いたままだと2行目の［結果をコピー］に重なる — NM-14・Check Issue の ⋯ と同じ）
+const closeMore = () => { $('norm-more').open = false; };
 el.exportBtn.addEventListener('click', () => {
+  closeMore();
   const ok = ToolStorage.exportJson(TOOL, { options: uiOpts() });
   if (!ok) showBanner('error', 'エクスポートに失敗しました');
 });
-el.importBtn.addEventListener('click', () => el.importFile.click());
+el.importBtn.addEventListener('click', () => { closeMore(); el.importFile.click(); });
 el.importFile.addEventListener('change', () => {
   const file = el.importFile.files[0];
   el.importFile.value = '';

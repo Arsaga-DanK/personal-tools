@@ -150,6 +150,23 @@ if ! perl -ne '
   exit 1
 fi
 
+# CSS のコメントが閉じているか（2026-10-05 — lib/ui.css に閉じ忘れた /* が入り、次の行のコメントの */ で偶然閉じていた。
+# その次の行を直すと、以降の規則が黙ってコメントに飲み込まれる。どのテストも気づかない）。
+# CSS のコメントは入れ子にならないので、コメントの中に /* が出たら前のコメントの閉じ忘れ。lib の CSS とページの <style> を見る
+if ! perl -0777 -ne '
+      my $css = $ARGV =~ /\.css$/ ? $_ : join("\n", /<style[^>]*>(.*?)<\/style>/gs);
+      while ($css =~ m{/\*(.*?)(\*/|\z)}gs) {
+        my ($body, $end) = ($1, $2);
+        if ($end eq "" || $body =~ m{/\*}) {
+          my $head = substr($body, 0, 30); $head =~ s/\s+/ /g;
+          print "  $ARGV: 閉じていない CSS のコメント: /*$head…\n"; $bad = 1; last;
+        }
+      }
+      END { exit($bad ? 1 : 0) }' lib/*.css web/**/*.html index.html; then
+  print -r -- "CSS のコメントが閉じていません（上記）。/* … */ を閉じてください（閉じ忘れは次のコメントの */ まで規則を黙って飲み込む）" >&2
+  exit 1
+fi
+
 # 行数の警告（2026-09-25 設計 docs/audits/2026-09-25-structure.md §4-1）。
 # **落とさない** — 次に膨らむものを早く知るためのもの。1,000 行を超えたら同名フォルダに分ける
 # （coding-rules「ファイルの分割」）。既知の超過は SIZE_KNOWN に列挙し、分けたらここから消す。
