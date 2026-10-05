@@ -92,7 +92,7 @@ CLAUDE.md（作業原則）と `docs/specs/`（ツール別契約）の間を埋
 
 見た目（全ツール）:
 1. **情報は削らず、見せ方で整理する**（利用者「表示されている情報自体は良い（削らない）」）— 字の強弱・余白・薄い罫線
-2. **見出しは2行**（`.app-head`・`.app-controls`）。説明文は題名の title、設定（vault 名など）は ⋯ の中、操作は1段
+2. **見出しは2行**（`.app-head`・`.app-controls`）。説明文は題名の title、設定（vault 名など）は ⋯ の中、操作は1段 — 2026-10-05 に全ツールとハブへ（段5）
 3. **空欄に「—」を並べない**
 4. **長い名前は切って、全文は title**。🎯 が作るノート名の先頭の日付は一覧では省く
 5. **日付は `ToolEdit.fillDate`**（`2026/9/30(水)`・今年の年は薄く）。期限には `ToolEdit.dueWords`（N日遅れ／今日／あとN日）を添える
@@ -130,7 +130,7 @@ CLAUDE.md（作業原則）と `docs/specs/`（ツール別契約）の間を埋
 - 変換系: 2ペイン（入力/出力）・リアルタイム変換（デバウンス 150〜250ms）・コピーボタン・
   不正入力でも落ちず警告＋最善の出力
 - `<main class="app-wide">`（2ペイン系）または `class="app"`（1カラム系）。
-  `<main>` 直下に `.tool-header`（「← ツール一覧」＋保存注記）
+  `<main>` 直下に**見出し2行**: 1行目 `header.app-head`（`.tool-header`＝「← ツール一覧」＋保存注記・`h1`（説明は `title`）・設定は ⋯）、2行目 `.app-controls`（操作。ツールバーの id はそのまま）。**`.subtitle` は置かない**（2026-10-05 段5・HUB-28 が全ページを照合）
 - コピーボタンは `class="primary"`・`title="Cmd/Ctrl+Enter"`。
   **Cmd/Ctrl+Enter → copyBtn.click()** を document keydown で配線
 - 入力 textarea に placeholder。サンプル投入ボタン（`.sample-btn`・入力が空のときだけ表示）
