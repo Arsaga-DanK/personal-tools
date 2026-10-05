@@ -651,7 +651,7 @@ function projHead(k) {
   return ph;
 }
 
-// ノート＝1枚（IS-Q23）: 見出し（ノート名・＋論点・Obsidian・⋯）→ 量（掘る・論点・画像）→ 論点の行
+// ノート＝1枚（IS-Q23）: 見出し（ノート名・＋論点・Obsidian・⋯）→ 論点の行 → ［掘るを読む（量）］（段3）
 function noteCard(g) {
   const sec = document.createElement('section');
   sec.className = 'note-card' + (g.n.base && g.n.base.status === 'closed' ? ' is-closed' : '');
@@ -662,13 +662,15 @@ function noteCard(g) {
   if (st.dig) parts.push('掘る ' + st.dig + '行');
   if (st.lines) parts.push('論点 ' + st.lines);
   if (st.images) parts.push('画像 ' + st.images);
-  if (parts.length) {
+  // 掘るに中身があれば、量はカードの下の［掘るを読む（…）］の見出しに（段3 — IS-DG8）。無ければ今どおり見出しのすぐ下に量だけ（IS-DG9）
+  if (parts.length && !st.dig) {
     const p = document.createElement('div');
     p.className = 'note-stats';
     p.textContent = parts.join('・');
     sec.appendChild(p);
   }
   for (let k = 0; k < g.cards.length; k++) sec.appendChild(card(g.cards[k]));
+  if (st.dig) sec.appendChild(digBox(g.n.file, digText(g.n.text), parts.join('・')));
   return sec;
 }
 

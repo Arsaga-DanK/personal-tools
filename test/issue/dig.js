@@ -125,5 +125,54 @@ module.exports = {
     const dg7 = await page.evaluate(() => { const c = window.__calls.slice(); window.sendToTasks = window.__orig;
       const no = Array.from(document.querySelectorAll('.ic-edit button')).find(b => b.textContent === 'やめる'); if (no) no.click(); return c; });
     r.check('IS-DG7（［＋ 分かったこと］の欄を開いている最中は、別の行で T が効かない）', eq(dg7, []), JSON.stringify(dg7));
+
+    /* ---------- IS-DG8・DG9: 掘るを読む ---------- */
+    const DIGNOTE = ['---', 'status: open', '---', '# 掘るのノート', '', '## 論点', '', '- [ ] 辛は O ではなく P ではないか', '', '## 掘る', '',
+      '> 10分で論点の行が書けなければ', '- 調べたこと', '\t- 深いこと', '1. 番号の行', '| a | b |', '|---|---|', '| 1 | **2** |', '---',
+      '![[shot.png]]', '- [ ] やること', '- [x] 済んだ', '[[ノート|別名]] と `code`', '[文字](https://example.com)', '閉じていない **太字',
+      '### 小見出し', '```', '# 確認', 'ping x', '```', ''].join('\n');
+    const NODIG = ['---', 'status: open', '---', '# 掘るの無いノート', '', '## 論点', '', '- [ ] 壬は Q ではなく R ではないか', ''].join('\n');
+    await setStatus('open');
+    await loadNotes({ 'dig.md': DIGNOTE, 'nodig.md': NODIG });
+    const digOf = (name) => page.evaluate((nm) => {
+      const sec = Array.from(document.querySelectorAll('.note-card')).find(s => (s.querySelector('.note-name') || {}).textContent === nm);
+      if (!sec) return { missing: true };
+      const d = sec.querySelector('details.dig');
+      const kids = Array.from(sec.children);
+      return { has: !!d, open: !!d && d.open, summary: d ? d.querySelector('summary').textContent : '', stats: !!(d && d.querySelector('summary .note-stats')),
+        // 論点の行より下（最後のカードより後ろ）・量だけのときは見出しのすぐ下（2つ目の子）
+        below: !!d && kids.indexOf(d) > kids.indexOf(Array.from(sec.querySelectorAll(':scope > .issue-card')).pop()),
+        plainStats: !!sec.querySelector(':scope > .note-stats') && kids[1] === sec.querySelector(':scope > .note-stats') };
+    }, name);
+    const dg8a = await digOf('掘るのノート');
+    const dg8 = await page.evaluate(() => {
+      const sec = Array.from(document.querySelectorAll('.note-card')).find(s => (s.querySelector('.note-name') || {}).textContent === '掘るのノート');
+      const d = sec && sec.querySelector('details.dig'); if (!d) return { missing: true };
+      // d.open = true でも toggle は後から非同期で来るので、自分で toggle を送ってその場で中身を見る
+      d.open = true; d.dispatchEvent(new Event('toggle'));
+      const md = d.querySelector('.md'); if (!md) return { noMd: true };
+      const lis = Array.from(md.querySelectorAll('.md-li'));
+      return {
+        text: md.textContent, note: md.textContent.includes('10分で論点'),
+        li: lis.map(l => l.textContent), pad: lis.slice(0, 2).map(l => parseFloat(l.style.paddingLeft || '0')),
+        th: Array.from(md.querySelectorAll('th')).map(x => x.textContent), td: Array.from(md.querySelectorAll('td')).map(x => x.textContent),
+        bold: Array.from(md.querySelectorAll('td b')).map(x => x.textContent), hr: !!md.querySelector('hr'),
+        img: (md.querySelector('.md-img') || {}).textContent || '', code: (md.querySelector('code') || {}).textContent || '',
+        p: Array.from(md.querySelectorAll('p')).map(x => x.textContent),
+        h: Array.from(md.querySelectorAll('.md-h')).map(x => x.textContent), pre: Array.from(md.querySelectorAll('pre')).map(x => x.textContent),
+      };
+    });
+    r.check('IS-DG8（掘るを読む: 見出しに量・論点の行より下・既定は閉じる・開くと 注記なし・箇条書きの深さ・番号・表・区切り・画像の名前・チェック・リンクは文字・コード・崩れた太字は素の文字・小見出し・ブロック）',
+      !dg8a.missing && dg8a.has && !dg8a.open && dg8a.summary.startsWith('掘るを読む（') && dg8a.stats && dg8a.below
+      && !dg8.missing && !dg8.noMd && !dg8.note && eq(dg8.li.slice(0, 3), ['・調べたこと', '・深いこと', '1. 番号の行']) && dg8.pad[1] > dg8.pad[0]
+      && eq(dg8.th, ['a', 'b']) && eq(dg8.td, ['1', '2']) && eq(dg8.bold, ['2']) && dg8.hr && dg8.img === '🖼 shot.png（画像は Obsidian で）'
+      && dg8.li.includes('☐ やること') && dg8.li.includes('☑ 済んだ') && dg8.code === 'code'
+      && dg8.p.includes('別名 と code') && dg8.p.includes('文字') && dg8.p.includes('閉じていない **太字')
+      && eq(dg8.h, ['小見出し']) && eq(dg8.pre, ['# 確認\nping x']),
+      JSON.stringify({ dg8a, dg8 }).slice(0, 900));
+    await setStatus('all');
+    const dg9 = { kept: (await digOf('掘るのノート')).open, nodig: await digOf('掘るの無いノート') };
+    r.check('IS-DG9（掘るを読むは描き直しても開いたまま・掘るの無いノートは details が無く .note-stats だけ）',
+      dg9.kept === true && !dg9.nodig.missing && !dg9.nodig.has && dg9.nodig.plainStats, JSON.stringify(dg9));
   },
 };

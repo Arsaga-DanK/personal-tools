@@ -177,6 +177,22 @@
   .ic-kid.k-wait .ic-kid-k { color: var(--st-today); }
   .ic-add-kid { margin: 2px 0 4px 2.2em; border: 0; background: none; padding: 0; color: var(--accent); font-size: 12.5px; cursor: pointer; box-shadow: none; }
   .ic-add-kid:hover { text-decoration: underline; box-shadow: none; transform: none; }
+  /* ［掘るを読む］（段3 — IS-DG8）。高さに上限・表とブロックだけ横に流す */
+  details.dig { border-top: 1px solid var(--border); margin-top: 6px; }
+  details.dig > summary { cursor: pointer; padding: 6px 2px; font-size: 12.5px; color: var(--muted); }
+  details.dig > summary .note-stats { display: inline; margin: 0; }
+  .md { padding: 2px 4px 10px 1.4em; font-size: 13px; max-height: 360px; overflow: auto; overflow-wrap: anywhere; }
+  .md p { margin: 2px 0; }
+  .md .md-li { margin: 1px 0; }
+  .md hr { border: 0; border-top: 1px dashed var(--border); margin: 8px 0; }
+  .md .md-img { color: var(--muted); font-size: 12px; }
+  .md .md-tw { overflow-x: auto; margin: 6px 0; }
+  .md table { border-collapse: collapse; font-size: 12.5px; }
+  .md td, .md th { border: 1px solid var(--border); padding: 3px 7px; text-align: left; vertical-align: top; white-space: nowrap; }
+  .md th { color: var(--muted); font-weight: 600; }
+  .md code { font: 12px ui-monospace, Menlo, monospace; background: var(--bg); padding: 0 3px; border-radius: 3px; }
+  .md pre { font: 12px ui-monospace, Menlo, monospace; background: var(--bg); padding: 6px 8px; border-radius: 6px; margin: 4px 0; overflow-x: auto; white-space: pre; }
+  .md .md-h { font-weight: 700; margin: 8px 0 2px; }
 </style>
 </head>
 <body>
@@ -304,6 +320,7 @@
 <script src="issue/ui.js"></script>
 <script src="issue/list.js"></script>
 <script src="issue/now.js"></script>
+<script src="issue/dig.js"></script>
 <script src="issue/wizard.js"></script>
 <script>
 'use strict';
