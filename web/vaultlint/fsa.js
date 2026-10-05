@@ -225,7 +225,7 @@ function updatePickState() {
   el('pick').disabled = noApi || unset;
   const msg = noApi
     ? 'このブラウザは対応していません（showDirectoryPicker が必要 — Chrome 系で開いてください）'
-    : (unset ? '先に「非公開フォルダ」を決めて［設定を保存］を押してください（除外なしでよければ空欄のまま保存）' : '');
+    : (unset ? '先に ⋯ の中の「非公開フォルダ」を決めて［設定を保存］を押してください（除外なしでよければ空欄のまま保存）' : '');
   el('env-note').textContent = msg;
   el('env-note').hidden = msg === '';
 }
@@ -239,5 +239,6 @@ el('cfg-save').addEventListener('click', () => {
     closedDir: el('cfg-closed').value,
   });
   applyConfig(ToolConfig.all());
+  el('vl-more').open = false;   // 保存したら閉じる（結果を隠さない — 段6・VL-L1）
   showBanner('success', '設定を保存しました');
 });

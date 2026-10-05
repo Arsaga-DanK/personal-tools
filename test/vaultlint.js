@@ -474,6 +474,26 @@ const IDEO_SPACE = '\u3000';
   r.check('VL-U8（空欄のまま保存すれば「除外なし」として決定され、スキャンが有効になる）',
     u8.before === true && u8.after === false && eq(u8.saved, []), JSON.stringify(u8));
 
+  /* ========== VL-L1: 設定欄は見出しの ⋯ の中（段6 — 初回だけ開いて出す・保存で閉じる） ========== */
+  await page.evaluate(() => localStorage.removeItem('tools:config'));
+  await page.reload();
+  const l1a = await page.evaluate(() => {
+    const more = document.getElementById('vl-more');
+    return { open: !!more && more.open, inside: !!more && more.contains(document.getElementById('settings')),
+      note: document.getElementById('env-note').textContent };
+  });
+  const l1b = await page.evaluate(() => {
+    document.getElementById('cfg-private').value = '';
+    document.getElementById('cfg-save').click();
+    const more = document.getElementById('vl-more');
+    return { open: !!more && more.open, disabled: document.getElementById('pick').disabled };
+  });
+  await page.reload();
+  const l1c = await page.evaluate(() => { const more = document.getElementById('vl-more'); return { open: !!more && more.open }; });
+  r.check('VL-L1（設定欄は ⋯ の中: 初回は開いて出し理由は ⋯ を指す・保存で閉じて選択が有効・設定済みで開くと閉じている）',
+    l1a.open && l1a.inside && l1a.note.includes('⋯') && !l1b.open && l1b.disabled === false && !l1c.open,
+    JSON.stringify({ l1a, l1b, l1c }));
+
   /* ========== VL-U4: 幅390px ========== */
   await page.setViewportSize({ width: 390, height: 800 });
   const u4 = await page.evaluate(() =>

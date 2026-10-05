@@ -23,6 +23,9 @@
   #settings label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
   #settings input { min-width: 200px; }
   #settings .note { flex-basis: 100%; font-size: 12px; color: var(--muted); margin: 0; }
+  /* ⋯ の中の設定（段6）。縦に並べて欄は幅いっぱい */
+  .more-panel #settings { flex-direction: column; align-items: stretch; margin: 0; width: min(440px, 80vw); }
+  .more-panel #settings input { min-width: 0; width: 100%; box-sizing: border-box; }
 </style>
 </head>
 <body>
@@ -31,6 +34,31 @@
   <header class="app-head">
     <p class="tool-header"><a href="../index.html">← ツール一覧</a><span class="autosave-note">検査は読み取りのみ。修復は選択して承認したときだけ書き込みます</span></p>
     <h1 title="vault の健全性チェック — リンク切れ・添付消失・ファイル名の罠・Inbox のデイリーを検出し、承認した修復を実行">Check Vault</h1>
+    <span class="spacer"></span>
+    <details class="more-menu" id="vl-more">
+      <summary title="vault のフォルダ構成（非公開・Inbox・アーカイブ先・イシュー）">⋯</summary>
+      <div class="more-panel">
+        <div id="settings">
+        <label>非公開フォルダ（読み込まない）
+          <input type="text" id="cfg-private" placeholder="例: 91_Private, Personal（カンマ区切り）">
+        </label>
+        <label>Inbox フォルダ
+          <input type="text" id="cfg-inbox" placeholder="例: 00_Inbox（空なら棚卸ししない）">
+        </label>
+        <label>アーカイブ先
+          <input type="text" id="cfg-archive" placeholder="例: 90_Archive/daily（空なら移動しない）">
+        </label>
+        <label>イシューのフォルダ
+          <input type="text" id="cfg-issue" placeholder="例: 04_Issues（空なら閉じたイシューを検査しない）">
+        </label>
+        <label>閉じたイシューの移動先
+          <input type="text" id="cfg-closed" placeholder="例: 10_Projects/{project}/Archive, 20_Areas/{project}/Archive, 90_Archive/{YYYY}（左から、案件フォルダがあるものを使う）">
+        </label>
+        <button id="cfg-save">設定を保存</button>
+        <p class="note">vault のフォルダ構成は人によって違うため設定で持ちます。<code>.obsidian</code> <code>.git</code> <code>.trash</code> は設定に関係なく常に除外します。</p>
+      </div>
+      </div>
+    </details>
   </header>
 
   <div class="app-controls">
@@ -43,25 +71,6 @@
     <span class="muted" id="env-note" hidden></span>
   </div>
 
-  <div id="settings">
-    <label>非公開フォルダ（読み込まない）
-      <input type="text" id="cfg-private" placeholder="例: 91_Private, Personal（カンマ区切り）">
-    </label>
-    <label>Inbox フォルダ
-      <input type="text" id="cfg-inbox" placeholder="例: 00_Inbox（空なら棚卸ししない）">
-    </label>
-    <label>アーカイブ先
-      <input type="text" id="cfg-archive" placeholder="例: 90_Archive/daily（空なら移動しない）">
-    </label>
-    <label>イシューのフォルダ
-      <input type="text" id="cfg-issue" placeholder="例: 04_Issues（空なら閉じたイシューを検査しない）">
-    </label>
-    <label>閉じたイシューの移動先
-      <input type="text" id="cfg-closed" placeholder="例: 10_Projects/{project}/Archive, 20_Areas/{project}/Archive, 90_Archive/{YYYY}（左から、案件フォルダがあるものを使う）">
-    </label>
-    <button id="cfg-save">設定を保存</button>
-    <p class="note">vault のフォルダ構成は人によって違うため設定で持ちます。<code>.obsidian</code> <code>.git</code> <code>.trash</code> は設定に関係なく常に除外します。</p>
-  </div>
 
   <div class="banner" id="banner" hidden></div>
   <div id="runlog" class="issue-block" hidden></div>
@@ -83,6 +92,7 @@
 /* ---------- 起動（**すべての定義の後**に置く。2026-10-05 に節ごとのファイルへ分けた — web/vaultlint/*.js） ---------- */
 ToolStorage.mountWarning();
 applyConfig(ToolConfig.all());
+if (CFG.privateDirs === null) el('vl-more').open = true;   // 初回（非公開フォルダが未設定）は ⋯ を開いて設定を見せる（段6 — VL-L1）
 
 /* ========== テスト用フック ========== */
 
