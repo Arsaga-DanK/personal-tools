@@ -1,6 +1,6 @@
 # taskboard — 完了アーカイブ
 
-> **何を決めているか**: グループ単位のアーカイブ・archive.md の案件見出しの下へ・取り違えと一括操作の事故防止。  **テスト ID**: TB-15〜19・AR1/AR2・A1〜A7  **決定の記録**: decisions.md
+> **何を決めているか**: グループ単位のアーカイブ・archive.md の案件見出しの下へ・取り違えと一括操作の事故防止。  **テスト ID**: TB-15〜19・AR1/AR2・A1〜A9  **決定の記録**: decisions.md
 > 2026-09-25 に docs/specs/taskboard.md（目次）から移動。内容は書き換えていない（docs/audits/2026-09-25-structure.md §6）。
 
 ## 完了アーカイブ仕様（UX監査 TB-4）
@@ -109,3 +109,5 @@ dialog ハンドラで accept / dismiss を切り替えて照合する。**既�
 | TB-A5 | **F3** で 4件を complete → `save()` | **確認は出ない**（`dialogLog` が空）。`{ok:true}`。閾値未満の通常操作を重くしない |
 | TB-A6 | `newSession(F1)` → complete line:9 → `uncomplete` line:10 → `save()` | 確認は出ない（完了1件・解除は数えない） |
 | TB-A7 | `countNewlyCompleted` 相当の確認: 既存の完了行（F1 の10・11行目）を触らず保存 | 確認は出ない（`orig` が既に完了の行は数えない） |
+| TB-A8 | archive.md に `# archive\n- [x] 旧行\n` があり、**読み込みに失敗する**（`NotReadableError`）状態で完了1件をアーカイブ | `{ok:false, reason:'archread'}`・「中止」の error バナー。**archive.md は前のまま（旧行が残る）・tasks の行も消えない**（2026-10-06 — 読めないのに空とみなして上書きし、前の分を全部消す作りだった） |
+| TB-A9 | 同じだが読み込みが `NotFoundError`（archive.md がまだ無い・消された） | 今どおり新しく作って移す（`{ok:true}`） |

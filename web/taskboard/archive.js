@@ -172,7 +172,16 @@ async function doArchive() {
   }
   // 書き込み直前に読み直して末尾へ追記（外部編集を消さない）。無ければヘッダを付与して新規作成
   let archText = '';
-  try { archText = await arch.read(); } catch (_) { archText = ''; }
+  try { archText = await arch.read(); }
+  catch (e) {
+    // 読めないのに空とみなして書くと、それまでの archive.md が全部消える（2026-10-06・TB-A8 — 以前はここで '' にしていた）。
+    // まだ無い・消されたファイル（NotFoundError）だけは新しく作る（TB-A9）。それ以外は何も書かずに止める（tasks の行も消さない）
+    if (!(e && e.name === 'NotFoundError')) {
+      showBanner('error', archiveTargetName() + ' を読めなかったので、アーカイブを中止しました（前の分を上書きして消さないため）。'
+        + 'Obsidian で ' + archiveTargetName() + ' が開けるか確かめてから、もう一度押してください: ' + (e && e.name));
+      return { ok: false, reason: 'archread' };
+    }
+  }
   // 案件（セクション）ごとにまとめて、その見出しの下へ（TB-Q63）
   const groups = [];
   for (const t of roots.slice().sort((a, b) => a.line - b.line)) {

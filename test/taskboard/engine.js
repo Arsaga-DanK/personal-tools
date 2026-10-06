@@ -348,6 +348,31 @@ module.exports = {
   r.check('TB-A7（既に完了だった行は数えない）',
     a7.result.res.ok === true && eq(a7.messages, []), JSON.stringify([a7.result.res, a7.messages]));
 
+  // TB-A8・A9: archive.md の読み込みに失敗したとき（2026-10-06 — 読めないのに空とみなして上書きし、前の分を全部消す作りだった）
+  const archReadFails = (errName) => page.evaluate(([f1, today, name]) => {
+    window.taskboard.test.setToday(today);
+    const s = window.taskboard.test.newSession(f1);
+    s.setArchiveText('# archive\n- [x] 旧行\n');
+    const realRead = state.archiveAdapter.read;
+    state.archiveAdapter.read = async () => { const e = new Error('読めない'); e.name = name; throw e; };
+    s.applyOps([{ type: 'complete', line: 9 }]);
+    return s.save().then(async () => {
+      const cb = document.getElementById('f-done');
+      cb.checked = true;
+      cb.dispatchEvent(new Event('change', { bubbles: true }));
+      const res = await s.archive();
+      state.archiveAdapter.read = realRead;
+      return { res, archive: s.getArchiveText(), tasks: s.getAdapterText(), banner: document.getElementById('banner').textContent };
+    });
+  }, [F1, TODAY, errName]);
+  const a8 = await withDialogs('accept', () => archReadFails('NotReadableError'));
+  r.check('TB-A8（archive.md を読めなければ中止 — 上書きして前の分を消さない・tasks の行も消えない）',
+    a8.result.res.ok === false && a8.result.res.reason === 'archread' && a8.result.archive === '# archive\n- [x] 旧行\n'
+    && a8.result.tasks.includes('- [x] 資料作成') && a8.result.banner.includes('中止'), JSON.stringify(a8.result));
+  const a9 = await withDialogs('accept', () => archReadFails('NotFoundError'));
+  r.check('TB-A9（archive.md がまだ無い（NotFoundError）ときは今どおり新しく作って移す）',
+    a9.result.res.ok === true && a9.result.archive.startsWith('# archive\n') && a9.result.archive.includes('資料作成'), JSON.stringify(a9.result));
+
   /* ========== TB-20: CRLF ========== */
   const t20 = await page.evaluate(([f1, today]) => {
     const crlf = f1.split('\n').join('\r\n');
