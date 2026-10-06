@@ -355,11 +355,10 @@ function openTaskModal(mode, t, opts) {
   el('modal-memo').value = mode === 'edit' ? t.memo.join('\n') : '';
   fillSelect(el('modal-section'), sections,
     mode === 'edit' ? t.section : (sections.includes(a.section) ? a.section : (sections[0] || '')));
-  // **日付の既定は今日**（利用者「まず今日をデフォルトで」）。前回値があればそれ（TB-D1）、
-  // クリアした記憶（''）ならそのまま空（TB-D2）。null＝まだ一度も触っていない、だけ今日にする
-  const dflt = v => (v === null || v === undefined ? ToolEdit.today() : v);
-  el('modal-start').value = mode === 'edit' ? (t.start || '') : dflt(a.start);
-  el('modal-due').value = mode === 'edit' ? (t.due || '') : dflt(a.due);
+  // **開始日・期限は開くたびに今日**（2026-10-06・TB-Q73 — 利用者「毎回タスクに開始日と終了日を入れている。デフォルトで今日を選択できないんだっけ？」）。
+  // 前回値は引き継がない（表の上で別のタスクの日付を直しても、それが次の追加に出ていた）。開いたまま続けて足すときは欄をそのまま残す（saveModal）
+  el('modal-start').value = mode === 'edit' ? (t.start || '') : ToolEdit.today();
+  el('modal-due').value = mode === 'edit' ? (t.due || '') : ToolEdit.today();
   el('modal-pri').value = mode === 'edit' ? (t.priority || '') : a.priority;
   refreshModalTags();
   // 依存欄は編集モーダル限定。新規は addTask に deps を載せない仕様（spec「設定UI」）のため、

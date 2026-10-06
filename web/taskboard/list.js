@@ -193,19 +193,16 @@ function clearDropMarks() {
 
 // 追加フォームの既定値を**すべての編集経路から**記憶する。
 // Step 6 の不具合は「記憶の入口が追加フォーム1箇所だけ」で、実運用で使われる
-// セルのポップオーバーから書かれていなかったことが原因（docs/verification-notes.md §5b 型3）
+// セルのポップオーバーから書かれていなかったことが原因（docs/verification-notes.md §5b 型3）。
+// 開始日・期限は記憶しない（追加画面を開くたびに今日 — 2026-10-06・TB-Q73）
 function rememberFromOp(op) {
   const a = state.ui.add;
   switch (op.type) {
-    case 'setStart':    a.start = op.date || ''; break;
-    case 'setDue':      a.due = op.date || ''; break;
     case 'setPriority': a.priority = op.value || ''; break;
     case 'setTags':     a.tags = (op.tags || []).slice(); break;
     case 'moveSection': a.section = op.section; break;
     case 'addTask':
       a.section = op.section || a.section;
-      a.start = op.start || '';
-      a.due = op.due || '';
       a.priority = op.priority || '';
       // タグは本文に埋め込まれるので op.tags は addTask 自身は使わない。
       // 記憶の書き込み口を1つに保つため、記憶用にだけ運ぶ

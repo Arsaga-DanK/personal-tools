@@ -117,7 +117,7 @@ function restoreUi() {
   if (TL_ZOOM_KEYS.includes(s.tlZoom)) state.ui.tlZoom = s.tlZoom;
   if (typeof s.nowFolded === 'boolean') state.ui.nowFolded = s.nowFolded;
   if (s.add && typeof s.add === 'object') {
-    for (const k of ['section', 'start', 'due', 'priority']) {
+    for (const k of ['section', 'priority']) {   // 開始日・期限は読まない（TB-Q73 — 前の保存に残っていても引き継がない）
       if (typeof s.add[k] === 'string') state.ui.add[k] = s.add[k];
     }
     if (Array.isArray(s.add.tags)) {

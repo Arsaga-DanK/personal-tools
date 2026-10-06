@@ -87,7 +87,7 @@ const state = {
     // 書き込みは rememberFromOp（全編集経路）、投入は openTaskModal の1箇所だけ
     // start/due の **null は「未設定」＝新規で今日を入れる**。'' は「クリアした」＝空のまま（TB-D2）。
     // restoreUi は文字列しか復元しないので、保存が無ければ null のまま
-    add: { section: '', start: null, due: null, priority: '', tags: [] },
+    add: { section: '', priority: '', tags: [] },   // 開始日・期限は記憶しない（追加画面を開くたびに今日 — TB-Q73）
   },
 };
 

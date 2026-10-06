@@ -242,20 +242,22 @@ module.exports = {
     const today = window.ToolEdit.today();
     document.getElementById('btn-add-form').click();
     const first = { start: document.getElementById('modal-start').value, due: document.getElementById('modal-due').value };
-    // 期限をクリアして保存 → 「クリアした」記憶（''）が残り、次の追加は空のまま（TB-D2 を壊さない）
+    // 期限を空にして追加 → 画面は開いたまま（続けて足す）なので欄は空のまま。開き直すと今日（前の値を引き継がない — TB-Q73）
     document.getElementById('modal-content').value = 'D4 テスト';
     document.getElementById('modal-due').value = '';
     document.getElementById('modal-due').dispatchEvent(new Event('change', { bubbles: true }));
     document.querySelector('#modal .modal-actions .primary').click();
     await new Promise(r => setTimeout(r, 200));
+    const cont = { open: !document.getElementById('modal').hidden, start: document.getElementById('modal-start').value, due: document.getElementById('modal-due').value };
     document.getElementById('btn-add-form').click();
     const second = { start: document.getElementById('modal-start').value, due: document.getElementById('modal-due').value };
     document.getElementById('modal').hidden = true;
-    return { today, first, second };
+    return { today, first, cont, second };
   }, F1);
-  r.check('TB-D4（記憶が無ければ開始日・期限は今日／期限をクリアして保存したら次は空のまま）',
+  r.check('TB-D4（開くたびに開始日・期限は今日／開いたまま続けて足すときは直前の値のまま／開き直すと今日）',
     d4.first.start === d4.today && d4.first.due === d4.today
-    && d4.second.start === d4.today && d4.second.due === '',
+    && d4.cont.open && d4.cont.start === d4.today && d4.cont.due === ''
+    && d4.second.start === d4.today && d4.second.due === d4.today,
     JSON.stringify(d4));
 
   const d5 = await page.evaluate(() => {

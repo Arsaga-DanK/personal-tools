@@ -250,7 +250,8 @@ module.exports = {
     };
   });
 
-  // TB-D1: **セルのポップオーバー**で期限・開始日・優先度・タグ・セクションを設定 → 次の追加に出る
+  // TB-D1: **セルのポップオーバー**で期限・開始日・優先度・タグ・セクションを設定 → 優先度・タグ・セクションは次の追加に出る。
+  // 開始日・期限は引き継がず今日（2026-10-06・TB-Q73 — 利用者「前回作ったタスクの設定が引き継がれているように見える」）
   const d1 = await page.evaluate(([f1, today]) => {
     window.taskboard.test.setToday(today);
     window.taskboard.test.newSession(f1);
@@ -293,10 +294,11 @@ module.exports = {
     return JSON.parse(localStorage.getItem('tools:taskboard')).data.add;
   }, [F1, TODAY]);
   const d1modal = await openModal(page);
-  r.check('TB-D1（セルのポップオーバーで設定した値が次の追加の既定値になる＝実運用の経路）',
-    d1.due === TODAY && d1.start === '2026-08-05' && d1.priority === 'high'
+  const realToday = await page.evaluate(() => ToolEdit.today());   // 追加画面の日付の既定は今日（setToday ではなく実の今日 — ToolEdit.today）
+  r.check('TB-D1（セルのポップオーバーで設定した優先度・タグ・セクションは次の追加の既定値になる＝実運用の経路・開始日と期限は今日）',
+    d1.priority === 'high'
     && eq(d1.tags, ['ポップオーバー由来']) && d1.section === 'UL'
-    && d1modal.due === TODAY && d1modal.start === '2026-08-05' && d1modal.pri === 'high'
+    && d1modal.due === realToday && d1modal.start === realToday && d1modal.pri === 'high'
     && eq(d1modal.tags, ['#ポップオーバー由来']) && d1modal.section === 'UL'
     && d1modal.moreOpen === true,   // 値が入っているので詳細が開く
     JSON.stringify([d1, d1modal]));
@@ -304,7 +306,7 @@ module.exports = {
     d1modal.contentWidth >= 320 && d1modal.modalInView === true,
     JSON.stringify([d1modal.contentWidth, d1modal.modalInView]));
 
-  // TB-D2: クリアも記憶する（期限の［クリア］→ 次の追加は空）
+  // TB-D2: 期限の［クリア］も引き継がない（次の追加は今日 — 2026-10-06・TB-Q73。旧: 空のまま）
   const d2 = await page.evaluate(([f1, today]) => {
     document.getElementById('modal-cancel').click();
     window.taskboard.test.setToday(today);
@@ -316,7 +318,7 @@ module.exports = {
     return JSON.parse(localStorage.getItem('tools:taskboard')).data.add;
   }, [F1, TODAY]);
   const d2modal = await openModal(page);
-  r.check('TB-D2（クリアしたことも記憶する）', d2.due === '' && d2modal.due === '',
+  r.check('TB-D2（期限をクリアしても次の追加は今日 — 日付は引き継がない）', d2modal.due === realToday,
     JSON.stringify([d2, d2modal]));
 
   const d3page = r.watch(await context.newPage());
