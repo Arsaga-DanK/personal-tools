@@ -4,19 +4,24 @@
    lib/edit.js（ToolEdit.fillDate）・list.js（render）。読み込み時に実行する文は無い（宣言だけ）。
    読むだけ。案件ごと・済んだ日・メモを開いた状態で並べ、検索欄が効く（本文とメモ） */
 
-let archiveLoading = false;
-
 // フォルダを読んで覚える（描き直しは render から — 検索のたびに読み直さない）。
-// interactive = ボタンを押したとき（権限の確認・ピッカーを出してよい）。repick = 選び直す
+// interactive = ボタンを押したとき（権限の確認・ピッカーを出してよい）。repick = 選び直す。
+// 新しい読み込みが前のものに勝つ（state.archiveLoad）。以前は「読み込み中なら何もしない」で、ボタンを押すと
+// 先に render が始めた裏の読み込みに負けて何も起きなかった（TB-AV5・最終レビュー #2）。アーカイブ・別のファイルの読み込みも
+// state.archiveLoad を null にするので、途中の古い結果は捨てる
 async function loadArchiveView(interactive, repick) {
-  if (archiveLoading) return;
-  archiveLoading = true;
+  const token = {};
+  state.archiveLoad = token;
+  let cache = { folder: null, files: [] };
   try {
     let folder = null;
     try { folder = await getArchiveFolder(interactive, repick); } catch (_) { /* 開けなければ下の案内 */ }
     if (!folder && repick) { try { folder = await getArchiveFolder(false, false); } catch (_) {} }   // 選び直しをやめたら前のフォルダのまま
-    state.archiveCache = folder ? { folder: folder.name, files: await readAllArchives(folder) } : { folder: null, files: [] };
-  } finally { archiveLoading = false; }
+    if (folder) cache = { folder: folder.name, files: await readAllArchives(folder) };
+  } catch (_) { /* 読めなければ空の案内 */ }
+  if (state.archiveLoad !== token) return;
+  state.archiveLoad = null;
+  state.archiveCache = cache;
   if (state.ui.view === 'archive') render();
 }
 
@@ -28,7 +33,7 @@ function renderArchiveView() {
     p.className = 'av-empty';
     p.textContent = '読み込み中…';
     host.appendChild(p);
-    loadArchiveView(false, false);
+    if (!state.archiveLoad) loadArchiveView(false, false);   // 読み込み中なら待つ（検索のたびに読み直さない）
     return;
   }
   const c = state.archiveCache;
@@ -43,7 +48,8 @@ function renderArchiveView() {
   pick.id = 'av-repick';
   pick.textContent = c.folder === null ? 'アーカイブのフォルダを開く' : 'フォルダを選び直す';
   pick.title = 'tasks.md のあるフォルダ（03_Tasks など）を選びます。アーカイブはその中の archive/年-月.md に入ります';
-  pick.addEventListener('click', () => { const re = c.folder !== null; state.archiveCache = null; render(); loadArchiveView(true, re); });
+  // 押したときの読み込みを先に始めてから描く（render が裏の読み込みを始めないように — TB-AV5）
+  pick.addEventListener('click', () => { const re = c.folder !== null; state.archiveCache = null; loadArchiveView(true, re); render(); });
   head.append(where, pick);
   host.appendChild(head);
   const q = nfc(String(state.ui.q || '')).trim().toLowerCase();

@@ -42,12 +42,14 @@ function archivableCancelledCount() {
 
 function updateArchiveButton() {
   const btn = el('btn-archive');
+  const self = !!(state.adapter && isArchiveFileName(state.adapter.name));   // アーカイブのファイルを開いている（TB-AF8）
   const usable = state.loaded && !state.demo && !state.hasCRFile &&
-    state.adapter && state.adapter.mode !== 'fallback';
+    state.adapter && state.adapter.mode !== 'fallback' && !self;
   const n = usable ? archivableTaskCount() : 0;
   btn.disabled = n === 0;
   btn.textContent = n > 0 ? '完了をアーカイブ（' + n + '）' : '完了をアーカイブ';
-  btn.title = n > 0
+  btn.title = self ? 'アーカイブのファイル（' + state.adapter.name + '）を開いているのでアーカイブできません（同じファイルへ書いて消してしまうため）'
+    : n > 0
     ? '表示中の完了グループを archive/年-月.md（tasks.md と同じフォルダ）へ移動して tasks.md から除去'
     : '対象なし — 完了・中止の行は「終了を含む」を ON にすると表示されます（子がすべて終わったグループが対象）';
 }
@@ -121,7 +123,12 @@ async function getArchiveFolder(interactive, repick) {
   if (dir && dir.kind === 'directory') {
     let ok = false;
     try { ok = interactive ? await verifyPermission(dir) : (await dir.queryPermission({ mode: 'readwrite' })) === 'granted'; } catch (_) {}
-    if (ok) { state.archiveDirHandle = dir; return (state.archiveFolder = makeFsaFolder(dir)); }
+    // 覚えていたフォルダも、いま開いている tasks.md のフォルダかを毎回確かめる（別のファイルを開いた・再起動後に IndexedDB から戻った — TB-AF9）
+    if (ok && await isTasksFolder(dir, state.adapter.handle, state.adapter.name, state.snapshot)) {
+      state.archiveDirHandle = dir;
+      return (state.archiveFolder = makeFsaFolder(dir));
+    }
+    if (ok) { state.archiveDirHandle = null; state.archiveFolder = null; }   // 違うフォルダ — 使わない（IndexedDB には残す。元の tasks.md を開けばまた使える）
   }
   if (!interactive) return null;
   showBanner('info', 'アーカイブを置くフォルダとして、' + state.adapter.name + ' のあるフォルダ（03_Tasks など）を選んでください。'
@@ -184,12 +191,25 @@ function archiveMerge(text, groups) {
   return lines.join('\n') + '\n';
 }
 
+// アーカイブの間は外の変更の再読込（focus の checkExternal・再読込ボタン）を止める。
+// 途中で読み直されると、最初に数えた行番号で新しい行を消してしまう（関係ない行が消えた — TB-AF7・最終レビュー #4）
 async function doArchive() {
+  if (state.archiving) return { ok: false, reason: 'busy' };
+  state.archiving = true;
+  try { return await archiveRun(); } finally { state.archiving = false; }
+}
+
+async function archiveRun() {
   if (!state.loaded || !state.adapter) return { ok: false, reason: 'notloaded' };
   if (state.demo) { showBanner('info', 'デモ中はアーカイブできません'); return { ok: false, reason: 'demo' }; }
   if (state.adapter.mode === 'fallback') {
     showBanner('warn', 'このブラウザではアーカイブできません（ファイルへの直接保存が必要です）');
     return { ok: false, reason: 'fallback' };
+  }
+  // アーカイブのファイルを開いているときはしない — 同じファイルへ書いて、そのあと tasks の行として全部消していた（TB-AF8・最終レビュー #1）
+  if (isArchiveFileName(state.adapter.name)) {
+    showBanner('warn', 'アーカイブのファイル（' + state.adapter.name + '）を開いているので、アーカイブしません（同じファイルへ書いて、そのあと消してしまうため）');
+    return { ok: false, reason: 'archself' };
   }
   if (isDirty()) {
     showBanner('warn', '未保存の変更があります。先に保存してからアーカイブしてください');
@@ -201,6 +221,7 @@ async function doArchive() {
     return { ok: false, reason: 'empty' };
   }
   const lineNos = roots.flatMap(t => subtreeLines(t, [])).sort((a, b) => a - b);
+  const startText = joinLines(state.lines);   // 行番号はこの中身で数えた（消す直前にまだ同じかを見る — TB-AF7）
   // tasks.md 側は保存と同じ外部変更チェック（NFC 比較・黙って上書きしない）
   let disk;
   try {
@@ -246,6 +267,18 @@ async function doArchive() {
       return { ok: false, reason: 'archread' };
     }
   }
+  // 確認ダイアログ・フォルダ選びの間に Obsidian で tasks.md を直していたら、何も書かずに止める（TB-AF6）
+  let disk2;
+  try { disk2 = await state.adapter.read(); }
+  catch (e) {
+    showBanner('error', 'アーカイブ前の再読込に失敗しました（何も書いていません）: ' + (e && e.name));
+    return { ok: false, reason: 'readfail' };
+  }
+  if (nfc(disk2) !== nfc(startText)) {
+    showBanner('warn', 'Obsidian側で変更されています。上書きを避けるためアーカイブを中止しました（何も書いていません）。再読込してから実行してください。',
+      [{ label: '再読込', onClick: () => reloadFromAdapter(true) }]);
+    return { ok: false, reason: 'conflict' };
+  }
   // 案件（セクション）ごとにまとめて、その見出しの下へ（TB-Q63）
   const groups = [];
   for (const t of roots.slice().sort((a, b) => a.line - b.line)) {
@@ -269,6 +302,16 @@ async function doArchive() {
       + 'Obsidian で ' + archiveTargetName() + ' を開いて中身を確かめてください');
     return { ok: false, reason: 'archverify' };
   }
+  // 書いている間に tasks.md が変わっていたら（再読込・外の変更・自動保存）、tasks.md は変えない。
+  // 最初に数えた行番号で消すと関係ない行を消す。同じタスクが両方に残る（重複）ほうが消えるより安全（TB-AF7）
+  let disk3 = null;
+  try { disk3 = await state.adapter.read(); } catch (_) { /* 下で止める */ }
+  if (joinLines(state.lines) !== startText || disk3 === null || nfc(disk3) !== nfc(startText)) {
+    state.archiveCache = null;
+    showBanner('warn', archiveTargetName() + ' には書きましたが、そのあいだに tasks.md が変わったので tasks.md は変えていません。'
+      + '同じタスクが両方にあります — tasks.md の済んだ行は、確かめてから消してください（もう一度アーカイブするとアーカイブ側が重複します）');
+    return { ok: false, reason: 'conflictafter' };
+  }
   for (let i = lineNos.length - 1; i >= 0; i--) state.lines.splice(lineNos[i] - 1, 1);
   state.lastUndo = null;   // アーカイブは別のファイルにも書くので Cmd+Z では戻さない（TB-Q71）
   const text = joinLines(state.lines);
@@ -283,7 +326,8 @@ async function doArchive() {
   }
   state.snapshot = text;
   for (const l of state.lines) l.orig = l.raw;
-  state.archiveCache = null;   // アーカイブの表示は読み直す（TB-AV3）
+  state.archiveCache = null;   // アーカイブの表示は読み直す（TB-AV3）。読み込み中のものは古いので捨てる（archive-view.js）
+  state.archiveLoad = null;
   render();
   // アーカイブの全部（archive.md と archive/*.md）を数えて写しを書き直す（済んだタスクを移した途端に閉じどきが消えないように — TB-LN6・TB-AF5）
   if (window.ToolTaskLinks) {

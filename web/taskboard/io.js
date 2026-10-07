@@ -59,6 +59,8 @@ const state = {
   demo: false,       // デモデータ表示中（保存・アーカイブ無効）
   hasCRFile: false,  // CR 改行ファイル（表示のみ・追加/アーカイブ無効）
   archiveFolder: null, archiveDirHandle: null, archiveCache: null,   // アーカイブ先のフォルダ（TB-AF）・表示用に読んだアーカイブ（TB-AV）
+  archiveLoad: null,   // 読み込み中のアーカイブの表示（新しいものが勝つ — archive-view.js・TB-AV5）
+  archiving: false,    // アーカイブの途中（外の変更の再読込を止める — TB-AF7）
   archLinks: undefined,   // アーカイブ（archive.md と archive/*.md）のタスクの数（lib/tasklinks.js の写しに足す — TB-LN6）。undefined = まだ知らない（前の写しから引き継ぐ）
   timeline: null,    // 直近の timelineModel（Excel 用コピーが参照する。リスト時は null）
   boardCols: null,   // 直近に描画したボードの列（キーボード移動が同じ集合を見るため）
@@ -144,6 +146,7 @@ function loadText(text, adapter, opts) {
   state.lines = toLines(text);
   state.lastUndo = null;   // 読み込んだら戻す記録は捨てる（別のファイルの行は戻せない — TB-UZ6）
   state.archiveCache = null;   // 別のファイルかもしれない（アーカイブの表示は読み直す — TB-AV）
+  state.archiveLoad = null;    // 読み込み中の古い結果は捨てる
   state.archLinks = undefined;   // 別のファイルかもしれないので、写しを書くときに同じファイルの前の写しから引き継ぎ直す（TB-LN6）
   state.loaded = true;
   state.demo = !!(opts && opts.demo);   // デモは写しを書かない（TB-LN5）
@@ -301,6 +304,7 @@ document.addEventListener('visibilitychange', () => {
 });
 
 async function reloadFromAdapter(skipConfirm) {
+  if (state.archiving) { showBanner('info', 'アーカイブの途中です。終わってから再読込してください'); return; }   // TB-AF7
   if (!state.adapter || !state.adapter.canCheck) return;
   if (isDirty() && !skipConfirm && !confirm('未保存の変更を破棄して再読込しますか？')) return;
   try {
@@ -315,7 +319,7 @@ async function reloadFromAdapter(skipConfirm) {
 // フォーカス復帰時の外部変更チェック（FSA のみ）: 未編集なら自動再読込、編集中は警告
 let lastCheck = 0;
 async function checkExternal() {
-  if (!state.loaded || !state.adapter || state.adapter.mode !== 'fsa') return;
+  if (!state.loaded || !state.adapter || state.adapter.mode !== 'fsa' || state.archiving) return;   // アーカイブの途中は読み直さない（TB-AF7）
   const now = Date.now();
   if (now - lastCheck < 2000) return;
   lastCheck = now;
