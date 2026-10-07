@@ -240,6 +240,7 @@ function render() {
     el('table-wrap').hidden = true;
     el('timeline-view').hidden = true;
     el('board-view').hidden = true;
+    el('archive-view').hidden = true;
     el('empty-msg').hidden = false;
     el('now').hidden = true;
     el('empty-msg').textContent = 'ファイルを開くとタスクが表示されます — ブラウザから直接 tasks.md を読み書きします（初回のみ Chrome の許可ダイアログが出ます）';
@@ -379,16 +380,24 @@ function render() {
   for (const b of el('view-tabs').querySelectorAll('button')) {
     b.classList.toggle('active', b.dataset.view === state.ui.view);
     // 現在の列の基準は、ボードへ入る前でも title で読める（タブの幅は変えない）
+    // ［アーカイブ］のタブは開いている間だけ出す（ふだんは ⋯ の［アーカイブを見る］から — 1280px で見出しを2段にしない・TB-V6・TB-AV1）
+    if (b.dataset.view === 'archive') b.hidden = state.ui.view !== 'archive';
     if (b.dataset.view === 'board') {
       b.title = 'カードを列に並べる（列: ' + (GROUPBY_LABEL[state.ui.board.groupBy] || '') + '）';
     }
   }
   el('groupby-wrap').hidden = state.ui.view !== 'board';   // 基準はボード表示中だけ出す
   el('zoom-wrap').hidden = state.ui.view !== 'timeline';   // ズームはタイムライン表示中だけ出す
+  el('main-toolbar').querySelector('.opts').hidden = state.ui.view === 'archive';   // 絞り込み・並び順・終了を含むはアーカイブには効かない（TB-AV1）
   el('table-wrap').hidden = state.ui.view !== 'list';
   el('board-view').hidden = state.ui.view !== 'board';
   el('timeline-view').hidden = state.ui.view !== 'timeline';
-  if (state.ui.view === 'timeline') {
+  el('archive-view').hidden = state.ui.view !== 'archive';   // アーカイブ（読むだけ — TB-AV。archive-view.js）
+  if (state.ui.view === 'archive') {
+    state.timeline = null;
+    el('empty-msg').hidden = true;
+    renderArchiveView();
+  } else if (state.ui.view === 'timeline') {
     el('empty-msg').hidden = true;
     renderTimeline();
   } else if (state.ui.view === 'board') {
@@ -404,7 +413,7 @@ function render() {
   }
   updateCopyButton();
   // 検索で行が消えたことを無言にしない
-  el('q-count').textContent = q === '' ? '' : hitCount + ' 件ヒット';
+  if (state.ui.view !== 'archive') el('q-count').textContent = q === '' ? '' : hitCount + ' 件ヒット';   // アーカイブはその件数（archive-view.js）
 
   const open = doc.tasks.filter(t => !t.finished).length;
   el('summary').textContent = '未完了 ' + open + ' / 全 ' + doc.tasks.length + ' 件 · 表示 ' + rows.length + ' 行';

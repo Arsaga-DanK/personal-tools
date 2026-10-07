@@ -92,7 +92,7 @@ const state = {
 };
 
 // restoreUi で受け入れる値の列挙（未知値が入ると <select> の値が空になり並び順が壊れる。TB-Q17）
-const UI_VIEWS = ['list', 'board', 'timeline'];
+const UI_VIEWS = ['list', 'board', 'timeline', 'archive'];
 const UI_SORTS = ['file', 'start', 'due', 'priority'];
 
 function fsaAvailable() { return !state.fsaOff && 'showOpenFilePicker' in window; }
@@ -143,6 +143,7 @@ function loadText(text, adapter, opts) {
   state.snapshot = text;
   state.lines = toLines(text);
   state.lastUndo = null;   // 読み込んだら戻す記録は捨てる（別のファイルの行は戻せない — TB-UZ6）
+  state.archiveCache = null;   // 別のファイルかもしれない（アーカイブの表示は読み直す — TB-AV）
   state.archLinks = undefined;   // 別のファイルかもしれないので、写しを書くときに同じファイルの前の写しから引き継ぎ直す（TB-LN6）
   state.loaded = true;
   state.demo = !!(opts && opts.demo);   // デモは写しを書かない（TB-LN5）

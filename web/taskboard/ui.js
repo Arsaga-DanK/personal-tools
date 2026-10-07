@@ -184,6 +184,14 @@ el('btn-add-form').addEventListener('click', () => openTaskModal('new'));
 
 el('btn-save').addEventListener('click', doSave);
 el('btn-archive').addEventListener('click', doArchive);
+// アーカイブの表示（TB-AV）。タブは開いている間だけ出るので、入口は ⋯ のここ
+el('btn-archive-view').addEventListener('click', () => {
+  el('more-menu').open = false;
+  if (state.ui.view === 'archive') return;
+  state.ui.view = 'archive';
+  persistUi();
+  render();
+});
 el('btn-reload').addEventListener('click', () => reloadFromAdapter(false));
 // Cmd/Ctrl+S で保存（ブラウザの「ページを保存」は常に抑止）
 document.addEventListener('keydown', (e) => {

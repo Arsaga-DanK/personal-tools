@@ -589,6 +589,7 @@ function updateCopyButton() {
   b.title = cfg.title;
   // 受け渡しはタイムライン（計画）のときだけ意味がある（coding-rules「ツール間の受け渡し」）
   el('btn-to-gantt').hidden = state.ui.view !== 'timeline';
+  el('btn-copy').hidden = state.ui.view === 'archive';   // アーカイブの表示にはコピーするものが無い（TB-AV1）
 }
 
 function updateSaveButton() {

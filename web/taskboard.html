@@ -233,6 +233,18 @@
     font-size: 13px; white-space: nowrap; }
   #f-q { width: 180px; }
   #q-count { font-size: 12px; }
+  /* アーカイブの表示（TB-AV — 読むだけ） */
+  #archive-view { max-width: 980px; }
+  .av-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 4px 0 10px; font-size: 13px; color: var(--muted); }
+  .av-file { margin: 0 0 18px; }
+  .av-file h3 { font-size: 14px; margin: 0 0 6px; color: var(--muted); font-weight: 600; }
+  .av-sec { font-size: 13px; margin: 10px 0 4px; }
+  .av-task { display: flex; gap: 8px; align-items: baseline; padding: 2px 0; font-size: 13.5px; }
+  .av-mark { color: var(--success); flex: none; }
+  .av-body { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+  .av-date { flex: none; font-size: 12px; color: var(--muted); }
+  .av-memo { font-size: 12.5px; color: var(--muted); padding: 1px 0; overflow-wrap: anywhere; }
+  .av-empty { color: var(--muted); }
   /* 追加・編集モーダル。**殻（.modal-overlay / .modal / .modal-title / .mf / .modal-actions）は
      lib/ui.css へ移設**（Check Issue が2番目の利用者 — docs/specs/issue.md の IS-Q9）。
      ここに残すのは taskboard 固有の規則だけ */
@@ -289,6 +301,7 @@
       <button data-view="list">リスト</button>
       <button data-view="board">ボード</button>
       <button data-view="timeline">タイムライン</button>
+      <button data-view="archive" hidden title="アーカイブしたタスク（読むだけ）。開いている間だけ出る — ふだんは ⋯ の［アーカイブを見る］から（TB-AV）">アーカイブ</button>
     </div>
     <!-- 列の基準はタブのすぐ隣に置く（ボードの下に置くとボードへ入るまで存在に気づけない）。
          タブ自体の幅は変えない（幅が動くと押し間違いが起きる） -->
@@ -339,6 +352,7 @@
         <button id="btn-to-gantt" hidden title="いま見えている計画を Draw Gantt に渡してガント画像にする">Draw Gantt で開く</button>
         <button id="btn-copy-all" hidden>全文コピー</button>
         <button id="btn-archive" disabled>完了をアーカイブ</button>
+        <button id="btn-archive-view" title="アーカイブしたタスクを読む（読むだけ・メモつき・検索が効く）">アーカイブを見る</button>
         <button id="btn-reload">再読込</button>
       </div>
     </details>
@@ -368,6 +382,7 @@
     <div class="banner" id="tl-note" hidden></div>
     <div id="tl-scroll"></div>
   </div>
+  <div id="archive-view" hidden></div>
   <p id="empty-msg" class="muted" hidden>ファイルを開くとタスクが表示されます — ブラウザから直接 tasks.md を読み書きします（初回のみ Chrome の許可ダイアログが出ます）</p>
 </main>
 
@@ -493,6 +508,7 @@ const handles = ToolFsa.handles(IDB_NAME);   // lib/fsa.js（db 名は従来ど�
 <script src="taskboard/board.js"></script>
 <script src="taskboard/timeline.js"></script>
 <script src="taskboard/archive.js"></script>
+<script src="taskboard/archive-view.js"></script>
 <script src="taskboard/modal.js"></script>
 <script src="taskboard/ui.js"></script>
 <script>

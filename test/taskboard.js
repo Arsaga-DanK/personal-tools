@@ -255,7 +255,7 @@ if (unknown.length) {
         })),
       })),
       note: document.getElementById('board-note').hidden ? '' : document.getElementById('board-note').textContent,
-      tabs: Array.from(document.querySelectorAll('#view-tabs button')).map(b => b.textContent),
+      tabs: Array.from(document.querySelectorAll('#view-tabs button')).filter(b => !b.hidden).map(b => b.textContent),   // 見えているタブ（［アーカイブ］は開いている間だけ — TB-AV1）
       // textContent は直前のコピー結果表示（.copied）が残ることがあるので、
       // updateCopyButton が常に更新する dataset.label を見る
       copyLabel: document.getElementById('btn-copy').dataset.label,
