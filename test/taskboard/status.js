@@ -129,7 +129,7 @@ module.exports = {
     && !s30.result.archive.includes('着手中')
     && s30.result.tasks.includes('- [/] 着手中のタスク')
     && s30.messages.length === 1
-    && s30.messages[0] === '3件（うち中止 1件）を archive.md へ移動します。よろしいですか？',
+    && s30.messages[0] === '3件（うち中止 1件）を archive/2026-08.md へ移動します。よろしいですか？',
     JSON.stringify([s30.result.res, s30.messages, s30.result.archive]));
 
   // 成功バナーの検査は helpers の bannerIs（クラス名だけでなく算出スタイルと role まで見る）

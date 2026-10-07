@@ -84,7 +84,7 @@ module.exports = {
     && m10.result.archive.includes('- [x] 親C\n\t- Cのメモ\n')
     && !m10.result.tasks.includes('親C') && !m10.result.tasks.includes('Cのメモ')
     // 件数はタスク数で数える（メモ行で膨らませない）
-    && m10.messages[0] === '1件を archive.md へ移動します。よろしいですか？',
+    && m10.messages[0] === '1件を archive/2026-08.md へ移動します。よろしいですか？',
     JSON.stringify([m10.result.res, m10.messages, m10.result.archive]));
 
   // TB-M11: UI（マーカー → 展開 → 編集 → 保存で永続）

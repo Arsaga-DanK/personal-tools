@@ -58,8 +58,8 @@ const state = {
   fsaOff: false, // テスト用: フォールバック UI 強制
   demo: false,       // デモデータ表示中（保存・アーカイブ無効）
   hasCRFile: false,  // CR 改行ファイル（表示のみ・追加/アーカイブ無効）
-  archiveAdapter: null, archiveHandle: null,
-  archLinks: undefined,   // archive.md のタスクの数（lib/tasklinks.js の写しに足す — TB-LN6）。undefined = まだ知らない（前の写しから引き継ぐ）
+  archiveFolder: null, archiveDirHandle: null, archiveCache: null,   // アーカイブ先のフォルダ（TB-AF）・表示用に読んだアーカイブ（TB-AV）
+  archLinks: undefined,   // アーカイブ（archive.md と archive/*.md）のタスクの数（lib/tasklinks.js の写しに足す — TB-LN6）。undefined = まだ知らない（前の写しから引き継ぐ）
   timeline: null,    // 直近の timelineModel（Excel 用コピーが参照する。リスト時は null）
   boardCols: null,   // 直近に描画したボードの列（キーボード移動が同じ集合を見るため）
   depGraph: null,    // 直近の依存グラフ（リスト・ボードの印と完了時の警告が参照する）
@@ -405,7 +405,7 @@ function publishTaskLinks() {
   if (!state.loaded || state.demo || !window.ToolTaskLinks) return;
   const file = state.adapter && state.adapter.name;
   // アーカイブ先を開いて眺めているときは書かない — 全部済みに見えて、ありもしない閉じどきを出す（TB-LN7）
-  if (file === archiveTargetName()) return;
+  if (isArchiveFileName(file)) return;   // archive.md・月のファイル（archive/YYYY-MM.md）も同じ（TB-AF）
   // archive.md の数（アーカイブしたときに archive.js が数える）。まだ無ければ同じファイルの前の写しから引き継ぐ（TB-LN6）
   if (state.archLinks === undefined) {
     const prev = ToolTaskLinks.read();

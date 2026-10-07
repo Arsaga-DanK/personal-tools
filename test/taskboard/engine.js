@@ -304,7 +304,7 @@ module.exports = {
   const a1 = await withDialogs('accept', archiveSession);
   r.check('TB-A1（アーカイブ確認: 件数と対象ファイル名を出して実行）',
     a1.result.res.ok === true && a1.result.res.moved === 1
-    && eq(a1.messages, ['1件を archive.md へ移動します。よろしいですか？']),
+    && eq(a1.messages, ['1件を archive/2026-08.md へ移動します。よろしいですか？']),
     JSON.stringify([a1.result.res, a1.messages]));
 
   // キャンセル時は「行が消えない」ことを見る（除去は archive 書込成功後にのみ起こる）。
@@ -353,15 +353,18 @@ module.exports = {
     window.taskboard.test.setToday(today);
     const s = window.taskboard.test.newSession(f1);
     s.setArchiveText('# archive\n- [x] 旧行\n');
-    const realRead = state.archiveAdapter.read;
-    state.archiveAdapter.read = async () => { const e = new Error('読めない'); e.name = name; throw e; };
+    // 1回目の読み込みだけ失敗させる（2回目は書いたあとの読み直し — TB-A9 ではそれが通らないと移せない・TB-AF3）
+    const folder = state.archiveFolder;
+    const realRead = folder.readFile;
+    let n = 0;
+    folder.readFile = async (p) => { if (n++ === 0) { const e = new Error('読めない'); e.name = name; throw e; } return realRead.call(folder, p); };
     s.applyOps([{ type: 'complete', line: 9 }]);
     return s.save().then(async () => {
       const cb = document.getElementById('f-done');
       cb.checked = true;
       cb.dispatchEvent(new Event('change', { bubbles: true }));
       const res = await s.archive();
-      state.archiveAdapter.read = realRead;
+      folder.readFile = realRead;
       return { res, archive: s.getArchiveText(), tasks: s.getAdapterText(), banner: document.getElementById('banner').textContent };
     });
   }, [F1, TODAY, errName]);

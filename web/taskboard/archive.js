@@ -48,48 +48,112 @@ function updateArchiveButton() {
   btn.disabled = n === 0;
   btn.textContent = n > 0 ? '完了をアーカイブ（' + n + '）' : '完了をアーカイブ';
   btn.title = n > 0
-    ? '表示中の完了グループを archive.md へ移動して tasks.md から除去'
+    ? '表示中の完了グループを archive/年-月.md（tasks.md と同じフォルダ）へ移動して tasks.md から除去'
     : '対象なし — 完了・中止の行は「終了を含む」を ON にすると表示されます（子がすべて終わったグループが対象）';
 }
 
-// archive.md のアダプタを用意（メモリセッションはメモリ、FSA はハンドル永続化＋初回ピッカー）
-async function getArchiveAdapter() {
+/* ---------- アーカイブ先（2026-10-06・TB-AF・TB-Q75） ----------
+   tasks.md と同じフォルダ（03_Tasks）を一度だけ選んでもらい、その中の archive/YYYY-MM.md（アーカイブした月）へ追記する。
+   以前は「最初に選んだファイル」のハンドルを覚えていたが、場所が見えず、2026-09-24 の分は vault の外のどこかへ書かれて見つからなかった
+   （AR-1 の案4・TB-Q10 をここで実装した） */
+const ARCHIVE_DIR = 'archive';
+function archiveMonthPath(today) { return ARCHIVE_DIR + '/' + String(today).slice(0, 7) + '.md'; }
+// archive.md か 月のファイル（YYYY-MM.md）か — Plan Tasks で開いても関連ノートの写しを書かない（TB-LN7）
+function isArchiveFileName(name) {
+  const b = String(name || '').split('/').pop();
+  return /^archive\.md$/i.test(b) || /^\d{4}-\d{2}\.md$/.test(b);
+}
+function archiveNotFound() { const e = new Error('not found'); e.name = 'NotFoundError'; return e; }
+const isArchivePath = (p) => p === 'archive.md' || (p.startsWith(ARCHIVE_DIR + '/') && /\.md$/i.test(p));
+
+// メモリのフォルダ（テストとメモリのセッション）。パス → 本文
+function makeMemoryFolder(name) {
+  const files = new Map();
+  return {
+    name: name || '',
+    async readFile(path) { if (!files.has(path)) throw archiveNotFound(); return files.get(path); },
+    async writeFile(path, text) { files.set(path, text); },
+    async listFiles() { return [...files.keys()].filter(isArchivePath); },
+    _files: files,
+  };
+}
+// FSA のフォルダ（03_Tasks）。archive/ は書くときに無ければ作る
+function makeFsaFolder(dir) {
+  const fileOf = async (path, create) => {
+    const parts = path.split('/');
+    let d = dir;
+    for (const p of parts.slice(0, -1)) d = await d.getDirectoryHandle(p, { create });
+    return d.getFileHandle(parts[parts.length - 1], { create });
+  };
+  return {
+    name: dir.name,
+    async readFile(path) { return (await (await fileOf(path, false)).getFile()).text(); },
+    async writeFile(path, text) { const w = await (await fileOf(path, true)).createWritable(); await w.write(text); await w.close(); },
+    async listFiles() {
+      const out = [];
+      try { await dir.getFileHandle('archive.md'); out.push('archive.md'); } catch (_) { /* 無ければ出さない */ }
+      try {
+        const sub = await dir.getDirectoryHandle(ARCHIVE_DIR);
+        for await (const [n, h] of sub.entries()) if (h.kind === 'file' && /\.md$/i.test(n)) out.push(ARCHIVE_DIR + '/' + n);
+      } catch (_) { /* まだ archive/ が無い */ }
+      return out;
+    },
+  };
+}
+// 選んだフォルダが「開いている tasks.md のあるフォルダ」か（同じファイルか — isSameEntry。無い環境は中身を比べる — TB-AF4）
+async function isTasksFolder(dir, tasksHandle, tasksName, snapshot) {
+  let fh;
+  try { fh = await dir.getFileHandle(tasksName); } catch (_) { return false; }
+  if (tasksHandle && typeof fh.isSameEntry === 'function') {
+    try { return await fh.isSameEntry(tasksHandle); } catch (_) { /* 比べられなければ中身で */ }
+  }
+  try { return nfc(await (await fh.getFile()).text()) === nfc(snapshot); } catch (_) { return false; }
+}
+// アーカイブ先のフォルダ。interactive のときだけ権限を求め・初回はフォルダを選ばせる（repick で選び直す）
+async function getArchiveFolder(interactive, repick) {
   if (state.adapter && state.adapter.mode === 'memory') {
-    if (!state.archiveAdapter) state.archiveAdapter = makeMemoryAdapter('');
-    return state.archiveAdapter;
+    if (!state.archiveFolder) state.archiveFolder = makeMemoryFolder('');
+    return state.archiveFolder;
   }
   if (!state.adapter || state.adapter.mode !== 'fsa') return null;
-  let handle = state.archiveHandle;
-  if (!handle) { try { handle = await handles.get(IDB_KEY_ARCH); } catch (_) {} }
-  if (handle && handle.kind === 'file' && await verifyPermission(handle)) {
-    state.archiveHandle = handle;
-    return makeFsaAdapter(handle);
+  let dir = repick ? null : state.archiveDirHandle;
+  if (!dir && !repick) { try { dir = await handles.get(IDB_KEY_ARCH_DIR); } catch (_) {} }
+  if (dir && dir.kind === 'directory') {
+    let ok = false;
+    try { ok = interactive ? await verifyPermission(dir) : (await dir.queryPermission({ mode: 'readwrite' })) === 'granted'; } catch (_) {}
+    if (ok) { state.archiveDirHandle = dir; return (state.archiveFolder = makeFsaFolder(dir)); }
   }
+  if (!interactive) return null;
+  showBanner('info', 'アーカイブを置くフォルダとして、' + state.adapter.name + ' のあるフォルダ（03_Tasks など）を選んでください。'
+    + 'アーカイブはその中の archive/年-月.md に入ります');
   try {
-    // startIn に tasks.md のハンドルを渡すと Chrome は同じディレクトリでピッカーを開く。
-    // FileSystemFileHandle から親ディレクトリは取得できない（getParent が無い）ため、
-    // 「別の場所に保存された」ことは検出できない。ここで取り違えを予防するのが唯一の手段（AR-1）
-    handle = await window.showSaveFilePicker({
-      suggestedName: 'archive.md',
-      startIn: state.adapter.handle || undefined,
-      types: [{ description: 'Markdown', accept: { 'text/markdown': ['.md'] } }],
-    });
+    // startIn に tasks.md のハンドルを渡すと、そのファイルのあるフォルダでピッカーが開く
+    dir = await window.showDirectoryPicker({ mode: 'readwrite', startIn: state.adapter.handle || undefined });
   } catch (e) {
-    if (e && e.name === 'AbortError') return null; // キャンセル
+    if (e && e.name === 'AbortError') return null;
     throw e;
   }
-  if (!(await verifyPermission(handle))) return null;
-  state.archiveHandle = handle;
-  handles.set(IDB_KEY_ARCH, handle).catch(() => {});
-  // 保存場所は表示できないので、せめて選ばれたファイル名を知らせる（AR-1）
-  showBanner('info', 'アーカイブ先: ' + handle.name +
-    '（保存場所はブラウザの制約により表示できません。tasks.md と同じフォルダか確認してください）');
-  return makeFsaAdapter(handle);
+  if (!(await isTasksFolder(dir, state.adapter.handle, state.adapter.name, state.snapshot))) {
+    showBanner('error', '選んだフォルダ（' + dir.name + '）に、開いている ' + state.adapter.name + ' がありません。'
+      + state.adapter.name + ' と同じフォルダを選んでください');
+    return null;
+  }
+  state.archiveDirHandle = dir;
+  handles.set(IDB_KEY_ARCH_DIR, dir).catch(() => {});
+  return (state.archiveFolder = makeFsaFolder(dir));
 }
-
-// アーカイブ先の表示名。メモリセッション（テスト）では 'archive.md' を名乗る
+// 書く先の表示名: 'archive/2026-08.md'（FSA はフォルダ名を付けて '03_Tasks/archive/2026-10.md'）
 function archiveTargetName() {
-  return (state.archiveHandle && state.archiveHandle.name) || 'archive.md';
+  const n = state.archiveFolder && state.archiveFolder.name;
+  return (n ? n + '/' : '') + archiveMonthPath(todayStr());
+}
+// アーカイブのファイルを全部読む（月のファイルは新しい順・最後に archive.md）— 表示と関連ノートの写し
+async function readAllArchives(folder) {
+  const paths = (await folder.listFiles())
+    .sort((a, b) => (a === 'archive.md') - (b === 'archive.md') || (a < b ? 1 : a > b ? -1 : 0));
+  const out = [];
+  for (const p of paths) { try { out.push({ path: p, text: await folder.readFile(p) }); } catch (_) { /* 読めないものは飛ばす */ } }
+  return out;
 }
 
 // 順序は archive 追記 → tasks 除去保存（失敗しても行が消えない方向に倒す）
@@ -150,16 +214,16 @@ async function doArchive() {
       [{ label: '再読込', onClick: () => reloadFromAdapter(true) }]);
     return { ok: false, reason: 'conflict' };
   }
-  let arch;
+  let folder;
   try {
-    arch = await getArchiveAdapter();
+    folder = await getArchiveFolder(true, false);
   } catch (e) {
-    showBanner('error', 'archive.md を開けませんでした: ' + (e && e.name));
+    showBanner('error', 'アーカイブのフォルダを開けませんでした: ' + (e && e.name));
     return { ok: false, reason: 'archopen' };
   }
-  if (!arch) return { ok: false, reason: 'archcancel' };
-  // ファイルをまたぐ不可逆な移動なので件数によらず必ず確認する。保存場所は表示できないため
-  // 少なくとも「どのファイルへ」を示す（AR-1 / AR-3）
+  if (!folder) return { ok: false, reason: 'archcancel' };
+  const path = archiveMonthPath(todayStr());
+  // ファイルをまたぐ不可逆な移動なので件数によらず必ず確認する。どのファイルへ入るかを示す（AR-1 / AR-3）
   // 対象は「画面に出ているもの」なので、検索で絞り込み中はそれを隠さない
   // （8/3 のアーカイブ事故と同じ型を防ぐ）
   const filterNote = String(state.ui.q || '').trim() !== '' ? '（検索で絞り込み中）' : '';
@@ -170,12 +234,12 @@ async function doArchive() {
     showBanner('info', 'アーカイブを中止しました');
     return { ok: false, reason: 'cancel' };
   }
-  // 書き込み直前に読み直して末尾へ追記（外部編集を消さない）。無ければヘッダを付与して新規作成
+  // 書き込み直前に読み直して追記（外部編集を消さない）。無ければヘッダを付与して新規作成
   let archText = '';
-  try { archText = await arch.read(); }
+  try { archText = await folder.readFile(path); }
   catch (e) {
-    // 読めないのに空とみなして書くと、それまでの archive.md が全部消える（2026-10-06・TB-A8 — 以前はここで '' にしていた）。
-    // まだ無い・消されたファイル（NotFoundError）だけは新しく作る（TB-A9）。それ以外は何も書かずに止める（tasks の行も消さない）
+    // 読めないのに空とみなして書くと、それまでの分が全部消える（2026-10-06・TB-A8 — 以前はここで '' にしていた）。
+    // まだ無いファイル（NotFoundError）だけは新しく作る（TB-A9）。それ以外は何も書かずに止める（tasks の行も消さない）
     if (!(e && e.name === 'NotFoundError')) {
       showBanner('error', archiveTargetName() + ' を読めなかったので、アーカイブを中止しました（前の分を上書きして消さないため）。'
         + 'Obsidian で ' + archiveTargetName() + ' が開けるか確かめてから、もう一度押してください: ' + (e && e.name));
@@ -192,28 +256,42 @@ async function doArchive() {
   }
   const out = archiveMerge(archText, groups);
   try {
-    await arch.write(out);
+    await folder.writeFile(path, out);
   } catch (e) {
-    showBanner('error', 'archive.md への書き込みに失敗しました: ' + (e && e.name));
+    showBanner('error', archiveTargetName() + ' への書き込みに失敗しました（tasks.md からは消していません）: ' + (e && e.name));
     return { ok: false, reason: 'archwrite' };
   }
+  // 書いたら読み直して、書いたとおりか確かめてから tasks.md の行を消す（TB-AF3 — 同期や別のアプリの書き戻しで消えないように）
+  let back = null;
+  try { back = await folder.readFile(path); } catch (_) { /* 下で止める */ }
+  if (back === null || nfc(back) !== nfc(out)) {
+    showBanner('error', archiveTargetName() + ' に書いた内容を確かめられなかったので、tasks.md からは消していません。'
+      + 'Obsidian で ' + archiveTargetName() + ' を開いて中身を確かめてください');
+    return { ok: false, reason: 'archverify' };
+  }
   for (let i = lineNos.length - 1; i >= 0; i--) state.lines.splice(lineNos[i] - 1, 1);
-  state.lastUndo = null;   // アーカイブは archive.md にも書くので Cmd+Z では戻さない（TB-Q71）
+  state.lastUndo = null;   // アーカイブは別のファイルにも書くので Cmd+Z では戻さない（TB-Q71）
   const text = joinLines(state.lines);
   try {
     await state.adapter.write(text);
   } catch (e) {
     state.lines = toLines(state.snapshot); // 除去を取り消して読込時状態へ戻す
     render();
-    showBanner('error', 'archive.md へは追記済みですが tasks.md の保存に失敗しました（行は残っています。再実行すると archive.md 側が重複します）: ' + (e && e.name));
+    showBanner('error', archiveTargetName() + ' へは追記済みですが tasks.md の保存に失敗しました（行は残っています。再実行すると '
+      + archiveTargetName() + ' 側が重複します）: ' + (e && e.name));
     return { ok: false, reason: 'writefail' };
   }
   state.snapshot = text;
   for (const l of state.lines) l.orig = l.raw;
+  state.archiveCache = null;   // アーカイブの表示は読み直す（TB-AV3）
   render();
-  // archive.md も数えて写しを書き直す（済んだタスクを移した途端に閉じどきが消えないように — TB-LN6）
-  if (window.ToolTaskLinks) { state.archLinks = ToolTaskLinks.count(parseDoc(toLines(out)).tasks); publishTaskLinks(); }
-  showBanner('success', 'アーカイブしました（' + lineNos.length + '行を ' + arch.name + ' へ移動）');
+  // アーカイブの全部（archive.md と archive/*.md）を数えて写しを書き直す（済んだタスクを移した途端に閉じどきが消えないように — TB-LN6・TB-AF5）
+  if (window.ToolTaskLinks) {
+    const all = await readAllArchives(folder);
+    state.archLinks = ToolTaskLinks.count(all.flatMap(f => parseDoc(toLines(f.text)).tasks));
+    publishTaskLinks();
+  }
+  showBanner('success', 'アーカイブしました（' + lineNos.length + '行を ' + archiveTargetName() + ' へ移動）');
   return { ok: true, moved: lineNos.length };
 }
 

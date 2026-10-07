@@ -481,7 +481,7 @@ const obsidianHref = name => (VAULT_NAME
 const MAX_CHARS = 2000000;         // 読込上限
 const IDB_NAME = 'tools-taskboard';// file:// は全ページ同一オリジンのため db 名で衝突防止
 const IDB_KEY = 'tasksmd';
-const IDB_KEY_ARCH = 'archivemd'; // 完了アーカイブ先（vault/03_Tasks/archive.md）のハンドル
+const IDB_KEY_ARCH_DIR = 'archivedir'; // 完了アーカイブ先のフォルダ（tasks.md と同じ 03_Tasks — TB-Q75。以前の 'archivemd' はファイル1つのハンドルで、場所が見えなかった）
 const IDB_KEY_ISSUE = 'issuedir'; // イシューノートのフォルダ（TB-N。Check Issue と同じフォルダを選ぶ。ツール間で共有しない）
 const handles = ToolFsa.handles(IDB_NAME);   // lib/fsa.js（db 名は従来どおり — TB-FS1）
 
@@ -533,7 +533,7 @@ window.taskboard = {
     lastSession: null,
     newSession: (text) => {
       const adapter = makeMemoryAdapter(text);
-      state.archiveAdapter = makeMemoryAdapter(''); // アーカイブ検証用（メモリ）
+      state.archiveFolder = makeMemoryFolder('');   // アーカイブ検証用（メモリのフォルダ — TB-AF）
       loadText(text, adapter);
       updateFileBar();
       const sess = {
@@ -551,8 +551,11 @@ window.taskboard = {
         getTimeline: () => state.timeline,
         getListTsv: () => buildTsv(state.visibleRows),
         getPlanTsv: () => (state.timeline ? buildPlanTsv(state.timeline.items) : null),
-        getArchiveText: () => state.archiveAdapter._get(),
-        setArchiveText: (t) => state.archiveAdapter._external(t),
+        getArchiveText: () => state.archiveFolder._files.get(archiveMonthPath(todayStr())) || '',   // 今月のファイル
+        setArchiveText: (t) => state.archiveFolder._files.set(archiveMonthPath(todayStr()), t),
+        getArchiveFile: (p) => state.archiveFolder._files.get(p),
+        setArchiveFile: (p, t) => state.archiveFolder._files.set(p, t),
+        listArchiveFiles: () => Object.fromEntries(state.archiveFolder._files),
       };
       window.taskboard.test.lastSession = sess;   // 直前のセッションへの参照（TB-AS4）
       return sess;

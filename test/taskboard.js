@@ -17,7 +17,7 @@ const SHOTS = process.argv.includes('--shots');
 const shotPath = name => path.join(REPO, '.playwright-mcp', name); // .gitignore 済み
 
 // 節（実行順が契約。名前で部分実行できる）
-const SECTIONS = ['engine', 'input', 'timeline-model', 'edit', 'board-search', 'deps', 'status', 'timeline-ui', 'flows', 'arrange', 'parent', 'parts', 'links']
+const SECTIONS = ['engine', 'input', 'timeline-model', 'edit', 'board-search', 'deps', 'status', 'timeline-ui', 'flows', 'arrange', 'parent', 'parts', 'archive', 'links']
   .map(n => require('./taskboard/' + n));
 const only = process.argv.slice(2).filter(a => !a.startsWith('--'));
 const unknown = only.filter(n => !SECTIONS.some(s => s.name === n));

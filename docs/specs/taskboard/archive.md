@@ -1,6 +1,6 @@
 # taskboard — 完了アーカイブ
 
-> **何を決めているか**: グループ単位のアーカイブ・archive.md の案件見出しの下へ・取り違えと一括操作の事故防止。  **テスト ID**: TB-15〜19・AR1/AR2・A1〜A9  **決定の記録**: decisions.md
+> **何を決めているか**: グループ単位のアーカイブ・archive.md の案件見出しの下へ・取り違えと一括操作の事故防止。  **テスト ID**: TB-15〜19・AR1/AR2・A1〜A9・AF1〜AF5・AV1〜AV4  **決定の記録**: decisions.md
 > 2026-09-25 に docs/specs/taskboard.md（目次）から移動。内容は書き換えていない（docs/audits/2026-09-25-structure.md §6）。
 
 ## 完了アーカイブ仕様（UX監査 TB-4）
@@ -18,8 +18,8 @@
   完了親は文脈ごと残す（ソート・絞り込みと同じグループ単位の設計）
 - **前提: 未保存の変更がないこと**（あれば警告して中止 — アーカイブ＝純粋な移動に保つ）
 - **tasks.md 側**は保存と同じ外部変更検知（NFC 比較。不一致なら中止＋警告＋再読込ボタン）
-- **archive.md のハンドル**は IndexedDB（key `archivemd`）に永続化。無ければ
-  `showSaveFilePicker({suggestedName:'archive.md'})` で取得・作成（キャンセルは静黙中止）
+- **アーカイブ先**は tasks.md と同じフォルダの `archive/YYYY-MM.md`（2026-10-06 から — 下の「アーカイブ先は 03_Tasks/archive/YYYY-MM.md」。
+  以前はファイル1つのハンドルを key `archivemd` に覚えていた）
 
 ### アーカイブ先の取り違え防止（AR-1・2026-08-05。実際に事故った）
 
@@ -55,6 +55,7 @@
    さらに進めれば `dirHandle.getFileHandle('archive.md', {create:true})` で
    **ピッカー自体を廃止**でき、取り違えは原理的に起こらなくなる（ハンドル永続化仕様の
    ファイルハンドル前提を変える設計変更のため、本バッチでは実装せず提案に留める）
+   → **2026-10-06 に実装**（下の「アーカイブ先は 03_Tasks/archive/YYYY-MM.md」・TB-Q75）
 
 ### 一括操作の事故防止（AR-3・2026-08-05。実際に事故った）
 
@@ -77,7 +78,7 @@
   対象行を**原文のまま**（インデント・メタトークン不変）1行ずつ追記
 - **順序: archive 追記 → tasks.md から除去して保存**（archive 書込失敗なら行は消えない。
   tasks 保存失敗時は行配列を読込時状態へ戻し、「再実行すると archive.md 側が重複する」旨を警告）
-- 成功バナー「アーカイブしました（N行を archive.md へ移動）」
+- 成功バナー「アーカイブしました（N行を <書く先> へ移動）」
 - フォールバック（FSA 非対応）・デモ中・CR ファイルでは無効
 
 
@@ -86,6 +87,7 @@
 
 アーカイブ（`newSession` の `archive()` / `getArchiveText()` / `setArchiveText(t)` で照合。
 「完了を含む」は UI で ON にしてから実行）:
+`getArchiveText()` / `setArchiveText(t)` は**今月のファイル**（`archive/YYYY-MM.md`）を読み書きする（2026-10-06〜）。
 
 | ID | 操作 | 期待 |
 |---|---|---|
@@ -102,7 +104,7 @@ dialog ハンドラで accept / dismiss を切り替えて照合する。**既�
 
 | ID | 操作 | 期待 |
 |---|---|---|
-| TB-A1 | `newSession(F1)` → complete line:9 → save → 完了を含む ON → `archive()`（dialog を accept） | `{ok:true, moved:1}`。**確認メッセージが `'1件を archive.md へ移動します。よろしいですか？'`**（件数と対象ファイル名を含む） |
+| TB-A1 | `newSession(F1)` → complete line:9 → save → 完了を含む ON → `archive()`（dialog を accept） | `{ok:true, moved:1}`。**確認メッセージが `'1件を archive/2026-08.md へ移動します。よろしいですか？'`**（件数と対象ファイル名を含む） |
 | TB-A2 | 同じ操作で dialog を **dismiss** | `{ok:false, reason:'cancel'}`。archive は空のまま。**tasks 側は9行目が「完了済み」で残る**（アーカイブ前の保存は済んでいるため。行が消えないこと＝除去は archive 書込成功後にのみ起こることの確認） |
 | TB-A3 | **F3**（未完了タスク5件の fixture）で全5件を complete → `save()`（accept） | `{ok:true}`。確認メッセージが `'5件を完了にします。よろしいですか？'` |
 | TB-A4 | 同じ操作で dialog を **dismiss** | `{ok:false, reason:'cancel'}`。**アダプタ内容は不変**（保存されない）。行配列の編集状態は保持される（再挑戦できる） |
@@ -111,3 +113,26 @@ dialog ハンドラで accept / dismiss を切り替えて照合する。**既�
 | TB-A7 | `countNewlyCompleted` 相当の確認: 既存の完了行（F1 の10・11行目）を触らず保存 | 確認は出ない（`orig` が既に完了の行は数えない） |
 | TB-A8 | archive.md に `# archive\n- [x] 旧行\n` があり、**読み込みに失敗する**（`NotReadableError`）状態で完了1件をアーカイブ | `{ok:false, reason:'archread'}`・「中止」の error バナー。**archive.md は前のまま（旧行が残る）・tasks の行も消えない**（2026-10-06 — 読めないのに空とみなして上書きし、前の分を全部消す作りだった） |
 | TB-A9 | 同じだが読み込みが `NotFoundError`（archive.md がまだ無い・消された） | 今どおり新しく作って移す（`{ok:true}`） |
+
+## アーカイブ先は 03_Tasks/archive/YYYY-MM.md（TB-AF1〜AF5 — 2026-10-06・TB-Q75）
+
+利用者「アーカイブを重ねたら消える。メモ書きで先方からの回答なども記述しているので消えてほしくない」「今後消さないようにできる？？ archive もどんどん大きくなっていくので、
+ある程度の容量超えたら daily みたいに日付込みで保存しておく」→ **月ごとに分ける**。
+調査: 2026-09-24 のアーカイブで済んだ16件（メモつき）が tasks.md から外れたのに vault の archive.md に入らず、どこにも見つからなかった（git から戻した）。
+「最初に選んだファイルのハンドル」を覚える作りで、書き込み先が見えなかった（上の AR-1 と同じ型）。**AR-1 の案4（TB-Q10）をここで実装した**。
+
+- **アーカイブ先はフォルダ**: 初回だけ **tasks.md のあるフォルダ（03_Tasks）** を選んでもらう。そのフォルダに**開いている tasks.md と同じファイル**があるか
+  （`isSameEntry`。無い環境は中身の比較）を確かめ、違えば覚えずに止める。覚えたフォルダは IndexedDB（`archivedir`。以前の `archivemd` はもう読まない）
+- **書く先は `archive/YYYY-MM.md`**（アーカイブした日の月。`archive/` は無ければ作る）。中身の形は今の archive.md と同じ（`# archive`・案件の見出しの下へ — `archiveMerge`）。
+  **既存の `archive.md` には書かない**（読むだけ）
+- **書いたら読み直して、書いたとおりか確かめてから** tasks.md の行を消す。違えば消さずに止める（`archverify`）。読めなければ止める（TB-A8）
+- 確認の文と成功のバナーは書く先を出す（「1件を 03_Tasks/archive/2026-10.md へ移動します。よろしいですか？」— メモリのセッションでは `archive/2026-08.md`）
+- 関連ノートの写し（TB-LN6）のアーカイブ分は archive.md と archive/*.md の全部から数える
+
+| ID | 操作 | 期待 |
+|---|---|---|
+| TB-AF1 | archive.md に `X` を置き、2026-08-04 に1件をアーカイブ | `archive/2026-08.md` が `# archive` で始まりその1件を含む・archive.md は `X` のまま・確認の文が `'1件を archive/2026-08.md へ移動します。よろしいですか？'` |
+| TB-AF2 | 続けて 2026-09-02 にもう1件をアーカイブ | `archive/2026-09.md` が新しくでき、`archive/2026-08.md` は変わらない |
+| TB-AF3 | 書いた中身と読み直した中身が違う（書き込みの途中で切れた形） | `{ok:false, reason:'archverify'}`・「tasks.md からは消していません」の error バナー・tasks の行は残る |
+| TB-AF4 | `isTasksFolder` に 同じ tasks.md／同名の別ファイル／tasks.md が無いフォルダ／`isSameEntry` が無く中身が同じ | true／false／false／true |
+| TB-AF5 | archive.md に `[[2026-07-07]]` の済み1件があり、F1 の `[[2026-07-07]]` の1件（9行目）を新しくアーカイブ | 写しの `2026-07-07` が total 3・done 2（tasks.md に残る未完了1 ＋ archive.md の1 ＋ 月のファイルの1） |
