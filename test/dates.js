@@ -124,8 +124,8 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
   await setInput('#biz-date', '2026-09-18');
   await setInput('#biz-n', '1');
   const u1 = await page.evaluate(() => document.getElementById('biz-result').textContent);
-  r.check('DT-U1（UI: 2026-09-18 の1営業日後 = 2026-09-24（木））',
-    u1.includes('2026-09-24（木）'), u1);
+  r.check('DT-U1（UI: 2026-09-18 の1営業日後 = 2026/9/24(木) — 表示は fillDate・title が ISO）',
+    u1.includes('2026/9/24(木)'), u1);
 
   /* ========== DT-U2: 範囲外の warn（戻すと消える） ========== */
   await setInput('#biz-date', '2028-01-05');
@@ -203,6 +203,48 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     !u7d.missing && /^\d{4}-\d{2}-\d{2}$/.test(u7d.v) && u7d.v !== '2020-01-01'
     && u7d.prevented === true && u7d.result.includes('→'),
     JSON.stringify(u7d));
+
+  /* ========== DT-U8〜U10: 点検 2026-10-08（古い設定・チップ・無言で通さない） ========== */
+  await page.evaluate(() => {
+    ToolStorage.save('dates', { 'biz-dir': 'x', 'ef-unit': '人時', 'biz-n': '1', 'ef-h': '8', 'ef-d': '20' });
+    ToolStorage.save = () => true;   // reload 前の pagehide のフラッシュで、今の正しい値に上書きされないように
+  });
+  await page.reload();
+  await page.waitForTimeout(300);
+  await setInput('#biz-date', '2026-09-18');
+  await setInput('#biz-n', '1');
+  const u8 = await page.evaluate(() => ({
+    dir: document.getElementById('biz-dir').value, unit: document.getElementById('ef-unit').value,
+    result: document.getElementById('biz-result').textContent,
+  }));
+  r.check('DT-U8（今の選択肢に無い保存値は捨てる: select は既定に戻り、営業日は「後」で計算）',
+    u8.dir === 'after' && u8.unit === '人日' && u8.result.includes('2026/9/24(木)'), JSON.stringify(u8));
+
+  await setInput('#range-from', '2026-09-14');
+  await setInput('#range-to', '2026-09-14');
+  const u9 = await page.evaluate(async () => {
+    const chips = document.querySelectorAll('.date-chips').length;
+    const before = document.getElementById('range-result').textContent;
+    const wrap = document.getElementById('range-to').nextElementSibling;
+    const plus1 = wrap && wrap.classList.contains('date-chips') ? wrap.querySelectorAll('button')[1] : null;
+    if (plus1) plus1.click();
+    await new Promise(d => setTimeout(d, 50));
+    return { chips, before, after: document.getElementById('range-result').textContent, to: document.getElementById('range-to').value };
+  });
+  r.check('DT-U9（日付欄4つに 今日/+1/+7 のチップ・範囲の終了を +1 すると結果が変わる）',
+    u9.chips === 4 && u9.before.includes('1営業日') && u9.after.includes('2営業日') && u9.to === '2026-09-15', JSON.stringify(u9));
+
+  await setInput('#range-from', '2026-09-20');
+  await setInput('#range-to', '2026-09-18');
+  const u10a = await page.evaluate(() => document.getElementById('banner').textContent);
+  await setInput('#range-from', '2026-09-14');
+  await setInput('#ef-h', '0');
+  const u10b = await page.evaluate(() => document.getElementById('banner').textContent);
+  await setInput('#ef-h', '8');
+  const u10c = await page.evaluate(() => document.getElementById('banner').textContent);
+  r.check('DT-U10（範囲の逆順と係数 0 は warn・戻すと消える）',
+    u10a.includes('開始が終了より後') && u10b.includes('係数') && !u10c.includes('係数') && !u10c.includes('開始が終了より後'),
+    JSON.stringify([u10a, u10b, u10c]));
 
   /* ========== ハブ導線 ========== */
   await page.goto(fileUrl('index.html'));

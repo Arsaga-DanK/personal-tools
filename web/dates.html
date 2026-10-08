@@ -264,7 +264,12 @@ function recalcBiz() {
   const res = addBusinessDays(base, $id('biz-dir').value === 'after' ? n : -n);
   const line = res + '（' + weekday(res) + '）';
   const hn = holidayName(base);
-  el.textContent = '→ ' + line + (hn ? '（基準日は' + hn + '）' : '');
+  // 表示は他のツールと同じ「2026/9/24(木)」（ToolEdit.fillDate — title が ISO）。コピーの中身は ISO のまま（DT-Q4）
+  el.textContent = '→ ';
+  const d = document.createElement('span');
+  ToolEdit.fillDate(d, res, todayStr());
+  el.appendChild(d);
+  if (hn) el.appendChild(document.createTextNode('（基準日は' + hn + '）'));
   el.dataset.copy = line;
   if (!inRange(base) || !inRange(res)) warnings.push(RANGE_WARN);
 }
@@ -274,6 +279,7 @@ function recalcRange() {
   const el = $id('range-result');
   if (!parseYmd(from) || !parseYmd(to)) { el.textContent = '—'; return; }
   el.textContent = '= ' + businessDaysBetween(from, to) + '営業日（両端を含む）';
+  if (from > to) warnings.push('範囲の開始が終了より後です（0営業日として計算しています）');   // 無言で通さない（DT-Q4）
   if (!inRange(from) || !inRange(to)) warnings.push(RANGE_WARN);
 }
 
@@ -292,10 +298,10 @@ function recalcWa() {
 }
 
 function recalcEf() {
-  const r = convertEffort($id('ef-value').value, $id('ef-unit').value, {
-    hoursPerDay: parseFloat($id('ef-h').value),
-    daysPerMonth: parseFloat($id('ef-d').value),
-  });
+  const hpd = parseFloat($id('ef-h').value), dpm = parseFloat($id('ef-d').value);
+  // 空や 0 は既定（8・20）で計算するが、画面と違う値で計算していることは知らせる（DT-Q4）
+  if (!(hpd > 0) || !(dpm > 0)) warnings.push('係数が空か 0 なので既定（8時間・20日）で計算しています');
+  const r = convertEffort($id('ef-value').value, $id('ef-unit').value, { hoursPerDay: hpd, daysPerMonth: dpm });
   $id('ef-result').textContent = r
     ? '= ' + fmtNum(r.hours) + '時間 ＝ ' + fmtNum(r.days) + '人日 ＝ ' + fmtNum(r.months) + '人月'
     : '—';
@@ -337,12 +343,17 @@ function restore() {
   const data = ToolStorage.load(TOOL);
   if (!data) return;
   for (const id of SETTING_IDS) {
-    if (typeof data[id] === 'string' && data[id] !== '') $id(id).value = data[id];
+    const v = data[id];
+    if (typeof v !== 'string' || v === '') continue;
+    const el = $id(id);
+    // select は今の選択肢にある値だけ戻す（無い値を入れると空になり、営業日の向きが黙って「前」で計算されていた — DT-Q4・TB-Q17 と同じ）
+    if (el.tagName === 'SELECT') { if (Array.from(el.options).some(o => o.value === v)) el.value = v; }
+    else el.value = v;
   }
 }
 
-// 初期値: 日付欄はすべて今日
-for (const id of ['biz-date', 'range-from', 'range-to', 'wa-date']) $id(id).value = todayStr();
+// 初期値: 日付欄はすべて今日。隣に 今日/+1/+7（lib/edit.js — Plan Tasks と同じ。段ごとに打たせない — DT-Q4）
+for (const id of ['biz-date', 'range-from', 'range-to', 'wa-date']) { $id(id).value = todayStr(); ToolEdit.dateChips($id(id)); }
 restore();
 recalcAll();
 
