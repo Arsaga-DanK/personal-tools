@@ -31,20 +31,26 @@ async function scanVault(handle) {
   return { files, excluded };
 }
 
-async function runScan() {
+// 新しいスキャンが前のスキャンに勝つ（VL-F4 — 遅い A の途中で B を選ぶと、画面は A のまま書き込み先が B になっていた）。
+// ハンドルは引数で受けて最後まで同じものを使う
+let scanSeq = 0;
+async function runScan(handle) {
+  const h = handle || dirHandle;
+  const seq = ++scanSeq;
   showBanner('info', 'スキャン中…');
   try {
-    const { files, excluded } = await scanVault(dirHandle);
+    const { files, excluded } = await scanVault(h);
+    if (seq !== scanSeq) return;   // そのあとに別のフォルダを選んだ — 古い結果は捨てる
     showBanner('info', '');
     render(lint(files, todayStr()), excluded, files);
-    currentAdapter = fsaAdapter(dirHandle);
+    currentAdapter = fsaAdapter(h);
     // 二段階権限（最小権限）: 検査は read のまま、修復の実行時に初めて readwrite を要求する
     requestWrite = async () =>
-      (await dirHandle.requestPermission({ mode: 'readwrite' })) === 'granted';
-    rescanFn = runScan;
+      (await h.requestPermission({ mode: 'readwrite' })) === 'granted';
+    rescanFn = () => runScan(h);
     el('rescan').hidden = false;
   } catch (e) {
-    showBanner('error', 'スキャンに失敗しました: ' + (e && e.message ? e.message : String(e)));
+    if (seq === scanSeq) showBanner('error', 'スキャンに失敗しました: ' + (e && e.message ? e.message : String(e)));
   }
 }
 
@@ -69,6 +75,7 @@ async function getDirByPath(root, path, opts) {
 
 function fsaAdapter(root) {
   return {
+    _root: root,   // どのフォルダに書くか（テストが見る — VL-F4）
     read: async p => {
       try {
         const { dir, name } = await getDirByPath(root, p);
@@ -89,6 +96,11 @@ function fsaAdapter(root) {
       const srcFh = await src.dir.getFileHandle(src.name);
       const file = await srcFh.getFile();
       const dst = await getDirByPath(root, to, { create: true });
+      // 移動先に同名があれば上書きしない（memoryAdapter と同じ — VL-F3。以前は上書きして元を消していた。
+      // APFS は大文字小文字を区別しないので、元と同じファイルもここで止まる）
+      let exists = true;
+      try { await dst.dir.getFileHandle(dst.name); } catch (e) { if (e && e.name === 'NotFoundError') exists = false; else throw e; }
+      if (exists) throw new Error('移動先に同名があります: ' + to);
       const dstFh = await dst.dir.getFileHandle(dst.name, { create: true });
       const w = await dstFh.createWritable();
       await w.write(file);
@@ -179,6 +191,7 @@ async function executeFixes() {
   showBanner('info', '実行中…');
   const results = await applyFixes(lastScan.files, plan, currentAdapter);
   renderRunLog(plan, results);
+  el('commit-confirm').checked = false;   // 次の実行も確認が要る（VL-F5 — 外れないので確認なしで続けて実行できた）
   showBanner('info', '');
   if (rescanFn) await rescanFn();
 }
@@ -189,9 +202,9 @@ el('pick').addEventListener('click', async () => {
   } catch (_) {
     return;   // キャンセル（AbortError）は無言でよい
   }
-  await runScan();
+  await runScan(dirHandle);
 });
-el('rescan').addEventListener('click', () => { if (dirHandle) runScan(); });
+el('rescan').addEventListener('click', () => { if (dirHandle) runScan(dirHandle); });
 
 el('copy-btn').addEventListener('click', () => {
   if (lastReport === '') { showBanner('info', 'コピーする内容がありません'); return; }

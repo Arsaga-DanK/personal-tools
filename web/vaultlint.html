@@ -121,7 +121,10 @@ window.vaultlint = {
   planFixes,
   applyFixes,
   canDeleteLine,
+  fsaAdapter,   // 移動の「上書きしない」をスタブのハンドルで照合する（VL-F3）
   test: {
+    runScan,   // 新しいスキャンが勝つことを照合する（VL-F4）
+    adapterRoot: () => (currentAdapter && currentAdapter._root ? currentAdapter._root.name : null),
     /* 設定を差し込む（**保存はしない** — テスト間で localStorage を汚さない）。
        省略したキーは「未設定」に戻るので、各テストは前提とする構成を明示的に宣言する。
        正規化は lib/config.js と同じ関数を通す（UI 経由と同じ値になることを保証する） */

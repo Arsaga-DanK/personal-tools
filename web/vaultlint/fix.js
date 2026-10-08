@@ -117,7 +117,8 @@ function planRename(sel, byPath, moves, skipped, getText, texts, files) {
     skipped.push({ path: sel.from, reason: 'リネーム先が既に存在します: ' + sel.to });
     return;
   }
-  moves.push({ from: sel.from, to: sel.to });
+  const mv = { from: sel.from, to: sel.to, linked: [] };   // linked = リンクを付け替えるファイル（移動と組にする — VL-F1）
+  moves.push(mv);
   const oldKey = nfcLower(basenameOf(sel.from).replace(/\.md$/i, ''));
   const newBase = basenameOf(sel.to).replace(/\.md$/i, '');
   for (const f of files) {
@@ -149,31 +150,64 @@ function planRename(sel, byPath, moves, skipped, getText, texts, files) {
       });
       if (next !== lines[i]) { lines[i] = next; changed = true; }
     }
-    if (changed) texts.set(f.path, lines.join('\n'));
+    if (changed) { texts.set(f.path, lines.join('\n')); mv.linked.push(f.path); }
   }
 }
 
 // 計画をアダプタ経由で適用。**書き込み直前に再読して読み込み時点と NFC 比較**（VL-19。
 // taskboard の外部変更検知と同じ考え方 — 外部で変わっていたらそのファイルはスキップして報告）
+// 順序は「消えるより重複」（VL-Q16・2026-10-08）: ①書き込み対象を全部読み直して外部変更を知る → ②移動（リネームはリンク元と組）→ ③書き込み（直前にもう一度読み直す・失敗は1件ずつ）
 async function applyFixes(files, plan, adapter) {
   const orig = new Map(files.map(f => [f.path, typeof f.text === 'string' ? f.text : null]));
   const results = { written: [], moved: [], skipped: plan.skipped.slice() };
+  const msg = e => (e && e.message ? e.message : String(e));
+  const changed = async (path) => {
+    const now = await adapter.read(path);
+    const was = orig.get(path);
+    return now === null || was === null || now.normalize('NFC') !== was.normalize('NFC');
+  };
+  // ① スキャン後に外部で変わったものを先に知る（リネームと組にするため — VL-F1）
+  const stale = new Set();
   for (const w of plan.writes) {
-    const now = await adapter.read(w.path);
-    const was = orig.get(w.path);
-    if (now === null || was === null || now.normalize('NFC') !== was.normalize('NFC')) {
+    if (await changed(w.path)) {
+      stale.add(w.path);
       results.skipped.push({ path: w.path, reason: 'スキャン後に外部で変更されています（再スキャンしてください）' });
+    }
+  }
+  // ② 移動。リネームはリンク元の書き込みと組 — 片方だけ通すと、リンクが切れる／無い名前を指す
+  const dropped = new Set();
+  for (const mv of plan.moves) {
+    const linked = mv.linked || [];
+    const bad = linked.filter(p => stale.has(p));
+    if (bad.length) {
+      results.skipped.push({ path: mv.from, reason: 'リンク元（' + bad.join('・') + '）がスキャン後に変わったので、名前の変更は行いません（再スキャンしてください）' });
+      for (const p of linked) dropped.add(p);
       continue;
     }
-    await adapter.write(w.path, w.after);
-    results.written.push(w.path);
-  }
-  for (const mv of plan.moves) {
     try {
       await adapter.move(mv.from, mv.to);
       results.moved.push(mv);
     } catch (e) {
-      results.skipped.push({ path: mv.from, reason: '移動に失敗しました: ' + (e && e.message ? e.message : String(e)) });
+      results.skipped.push({ path: mv.from, reason: '移動に失敗しました: ' + msg(e) });
+      for (const p of linked) dropped.add(p);
+    }
+  }
+  // ③ 書き込み。直前にもう一度読み直す（VL-19）。失敗は1件ずつスキップして残りを続ける（VL-F2 — 以前は全体が止まりログも出なかった）
+  for (const w of plan.writes) {
+    if (stale.has(w.path)) continue;
+    if (dropped.has(w.path)) {
+      results.skipped.push({ path: w.path, reason: '名前の変更を行わなかったので、このファイルの書き換え（リンクの付け替えを含む）も行いません' });
+      continue;
+    }
+    if (await changed(w.path)) {
+      results.skipped.push({ path: w.path, reason: 'スキャン後に外部で変更されています（再スキャンしてください）' });
+      continue;
+    }
+    try {
+      await adapter.write(w.path, w.after);
+      results.written.push(w.path);
+    } catch (e) {
+      results.skipped.push({ path: w.path, reason: '書き込みに失敗しました: ' + msg(e) });
     }
   }
   return results;

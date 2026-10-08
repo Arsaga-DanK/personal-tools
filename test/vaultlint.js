@@ -308,7 +308,7 @@ const IDEO_SPACE = '\u3000';
     return { moves: p.moves, writes: p.writes, conflictSkipped: conflict.skipped };
   });
   r.check('VL-18（rename＋リンク元3種の追随・フェンス内は不変・衝突はスキップ）',
-    eq(v18.moves, [{ from: 'React  Vite.md', to: 'React Vite.md' }])
+    eq(v18.moves, [{ from: 'React  Vite.md', to: 'React Vite.md', linked: ['note.md'] }])   // linked = 組にするリンク元（VL-F1）
     && v18.writes.length === 1
     && v18.writes[0].after === '[[React Vite]] と [[React Vite|R]] と [[React Vite#手順]]\n```\n[[React  Vite]]\n```'
     && v18.conflictSkipped.length === 1 && v18.conflictSkipped[0].reason.includes('既に存在'),
@@ -338,6 +338,107 @@ const IDEO_SPACE = '\u3000';
     v19.written.length === 1 && v19.written[0][0] === 'a.md' && v19.written[0][1] === 'c'
     && v19.skipped.length === 1 && v19.skipped[0][0] === 'b.md',
     JSON.stringify(v19));
+
+  /* ========== VL-F1〜F5: 消えるより重複（点検 2026-10-08 — VL-Q16） ========== */
+  const f1 = await page.evaluate(async () => {
+    const files = [{ path: 'React  Vite.md', text: '# a' }, { path: 'x.md', text: '[[React  Vite]]' }, { path: 'y.md', text: '[[React  Vite|別名]]' }];
+    const sel = [{ type: 'rename', from: 'React  Vite.md', to: 'React Vite.md' }];
+    const run = async (disk, moveFails) => {
+      const plan = window.vaultlint.planFixes(files, sel);
+      const written = [], moved = [];
+      const res = await window.vaultlint.applyFixes(files, plan, {
+        read: async p => (disk.has(p) ? disk.get(p) : null),
+        write: async (p, t) => { written.push(p); disk.set(p, t); },
+        move: async (f, t) => { if (moveFails) throw new Error('だめ'); moved.push([f, t]); },
+      });
+      return { linked: (plan.moves[0] || {}).linked, written, moved, skipped: res.skipped.map(s => s.path + ':' + s.reason.slice(0, 6)) };
+    };
+    return {
+      stale: await run(new Map([['React  Vite.md', '# a'], ['x.md', '[[React  Vite]]'], ['y.md', '外で変わった']])),
+      fresh: await run(new Map(files.map(f => [f.path, f.text]))),
+      moveFail: await run(new Map(files.map(f => [f.path, f.text])), true),
+    };
+  });
+  r.check('VL-F1（リネームは組で: リンク元が変わっていたら移動しない・両方そのままなら移動して書く・移動が失敗したらリンク元も書かない）',
+    eq(f1.stale.linked, ['x.md', 'y.md']) && f1.stale.moved.length === 0 && f1.stale.written.length === 0 && f1.stale.skipped.length === 3
+    && f1.fresh.moved.length === 1 && eq(f1.fresh.written, ['x.md', 'y.md']) && f1.fresh.skipped.length === 0
+    && f1.moveFail.moved.length === 0 && f1.moveFail.written.length === 0 && f1.moveFail.skipped.length === 3,
+    JSON.stringify(f1));
+
+  const f2 = await page.evaluate(async () => {
+    const files = [{ path: 'a.md', text: '[[c]]' }, { path: 'b.md', text: '[[c]]' }, { path: 'd.md', text: '[[c]]' }];
+    const plan = window.vaultlint.planFixes(files, files.map(f => ({ type: 'textify', file: f.path, line: 1, target: 'c' })));
+    const disk = new Map(files.map(f => [f.path, f.text]));
+    const written = [];
+    try {
+      const res = await window.vaultlint.applyFixes(files, plan, {
+        read: async p => disk.get(p),
+        write: async (p) => { if (p === 'b.md') { const e = new Error('x'); e.name = 'NotAllowedError'; throw e; } written.push(p); },
+        move: async () => {},
+      });
+      return { written, skipped: res.skipped.map(s => s.path + ':' + s.reason.slice(0, 7)) };
+    } catch (e) { return { threw: e.name, written }; }   // 全体が止まる作り（RED）でもハーネスを止めない
+  });
+  r.check('VL-F2（書き込みの例外は1件だけスキップして残りを続ける）',
+    !f2.threw && eq(f2.written, ['a.md', 'd.md']) && eq(f2.skipped, ['b.md:書き込みに失敗']), JSON.stringify(f2));
+
+  const f3 = await page.evaluate(async () => {
+    if (!window.vaultlint.fsaAdapter) return null;
+    const nf = () => { const e = new Error('nf'); e.name = 'NotFoundError'; return e; };
+    const mk = (files) => {
+      const dir = {
+        files, removed: [],
+        getDirectoryHandle: async () => dir,
+        getFileHandle: async (n, o) => {
+          if (!(n in files)) { if (o && o.create) files[n] = ''; else throw nf(); }
+          return {
+            getFile: async () => ({ text: async () => files[n], size: files[n].length }),
+            createWritable: async () => ({ write: async t => { files[n] = typeof t === 'string' ? t : 'copy'; }, close: async () => {} }),
+          };
+        },
+        removeEntry: async n => { dir.removed.push(n); delete files[n]; },
+      };
+      return dir;
+    };
+    const a = mk({ 'a.md': 'A', 'b.md': 'B' });
+    let err = null;
+    try { await window.vaultlint.fsaAdapter(a).move('a.md', 'b.md'); } catch (e) { err = e.message; }
+    const b = mk({ 'a.md': 'copy' });
+    await window.vaultlint.fsaAdapter(b).move('a.md', 'c.md');
+    return { err, kept: a.files['a.md'] === 'A' && a.files['b.md'] === 'B' && a.removed.length === 0, moved: !('a.md' in b.files) && b.files['c.md'] === 'copy' };
+  });
+  r.check('VL-F3（FSA の移動は移動先に同名があれば上書きしない・無ければ移る）',
+    !!f3 && /同名/.test(f3.err) && f3.kept && f3.moved, JSON.stringify(f3));
+
+  const f4 = await page.evaluate(async () => {
+    if (!window.vaultlint.test.runScan) return null;
+    const dir = (name, text, delay) => ({
+      name, kind: 'directory', requestPermission: async () => 'granted',
+      values: async function* () {
+        await new Promise(d => setTimeout(d, delay));
+        yield { kind: 'file', name: name + '.md', getFile: async () => ({ text: async () => text }) };
+      },
+    });
+    window.vaultlint.test.setConfig({ privateDirs: ['91_Private'] });
+    const pA = window.vaultlint.test.runScan(dir('A', '[[zzz]]', 300));
+    const pB = window.vaultlint.test.runScan(dir('B', '# ok', 50));
+    await Promise.all([pA, pB]);
+    await new Promise(d => setTimeout(d, 50));
+    return { summary: document.getElementById('summary').textContent, adapterRoot: window.vaultlint.test.adapterRoot() };
+  });
+  r.check('VL-F4（遅いスキャン A のあとに B を選んだら、画面も書き込み先も B）',
+    !!f4 && f4.summary.includes('問題 0 件') && f4.adapterRoot === 'B', JSON.stringify(f4));
+
+  const f5 = await page.evaluate(async () => {
+    window.confirm = () => true;
+    window.vaultlint.test.run([{ path: 'a.md', text: '[[c]]' }, { path: 'b.md', text: '' }], '2026-08-14');
+    document.querySelector('select.fix-select').value = 'deleteLine';
+    document.getElementById('commit-confirm').checked = true;
+    document.getElementById('fix-btn').click();
+    await new Promise(d => setTimeout(d, 150));
+    return { unchecked: document.getElementById('commit-confirm').checked === false, log: document.getElementById('runlog').textContent.includes('書き換え 1') };
+  });
+  r.check('VL-F5（実行したらコミット済みのチェックが外れる）', f5.unchecked && f5.log, JSON.stringify(f5));
 
   const u1 = await page.evaluate(async () => {
     window.__copied = null;
