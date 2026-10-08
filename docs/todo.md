@@ -134,5 +134,5 @@
 - taskboard に paste ハンドラが無いこと（正本は vault 側）・Cmd+Z / Delete が無いこと（TB-Q8 / TB-Q21 の意図的不在）
 - ハブに spec ファイルが無いこと自体（期待値の大半が TOOLS からの導出。移すべきは #38 の2点だけ）
 - 横断規約の一様性は完全（全16本に `.tool-header` と `window.<英名>` フック・全17ページに ui.css と favicon）
-- `excel2md/` の据え置き（2026-09 上旬）・Draw Gantt / Sort Ideas / Draw Mindmap の凍結
+- `excel2md/` の据え置き（→ 2026-10-08 に削除済み）・Draw Gantt / Sort Ideas / Draw Mindmap の凍結
 - テストは20本超でも壁にならない（742チェック・最重 taskboard 15.0s・全体80秒級）
