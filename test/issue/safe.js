@@ -97,5 +97,40 @@ module.exports = {
     });
     r.check('IS-SF4（モーダルの中の Cmd+Enter はそのモーダルの確定・貼り付け欄からの作成は走らない）',
       sf4.advanced && sf4.closed && sf4.files === 0 && sf4.modalHidden, JSON.stringify(sf4));
+
+    /* ---------- IS-SF6: ⋯ にフォルダ名・［別のフォルダを選ぶ］ ---------- */
+    await load({ 'd.md': FRAMED });
+    const sf6 = await page.evaluate(async () => {
+      const nameEl = document.getElementById('dir-name'), btn = document.getElementById('repick-btn');
+      if (!nameEl || !btn) return { missing: true };
+      const before = window.__fsa.picked;
+      btn.click();
+      await new Promise(d => setTimeout(d, 300));
+      return { name: nameEl.textContent, nameShown: !nameEl.hidden, picked: window.__fsa.picked - before, btnShown: !btn.hidden,
+        cards: document.querySelectorAll('.issue-card').length };
+    });
+    r.check('IS-SF6（⋯ にフォルダ名・［別のフォルダを選ぶ］でピッカーが出て読み直す）',
+      !sf6.missing && sf6.name.includes('Issues') && sf6.nameShown && sf6.picked === 1 && sf6.btnShown && sf6.cards === 1, JSON.stringify(sf6));
+
+    /* ---------- IS-SF7: タブに戻ったら読み直す・打っている最中は読み直さない ---------- */
+    const sf7 = await page.evaluate(async () => {
+      const titleOf = () => (document.querySelector('.note-card .note-name') || {}).textContent || '';
+      const focus = async () => { window.dispatchEvent(new Event('focus')); await new Promise(d => setTimeout(d, 300)); };
+      window.__fsa.files['d.md'] = window.__fsa.files['d.md'].replace('# 手順書', '# 手順書（外で直した）');
+      await focus();
+      const updated = titleOf().includes('外で直した');
+      document.querySelector('.issue-card .ic-close').click();
+      window.__fsa.files['d.md'] = window.__fsa.files['d.md'].replace('外で直した', 'さらに直した');
+      await new Promise(d => setTimeout(d, 2100));   // 2秒の間引きを越えてから
+      await focus();
+      const notWhileTyping = !titleOf().includes('さらに直した');
+      document.getElementById('cm-cancel').click();
+      await new Promise(d => setTimeout(d, 2100));
+      await focus();
+      const afterClose = titleOf().includes('さらに直した');
+      return { updated, notWhileTyping, afterClose };
+    });
+    r.check('IS-SF7（タブに戻ったら読み直す・打っている最中は読み直さない・閉じたら読み直す）',
+      sf7.updated && sf7.notWhileTyping && sf7.afterClose, JSON.stringify(sf7));
   },
 };

@@ -98,11 +98,15 @@ async function loadIssues(interactive) {
     }
   }
   if (!dir) return;
+  // どのフォルダを読んでいるかを ⋯ に出し、そこから選び直せる（IS-SF6）
+  $id('dir-name').textContent = 'フォルダ: ' + dir.name;
+  $id('dir-name').hidden = false;
+  $id('repick-btn').hidden = false;
   try {
     const res = await readDirIssues(dir);
     if (res.over) {
       ToolUI.banner($id('banner'), 'warn',
-        'ノートが ' + MAX_ISSUES + ' 件を超えています。04_Issues 以外のフォルダを選んでいないか確認してください');
+        'ノートが ' + MAX_ISSUES + ' 件を超えています（' + dir.name + '）。04_Issues 以外のフォルダを選んでいないか確認してください — ⋯ の［別のフォルダを選ぶ］で選び直せます');
       return;
     }
     notes = res.list.map(function (f) { return noteOf(f.text, f.name); });
@@ -787,6 +791,20 @@ $id('cfg-vault').addEventListener('change', function () {
 
 $id('pick-btn').addEventListener('click', function () { loadIssues(true); });
 $id('reload-btn').addEventListener('click', function () { loadIssues(false); });
+$id('repick-btn').addEventListener('click', function () { dirHandle = null; loadIssues(true); });   // 覚えたフォルダを捨てて選び直す（IS-SF6）
+
+// タブに戻ったら読み直す（Plan Tasks の checkExternal と同じ — IS-SF7・IS-Q29）。
+// 打っている最中（モーダル・ウィザード・その場編集）は読み直さない・権限が無ければ黙って何もしない・2秒に1回まで
+let lastExternalCheck = 0;
+async function checkExternal() {
+  if (!dirHandle || Date.now() - lastExternalCheck < 2000) return;
+  lastExternalCheck = Date.now();
+  if (!$id('close-modal').hidden || !$id('wizard').hidden || document.querySelector('#cards .ic-edit')) return;
+  try { if ((await dirHandle.queryPermission({ mode: 'readwrite' })) !== 'granted') return; } catch (_) { return; }
+  await loadIssues(false);
+}
+window.addEventListener('focus', checkExternal);
+document.addEventListener('visibilitychange', function () { if (!document.hidden) checkExternal(); });
 /* ---------- 論点の行の右クリックとキー（段2 — IS-LK15〜LK18・Plan Tasks の TB-RM と同じ作り） ----------
    メニューの見た目・キーの読み方・文字を打っている最中の判定・置き場所は lib/ui.js の ToolUI。何をするか・どの行に効くかはここ。
    出す項目は ⋯ と同じ条件 */
