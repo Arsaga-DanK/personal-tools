@@ -1032,6 +1032,21 @@ const TAB_IDS = ['json', 'xml', 'sql', 'escape', 'url', 'base64', 'regex', 'base
   const title = await page.title();
   r.check('ハブから「Convert Data」→ devpad へ遷移できる', title.includes('devpad'), title);
 
+  /* ========== DEV-55: ←アンエスケープで打った文を上書きしても Cmd+Z で戻る（DEV-Q14） ========== */
+  await page.evaluate(() => {
+    document.querySelector('#tabbar button[data-tab="escape"]').click();
+    const set = (id, v) => { const el = document.getElementById(id); el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); };
+    set('esc-raw', '元の文');
+    set('esc-lit', '"B"');
+    document.getElementById('esc-decode').click();
+  });
+  const d55a = await page.evaluate(() => document.getElementById('esc-raw').value);
+  await page.focus('#esc-raw');
+  await page.keyboard.press('ControlOrMeta+z');
+  await page.waitForTimeout(100);
+  const d55b = await page.evaluate(() => document.getElementById('esc-raw').value);
+  r.check('DEV-55（←アンエスケープで欄が置き換わり、Cmd+Z で打った文に戻る）', d55a === 'B' && d55b === '元の文', JSON.stringify([d55a, d55b]));
+
   await browser.close();
   r.report('devpad（docs/specs/devpad.md）');
 })().catch(e => {

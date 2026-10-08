@@ -810,6 +810,16 @@ ToolUI.initBanners();
 function tabErrorEl(tabId) { return document.querySelector('#tab-' + tabId + ' [data-tab-error]'); }
 
 // 全イベントを guard 経由にし、例外は当該タブのエラーバナーに閉じ込める
+// 打った欄を上書きするときは、ブラウザの取り消し（Cmd+Z）が効く形で入れる（DEV-Q14 — value 代入は取り消しの記録を消す）。
+// execCommand が効かない環境は今までどおり値を入れる
+function setUndoable(ta, text) {
+  ta.focus();
+  ta.select();
+  let ok = false;
+  try { ok = document.execCommand('insertText', false, text); } catch (_) { ok = false; }
+  if (!ok || ta.value !== text) ta.value = text;
+}
+
 function guard(tabId, fn) {
   return function (...args) {
     try {
@@ -980,7 +990,7 @@ const TABS = [
       $('esc-decode').addEventListener('click', guard('escape', () => {
         if (tooLarge($('esc-lit').value, 'esc-result')) return;
         try {
-          $('esc-raw').value = unescapeJsonStr($('esc-lit').value);
+          setUndoable($('esc-raw'), unescapeJsonStr($('esc-lit').value));   // 打った文を上書きしても Cmd+Z で戻る（DEV-55）
           showBanner('esc-result', 'info', '');
         } catch (e) {
           showBanner('esc-result', 'error', 'アンエスケープ失敗: ' + e.message);
@@ -1004,7 +1014,7 @@ const TABS = [
       $('url-decode').addEventListener('click', guard('url', () => {
         if (tooLarge($('url-enc').value, 'url-result')) return;
         try {
-          $('url-raw').value = urlDecode($('url-enc').value);
+          setUndoable($('url-raw'), urlDecode($('url-enc').value));   // DEV-Q14
           showBanner('url-result', 'info', '');
         } catch (e) {
           showBanner('url-result', 'error', 'デコード失敗: 不正なパーセントエンコーディングです');
@@ -1029,7 +1039,7 @@ const TABS = [
         if (tooLarge($('b64-enc').value, 'b64-result')) return;
         const r = b64decode($('b64-enc').value);
         if (typeof r === 'string') {
-          $('b64-raw').value = r;
+          setUndoable($('b64-raw'), r);   // DEV-Q14
           showBanner('b64-result', 'info', '');
         } else {
           showBanner('b64-result', 'error', 'デコード失敗: ' + r.error);
