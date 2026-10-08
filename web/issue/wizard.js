@@ -467,6 +467,7 @@ $id('wz-create').addEventListener('click', async () => {
 });
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
+  if (e.isComposing || e.keyCode === 229) return;   // 変換の取り消しに使われる Esc（TB-Q9 と同型 — IS-SF3。閉じると打った文が消える）
   if (!$id('close-modal').hidden) { e.preventDefault(); closeCloseModal(); return; }
   if (!$id('wizard').hidden) { e.preventDefault(); wzClose(); }
 });

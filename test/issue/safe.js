@@ -53,5 +53,49 @@ module.exports = {
       ? setIssueLine('# t\n\n## 論点\n\n- a\n- b\n> 注記\n\n## 掘る\n\n- x\n', 'c') : null);
     r.check('IS-SF2（setIssueLine: カードに出ている最初の行だけ置き換え、ほかの行は残る）',
       sf2 === '# t\n\n## 論点\n\n- c\n- b\n> 注記\n\n## 掘る\n\n- x\n', JSON.stringify(sf2));
+
+    /* ---------- IS-SF3・SF5: 変換中の Esc では閉じない・打っている最中の beforeunload は止める ---------- */
+    await load({ 'd.md': FRAMED });
+    const sf3 = await page.evaluate(async () => {
+      const esc = (target, composing) => target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true, isComposing: composing }));
+      const unload = () => { const ev = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(ev); return ev.defaultPrevented; };
+      document.querySelector('.issue-card .ic-close').click();
+      const note = document.getElementById('cm-note');
+      note.value = '分かった'; note.dispatchEvent(new Event('input', { bubbles: true }));
+      esc(note, true);
+      const stillOpen = !document.getElementById('close-modal').hidden;
+      const asked = unload();
+      esc(note, false);
+      const closed = document.getElementById('close-modal').hidden;
+      const notAsked = !unload();
+      document.querySelector('.issue-card .ic-frame').click();
+      const first = document.querySelector('#wz-body textarea, #wz-body input');
+      esc(first, true);
+      const wzOpen = !document.getElementById('wizard').hidden;
+      const wzAsked = unload();   // ウィザードは既存ノートの中身が入っているので「書いた状態」
+      esc(first, false);
+      return { stillOpen, asked, closed, notAsked, wzOpen, wzAsked, wzClosed: document.getElementById('wizard').hidden };
+    });
+    r.check('IS-SF3（変換中の Esc では閉じない・ふつうの Esc は閉じる）', sf3.stillOpen && sf3.closed && sf3.wzOpen && sf3.wzClosed, JSON.stringify(sf3));
+    r.check('IS-SF5（打っている最中の beforeunload は止める・閉じたら止めない）', sf3.asked && sf3.notAsked && sf3.wzAsked, JSON.stringify(sf3));
+
+    /* ---------- IS-SF4: モーダルの中の Cmd+Enter はそのモーダルの確定 ---------- */
+    const sf4 = await page.evaluate(async () => {
+      const cmdEnter = () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
+      const filesBefore = Object.keys(window.__fsa.files).length;
+      document.querySelector('.issue-card .ic-frame').click();
+      const step0 = document.getElementById('wz-step').textContent;
+      cmdEnter();
+      await new Promise(d => setTimeout(d, 100));
+      const step1 = document.getElementById('wz-step').textContent;
+      document.getElementById('wz-close').click();
+      document.querySelector('.issue-card .ic-close').click();
+      cmdEnter();
+      await new Promise(d => setTimeout(d, 400));
+      return { advanced: step0 !== step1, closed: /^status: closed$/m.test(window.__fsa.files['d.md']),
+        files: Object.keys(window.__fsa.files).length - filesBefore, modalHidden: document.getElementById('close-modal').hidden };
+    });
+    r.check('IS-SF4（モーダルの中の Cmd+Enter はそのモーダルの確定・貼り付け欄からの作成は走らない）',
+      sf4.advanced && sf4.closed && sf4.files === 0 && sf4.modalHidden, JSON.stringify(sf4));
   },
 };

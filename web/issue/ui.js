@@ -153,10 +153,21 @@ document.addEventListener('keydown', e => {
   if (e.defaultPrevented || (e.target.closest && e.target.closest('#cards .ic-edit'))) return;
   if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
     e.preventDefault();
+    // モーダルが開いている間はそのモーダルの確定（Plan Tasks の編集画面と同じ）。以前は貼り付け欄からの作成が走り「無題」のノートができた（IS-SF4）
+    if (!$id('close-modal').hidden) { $id('cm-ok').click(); return; }
+    if (!$id('wizard').hidden) { ($id('wz-create').hidden ? $id('wz-next') : $id('wz-create')).click(); return; }
     // 直接保存できるなら作成、できないならコピー（＝そのときの唯一の経路）
     $id(fsaAvailable() ? 'create-btn' : 'copy-btn').click();
   }
 });
+
+// 打っている最中に離れるときは聞く（TB-Q61 と同じ — IS-SF5）。モーダル・ウィザード・その場編集の下書きはメモリにしかない
+function hasUnsavedTyping() {
+  if (!$id('close-modal').hidden && ($id('cm-note').value.trim() !== '' || $id('cm-told').value.trim() !== '')) return true;
+  if (!$id('wizard').hidden && Array.from(document.querySelectorAll('#wz-body textarea, #wz-body input[type="text"]')).some(x => x.value.trim() !== '')) return true;
+  return Array.from(document.querySelectorAll('#cards .ic-edit textarea, #cards .ic-edit input[type="text"]')).some(x => x.value.trim() !== '');
+}
+window.addEventListener('beforeunload', e => { if (hasUnsavedTyping()) e.preventDefault(); });
 
 /* ---------- 04_Issues への書き込み（File System Access・Chrome 系） ----------
    **フォルダ名をコードに書かない**（coding-rules「vault 連携」）— 利用者にピッカーで選ばせ、
