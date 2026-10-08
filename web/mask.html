@@ -549,6 +549,9 @@ function setImage(dataUrl) {
 /* ========== 入力（Ctrl+V / ドラッグ＆ドロップ / ファイル選択） ========== */
 
 function loadBlob(blob) {
+  // 注釈があるときだけ確認する（差し替えで注釈と戻す記録が全部消え、戻せなかった — MK-Q23。無ければ今までどおり聞かずに貼れる）
+  if (hasImage && ops.length > 0
+      && !confirm('注釈が ' + ops.length + ' 件あります。画像を差し替えると注釈は消えます（戻せません）。差し替えますか？')) return;
   const reader = new FileReader();
   reader.onload = () => { setImage(reader.result).catch(() => {}); };
   reader.readAsDataURL(blob);
@@ -1040,6 +1043,8 @@ document.addEventListener('keydown', e => {
     undo();
     return;
   }
+  // 変換の取り消しに使われる Esc は奪わない（編集欄の Esc は変換中に素通しするのでここへ来る — MK-U39・MK-Q23）
+  if (e.key === 'Escape' && (e.isComposing || e.keyCode === 229)) return;
   // Esc: 切り抜きの確定待ちがあればキャンセル（選択解除より優先）
   if (e.key === 'Escape' && (cropPending || cropDrag)) {
     cancelCrop();

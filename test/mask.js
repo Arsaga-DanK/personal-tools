@@ -1362,6 +1362,68 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     && eq(u37t.undoneW, [null, null]),
     JSON.stringify(u37t));
 
+  /* ========== MK-U38〜U40: 点検 2026-10-08（差し替えの確認・変換中の Esc・本物のマウス） ========== */
+  await loadFixture();
+  const u38 = await page.evaluate(async () => {
+    window.mask.clearOps();
+    window.mask.addOp({ type: 'fill', x: 10, y: 10, w: 30, h: 30 });
+    window.mask.addOp({ type: 'fill', x: 50, y: 50, w: 10, h: 10 });
+    const paste = () => new Promise(res => {
+      const c = document.createElement('canvas'); c.width = 40; c.height = 40;
+      c.toBlob(b => {
+        const dt = new DataTransfer();
+        dt.items.add(new File([b], 'p.png', { type: 'image/png' }));
+        document.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true }));
+        setTimeout(res, 300);
+      });
+    });
+    let asked = 0;
+    const realConfirm = window.confirm;
+    window.confirm = () => { asked++; return false; };
+    await paste();
+    const keptOps = window.mask.opsCount(), keptW = window.mask.size().w, askedNo = asked;
+    window.confirm = () => { asked++; return true; };
+    await paste();
+    const replacedW = window.mask.size().w, replacedOps = window.mask.opsCount();
+    asked = 0;
+    await paste();   // 注釈が無い → 聞かない
+    window.confirm = realConfirm;
+    return { keptOps, keptW, askedNo, replacedW, replacedOps, askedNoOps: asked };
+  });
+  r.check('MK-U38（注釈があるときだけ差し替えを確認: いいえ→そのまま・はい→差し替え・注釈なしは聞かない）',
+    u38.keptOps === 2 && u38.keptW === 100 && u38.askedNo === 1 && u38.replacedW === 40 && u38.replacedOps === 0 && u38.askedNoOps === 0,
+    JSON.stringify(u38));
+
+  await loadFixture();
+  const u39 = await page.evaluate(() => {
+    window.mask.clearOps();
+    window.mask.addOp({ type: 'fill', x: 10, y: 10, w: 30, h: 30 });
+    window.mask.selectAt(20, 20);
+    const esc = (composing) => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true, isComposing: composing }));
+    const before = window.mask.selectedIndices().length;
+    esc(true);
+    const afterComposing = window.mask.selectedIndices().length;
+    esc(false);
+    return { before, afterComposing, afterPlain: window.mask.selectedIndices().length };
+  });
+  r.check('MK-U39（選択中の変換中 Esc では選択が外れない・ふつうの Esc は外れる）',
+    u39.before === 1 && u39.afterComposing === 1 && u39.afterPlain === 0, JSON.stringify(u39));
+
+  await loadFixture();
+  const box = await page.evaluate(() => {
+    window.mask.clearOps();
+    document.querySelector('input[name="tool"][value="rect"]').click();
+    const r = document.getElementById('canvas').getBoundingClientRect();
+    const c = document.getElementById('canvas');
+    return { left: r.left, top: r.top, kx: r.width / c.width, ky: r.height / c.height };
+  });
+  await page.mouse.move(box.left + 20 * box.kx, box.top + 20 * box.ky);
+  await page.mouse.down();
+  await page.mouse.move(box.left + 70 * box.kx, box.top + 60 * box.ky, { steps: 6 });
+  await page.mouse.up();
+  const u40 = await page.evaluate(() => window.mask.opsCount());
+  r.check('MK-U40（本物のマウスで矩形をドラッグすると注釈が1件できる）', u40 === 1, JSON.stringify(u40));
+
   /* ========== ハブ導線 ========== */
   await page.goto(fileUrl('index.html'));
   const hubCats = await page.evaluate(() =>

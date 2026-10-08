@@ -1025,6 +1025,7 @@ document.addEventListener('keydown', e => {
     return;
   }
   if (e.key === 'Escape') {
+    if (e.isComposing || e.keyCode === 229) return;   // 変換の取り消しに使われる Esc は奪わない（編集欄の Esc は変換中に素通しする — BD-U14・BD-Q12）
     if (pendingA !== null) { discardPending(); return; }
     if (selected.size > 0) { selected = new Set(); redraw(); return; }
     return;

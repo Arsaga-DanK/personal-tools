@@ -571,6 +571,42 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     !u13v.missing && u13v.scale === 1 && u13v.editorOpen === true && u13v.value === 'オートズーム',
     JSON.stringify(u13v));
 
+  /* ========== BD-U14・U15: 点検 2026-10-08（変換中の Esc・本物のマウスでドラッグ） ========== */
+  await page.reload();
+  await page.waitForTimeout(300);
+  const u14 = await page.evaluate(() => {
+    window.board.clearAll();
+    const id = window.board.addNote(200, 200, '変換中', null);
+    const n = window.board.notes().find(x => x.id === id);
+    window.board.selectAt(n.x + 20, n.y + 20);
+    const esc = (composing) => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true, isComposing: composing }));
+    const before = window.board.selectedIds().length;
+    esc(true);
+    const afterComposing = window.board.selectedIds().length;
+    esc(false);
+    return { before, afterComposing, afterPlain: window.board.selectedIds().length };
+  });
+  r.check('BD-U14（付箋を選択中の変換中 Esc では選択が外れない・ふつうの Esc は外れる）',
+    u14.before === 1 && u14.afterComposing === 1 && u14.afterPlain === 0, JSON.stringify(u14));
+
+  const drag = await page.evaluate(() => {
+    window.board.clearAll();
+    const id = window.board.addNote(200, 200, 'つかむ', null);
+    const n = window.board.notes().find(x => x.id === id);
+    const r = document.getElementById('canvas').getBoundingClientRect();
+    return { id, x: n.x, y: n.y, left: r.left, top: r.top, scale: typeof scale === 'number' ? scale : 1 };
+  });
+  await page.mouse.move(drag.left + (drag.x + 20) * drag.scale, drag.top + (drag.y + 20) * drag.scale);
+  await page.mouse.down();
+  await page.mouse.move(drag.left + (drag.x + 160) * drag.scale, drag.top + (drag.y + 120) * drag.scale, { steps: 8 });
+  await page.mouse.up();
+  const u15 = await page.evaluate((id) => {
+    const n = window.board.notes().find(x => x.id === id);
+    return { x: n.x, y: n.y };
+  }, drag.id);
+  r.check('BD-U15（本物のマウスで付箋をドラッグすると位置が動く）',
+    u15.x > drag.x + 100 && u15.y > drag.y + 60, JSON.stringify({ from: [drag.x, drag.y], to: u15, scale: drag.scale }));
+
   /* ========== ハブ導線 ========== */
   await page.goto(fileUrl('index.html'));
   await page.click('ul.tool-list .tool-name:text-is("Sort Ideas")');
