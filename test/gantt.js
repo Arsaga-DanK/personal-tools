@@ -824,6 +824,51 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     && u20.leftover === null,
     JSON.stringify(u20));
 
+  /* ========== GN-U21・U22: 点検 2026-10-08（最初のタスクの開始は今日・受け渡しで前の内容を黙って消さない） ========== */
+  await page.evaluate(() => {
+    ToolStorage.save = () => true;             // reload 前のフラッシュで GN-U20 の内容を保存し直さない（verification-notes §4）
+    localStorage.removeItem('tools:gantt');
+    sessionStorage.removeItem('tools:handoff');
+  });
+  await page.reload();
+  await page.waitForTimeout(500);
+  const u21 = await page.evaluate(async () => {
+    const name = document.querySelector('#editor .ed-row .ed-name');
+    if (!name) return { missing: true };
+    name.focus();
+    name.value = '最初の仕事';
+    name.dispatchEvent(new Event('input', { bubbles: true }));
+    name.dispatchEvent(new Event('blur', { bubbles: true }));
+    await new Promise(d => setTimeout(d, 700));
+    const start = document.querySelector('#editor .ed-row .ed-start');
+    return { start: start ? start.value : null, today: ToolEdit.today(), input: document.getElementById('input').value,
+      banner: document.getElementById('banner').textContent };
+  });
+  r.check('GN-U21（最初のタスクに名前を入れると開始が今日で埋まり、「開始必須」で止まらない）',
+    !u21.missing && u21.start === u21.today && u21.input.includes('最初の仕事\t' + u21.today) && !u21.banner.includes('開始必須'),
+    JSON.stringify(u21));
+
+  await page.evaluate(() => {
+    ToolStorage.save('gantt', { input: '前の計画\t2026-08-01\t3d', view: 'editor' });
+    ToolStorage.save = () => true;             // reload 前のフラッシュで上書きしない（verification-notes §4）
+    sessionStorage.setItem('tools:handoff', JSON.stringify({
+      to: 'gantt', kind: 'plan', at: 1,
+      text: ['内容\t開始日\t期限\t日数\t状態\tセクション', '受け渡し設計\t2026-08-18\t2026-08-22\t5\t未着手\t設計'].join('\n'),
+    }));
+  });
+  await page.reload();
+  await page.waitForTimeout(700);
+  const u22 = await page.evaluate(async () => {
+    const replaced = document.getElementById('input').value.includes('受け渡し設計');
+    const banner = document.getElementById('banner').textContent;
+    const kind = document.getElementById('banner').className;
+    if (typeof editorUndo === 'function') editorUndo();
+    await new Promise(d => setTimeout(d, 100));
+    return { replaced, banner, kind, restored: document.getElementById('input').value };
+  });
+  r.check('GN-U22（受け渡しで前の内容を置き換えたら info で知らせ、Cmd+Z で前の内容に戻る）',
+    u22.replaced && u22.banner.includes('置き換えました') && u22.restored === '前の計画\t2026-08-01\t3d', JSON.stringify(u22));
+
   /* ========== ハブ導線 ========== */
   await page.goto(fileUrl('index.html'));
   await page.click('ul.tool-list .tool-name:text-is("Draw Gantt")');
