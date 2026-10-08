@@ -10,7 +10,7 @@
 
 const { launch, fileUrl, createRunner, eq } = require('./helpers');
 
-const SECTIONS = ['pure', 'ui', 'cards', 'look', 'dig', 'tasks'].map(n => require('./issue/' + n));
+const SECTIONS = ['pure', 'ui', 'cards', 'look', 'dig', 'tasks', 'safe'].map(n => require('./issue/' + n));
 const only = process.argv.slice(2).filter(a => !a.startsWith('--'));
 const unknown = only.filter(n => !SECTIONS.some(s => s.name === n));
 if (unknown.length) {

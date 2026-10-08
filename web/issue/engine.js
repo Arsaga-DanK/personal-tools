@@ -325,21 +325,72 @@ function topOfBody(lines, text) {
   return at;
 }
 
-/* 5段のブロックを差し込む。既にあれば**その範囲だけ**差し替える。
-   書き殴り（掘ったログ・TODO）には一切触らない */
-function upsertFrame(text, md) {
+/* 5段のブロックを差し込む。既にあれば**重ねる**（IS-Q27・2026-10-08）: 新しい節の行の後ろに、前からあった行のうち新しい節に無いものを残す。
+   ウィザードが作る注記（型・見送った候補・答えが出たら・筋）と空の `- ` だけは作り直す。新しい md に無い節（リスク等）は5の後ろへそのまま。
+   以前は範囲ごと置き換えていて、最終形の2行目・次の一手の2つ目・旧リスクが消えていた（点検 #1）。書き殴り（枠の外）には一切触らない */
+const FRAME_NOTE_RE = /^>\s*(型|見送った候補|答えが出たら|筋)\s*[:：]/;
+function frameSections(lines) {   // [{ head: 見出し行 or null, key: 'ゴール' 等, body: [] }]
+  const out = [];
+  let cur = { head: null, key: '', body: [] };
+  for (const l of lines) {
+    const m = /^#{1,6}\s*(?:\d+[.．]?\s*)?(.+?)\s*$/.exec(l);
+    if (m) { out.push(cur); cur = { head: l, key: nfc(m[1]), body: [] }; continue; }
+    cur.body.push(l);
+  }
+  out.push(cur);
+  return out.filter(s => s.head !== null || s.body.some(x => x.trim() !== ''));
+}
+// 行の同一性（記号・チェック・📅 の日付・空白の違いは同じ行とみなす）
+const frameKeyOf = (s) => nfc(s).replace(/[.．]/g, '').replace(/\s+/g, ' ')
+  .replace(/^- (\[[ xX]\] )?/, '').replace(/\s*\u{1F4C5}\s*\d{4}-\d{2}-\d{2}/u, '').trim();
+function mergeFrame(text, md) {
   const t = nfc(text).replace(/\r\n?/g, '\n');
   const lines = t.split('\n');
   const block = nfc(md).replace(/\s*$/, '').split('\n');
   const r = frameRange(lines);
-  if (r) {
-    lines.splice(r[0], r[1] - r[0], ...block.concat(['']));
-    return lines.join('\n');
+  if (!r) {
+    const at = topOfBody(lines, t);
+    lines.splice(at, 0, ...[''].concat(block, ['']));
+    return { text: lines.join('\n'), kept: 0 };
   }
-  const at = topOfBody(lines, t);
-  lines.splice(at, 0, ...[''].concat(block, ['']));
-  return lines.join('\n');
+  const olds = frameSections(lines.slice(r[0], r[1]));
+  const news = frameSections(block);
+  const out = [];
+  let kept = 0;
+  const seen = new Set();
+  for (const n of news) {
+    out.push(n.head, ...n.body);
+    const have = new Set(n.body.map(frameKeyOf).filter(Boolean));
+    const noteKinds = new Set(n.body.map(x => (FRAME_NOTE_RE.exec(x) || [])[1]).filter(Boolean));
+    const hasTable = n.body.some(x => /^\|/.test(x));
+    const o = olds.find(s => s.key === n.key && !seen.has(s));
+    if (!o) continue;
+    seen.add(o);
+    const extra = [];
+    for (const l of o.body) {
+      const k = frameKeyOf(l);
+      if (k === '' || have.has(k)) continue;
+      const note = (FRAME_NOTE_RE.exec(l) || [])[1];
+      if (note && noteKinds.has(note)) continue;   // ウィザードが同じ種類の注記を作り直した（二重にしない）。作らなかったなら前のを残す
+      if (hasTable && (/^\|\s*-+/.test(l) || /^\|\s*サブイシュー/.test(l))) continue;   // 表の見出し行と区切りは作り直す
+      extra.push(l);
+    }
+    if (extra.length) {
+      while (out.length && out[out.length - 1] === '') out.pop();   // 節末の空行の前に入れる
+      out.push(...extra, '');
+      kept += extra.length;
+    }
+  }
+  for (const o of olds) {   // 新しい md に無い節（リスク等）はそのまま後ろへ
+    if (seen.has(o) || o.head === null) continue;
+    out.push(o.head, ...o.body);
+    kept += o.body.filter(x => x.trim() !== '').length;
+  }
+  if (out[out.length - 1] !== '') out.push('');
+  lines.splice(r[0], r[1] - r[0], ...out);
+  return { text: lines.join('\n'), kept };
 }
+function upsertFrame(text, md) { return mergeFrame(text, md).text; }
 
 /* 論点の一行だけを書く（軽い入口）。「## 2. 論点」があれば中身を差し替え、
    無ければ本文の先頭に節を作る。**注記行（> 始まり）は残す** */
@@ -354,8 +405,13 @@ function setIssueLine(text, line) {
   if (i >= 0) {
     let end = i + 1;
     while (end < lines.length && !/^#{1,6}\s/.test(lines[end]) && lines[end].trim() !== '---') end++;
-    const keep = lines.slice(i + 1, end).filter(function (l) { return /^\s*>/.test(l); });
-    lines.splice(i + 1, end - (i + 1), ...body.concat(keep, ['']));
+    // カードに出ている行（中身のある最初の行 — summarize の issueLine と同じ条件）だけを置き換える。ほかの行は残す（IS-SF2・IS-Q27。
+    // 以前は `>` 以外を全部消していた — 点検 #2）
+    for (let k = i + 1; k < end; k++) {
+      const s = stripBullet(lines[k]);
+      if (s !== '' && !/^[>（(]/.test(s)) { lines[k] = body[1]; return lines.join('\n'); }
+    }
+    lines.splice(i + 1, 0, ...body);   // 中身の行が無ければ見出しの直後に
     return lines.join('\n');
   }
   const at = topOfBody(lines, t);

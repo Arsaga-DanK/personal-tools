@@ -361,7 +361,8 @@ function wzOpenFor(it) {
   const kind = (String(it.picture).match(/^【([^】]*)】/) || [])[1] || '表';
   const gi = goalInfo(it.goalLines || (it.goal ? [it.goal] : []));
   draft.kind = gi.kind;
-  draft.milestone = gi.milestone;
+  // 1行目だけを持つ（2行目以降は書き込みのときに mergeFrame が残す — IS-Q27。以前は全部つないで1行にしていた）
+  draft.milestone = String(gi.milestone).split('\n')[0] || '';
   draft.visions = gi.visions;
   draft.milestoneDue = gi.due;
   draft.story = String(it.story || '').split(/\s*→\s*/).filter(Boolean).join('\n');
@@ -418,13 +419,15 @@ async function wzWriteInto(it) {
       wzError('Obsidian 側で変更されています。［再読込］してからもう一度お願いします（上書きは避けました）');
       return;
     }
-    let next = upsertFrame(cur, buildMd(draft));
+    const merged = mergeFrame(cur, buildMd(draft));   // 置き換えではなく重ねる（IS-Q27）
+    let next = merged.text;
     if (it.hasFrontmatter) next = setFrontmatter(next, { deadline: draft.issueDue || '' });
     const w = await fh.createWritable();
     await w.write(next);
     await w.close();
     wzClose();
-    ToolUI.banner($id('banner'), 'success', it.title + ' に問いを立てました（書き殴りはそのままです）');
+    ToolUI.banner($id('banner'), 'success', it.title + ' に問いを立てました（書き殴りはそのままです'
+      + (merged.kept ? '・前からあった ' + merged.kept + ' 行は残しました' : '') + '）');
     await loadIssues(false);
   } catch (e) {
     wzError('書き込めませんでした: ' + errText(e));

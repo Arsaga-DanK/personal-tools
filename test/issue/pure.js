@@ -277,12 +277,13 @@ module.exports = {
       && W2.first.includes('\t- V13利用期限のカウントダウンはもう始まっている'),
       W2.first.slice(0, 300));
 
-    r.check('IS-L5b（2回目は5段の範囲だけ差し替える — 重複して増えない）',
+    // 2回目は重ねる（IS-Q27）: 見出しは増えず、変えた行が1行目・前の行はその下に残る
+    r.check('IS-L5b（2回目は見出しが増えず、変えた行が1行目・前の行はその下に残る — 重ねる）',
       (W2.again.match(/## 1\. ゴール/g) || []).length === 1
       && W2.again.includes('- M2（マイルストーン: 2026-10-02）')
-      && !W2.again.includes('- M（マイルストーン: 2026-10-02）')
+      && W2.again.indexOf('- M2（マイルストーン: 2026-10-02）') < W2.again.indexOf('- M（マイルストーン: 2026-10-02）')
       && W2.again.includes('TODO') && W2.again.includes('## 12月本番運用開始(2019 )'),
-      (W2.again.match(/## 1\. ゴール/g) || []).length + ' 個');
+      (W2.again.match(/## 1\. ゴール/g) || []).length + ' 個 / ' + W2.again.slice(W2.again.indexOf('## 1. ゴール'), W2.again.indexOf('## 2. 論点')));
 
     r.check('IS-L6（論点の一行だけを書ける: 節が無ければ本文の先頭に作り、あれば中身を差し替える）',
       W2.line1.includes('## 2. 論点')
