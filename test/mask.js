@@ -1387,11 +1387,28 @@ const { launch, fileUrl, createRunner, eq } = require('./helpers');
     const replacedW = window.mask.size().w, replacedOps = window.mask.opsCount();
     asked = 0;
     await paste();   // 注釈が無い → 聞かない
+    const askedNoOps = asked;
+    // 画面のどこかに落とす（#drop は画像を読んだあと隠れる — document で受けないとブラウザが画像を開いて注釈が消える）
+    window.mask.addOp({ type: 'fill', x: 10, y: 10, w: 30, h: 30 });
+    asked = 0; window.confirm = () => { asked++; return false; };
+    const dropped = await new Promise(res => {
+      const c = document.createElement('canvas'); c.width = 60; c.height = 60;
+      c.toBlob(b => {
+        const dt = new DataTransfer();
+        dt.items.add(new File([b], 'd.png', { type: 'image/png' }));
+        const over = new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true });
+        document.body.dispatchEvent(over);
+        const drop = new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true });
+        document.body.dispatchEvent(drop);
+        setTimeout(() => res({ overPrevented: over.defaultPrevented, dropPrevented: drop.defaultPrevented }), 300);
+      });
+    });
     window.confirm = realConfirm;
-    return { keptOps, keptW, askedNo, replacedW, replacedOps, askedNoOps: asked };
+    return { keptOps, keptW, askedNo, replacedW, replacedOps, askedNoOps, dropAsked: asked, dropKeptW: window.mask.size().w, ...dropped };
   });
-  r.check('MK-U38（注釈があるときだけ差し替えを確認: いいえ→そのまま・はい→差し替え・注釈なしは聞かない）',
-    u38.keptOps === 2 && u38.keptW === 100 && u38.askedNo === 1 && u38.replacedW === 40 && u38.replacedOps === 0 && u38.askedNoOps === 0,
+  r.check('MK-U38（注釈があるときだけ差し替えを確認: いいえ→そのまま・はい→差し替え・注釈なしは聞かない・画面のどこに落としても同じ扱い）',
+    u38.keptOps === 2 && u38.keptW === 100 && u38.askedNo === 1 && u38.replacedW === 40 && u38.replacedOps === 0 && u38.askedNoOps === 0
+    && u38.dropAsked === 1 && u38.dropKeptW === 40 && u38.overPrevented && u38.dropPrevented,
     JSON.stringify(u38));
 
   await loadFixture();

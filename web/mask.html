@@ -576,6 +576,16 @@ el('drop').addEventListener('drop', e => {
   const f = e.dataTransfer.files && e.dataTransfer.files[0];
   if (f && f.type.startsWith('image/')) loadBlob(f);
 });
+// 画面のどこに落としても受ける（#drop は画像を読んだあと隠れる — 受けないとブラウザが画像を開いて注釈が消える。MK-Q23）
+const dragHasFiles = e => !!(e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files'));
+document.addEventListener('dragover', e => { if (dragHasFiles(e)) e.preventDefault(); });
+document.addEventListener('drop', e => {
+  if (e.defaultPrevented) return;   // #drop の上は上の処理が受けた
+  const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+  if (!f) return;
+  e.preventDefault();
+  if (f.type.startsWith('image/')) loadBlob(f);
+});
 el('file-btn').addEventListener('click', () => el('file-input').click());
 el('file-input').addEventListener('change', () => {
   const f = el('file-input').files[0];

@@ -440,6 +440,51 @@ const IDEO_SPACE = '\u3000';
   });
   r.check('VL-F5（実行したらコミット済みのチェックが外れる）', f5.unchecked && f5.log, JSON.stringify(f5));
 
+  /* ========== VL-F6・F7: 最終レビュー 2026-10-08（移動したファイルへの書き込み・共有するリンク元） ========== */
+  const mkDisk = (files) => {   // メモリの disk（move は実際に名前を変える）
+    const disk = new Map(files.map(f => [f.path, f.text]));
+    const adapter = {
+      read: async p => (disk.has(p) ? disk.get(p) : null),
+      write: async (p, t) => { disk.set(p, t); },
+      move: async (f, t) => { if (!disk.has(f)) throw new Error('見つかりません'); if (disk.has(t)) throw new Error('移動先に同名があります: ' + t); disk.set(t, disk.get(f)); disk.delete(f); },
+    };
+    return { disk, adapter };
+  };
+  const f6 = await page.evaluate(async (mkSrc) => {
+    const mk = (0, eval)('(' + mkSrc + ')');
+    const selfFiles = [{ path: 'React  Vite.md', text: '# a\n[[React  Vite#Setup]]' }];
+    const a = mk(selfFiles);
+    const resA = await window.vaultlint.applyFixes(selfFiles, window.vaultlint.planFixes(selfFiles, [{ type: 'rename', from: 'React  Vite.md', to: 'React Vite.md' }]), a.adapter);
+    window.vaultlint.test.setConfig({ archiveDir: '90_Archive' });
+    const dailyFiles = [{ path: '00_Inbox/2026-08-01.md', text: '[[c]]' }];
+    const b = mk(dailyFiles);
+    const resB = await window.vaultlint.applyFixes(dailyFiles, window.vaultlint.planFixes(dailyFiles, [
+      { type: 'archiveDaily', from: '00_Inbox/2026-08-01.md' }, { type: 'textify', file: '00_Inbox/2026-08-01.md', line: 1, target: 'c' }]), b.adapter);
+    window.vaultlint.test.setConfig({});
+    return { self: a.disk.get('React Vite.md'), selfSkipped: resA.skipped.length, moved: resB.moved.length, archived: b.disk.get('90_Archive/2026-08-01.md'), dailySkipped: resB.skipped.length };
+  }, mkDisk.toString());
+  r.check('VL-F6（移動したファイル自身への書き込みは移動先へ: 自分へのリンクが新しい名前・archive と textify の両方が通る）',
+    f6.self === '# a\n[[React Vite#Setup]]' && f6.selfSkipped === 0 && f6.moved === 1 && f6.archived === 'c' && f6.dailySkipped === 0, JSON.stringify(f6));
+
+  const f7 = await page.evaluate(async (mkSrc) => {
+    const mk = (0, eval)('(' + mkSrc + ')');
+    const files = [{ path: 'A  a.md', text: 'A' }, { path: 'B  b.md', text: 'B' }, { path: 'x.md', text: '[[A  a]] [[B  b]]' }];
+    const sel = [{ type: 'rename', from: 'A  a.md', to: 'A a.md' }, { type: 'rename', from: 'B  b.md', to: 'B b.md' }];
+    const plan = () => window.vaultlint.planFixes(files, sel);
+    const c1 = mk(files); c1.disk.set('A a.md', '既にある');   // A の移動先が既にある
+    const r1 = await window.vaultlint.applyFixes(files, plan(), c1.adapter);
+    const c2 = mk(files);
+    const realMove = c2.adapter.move;
+    c2.adapter.move = async (f, t) => { if (f === 'B  b.md') throw new Error('だめ'); return realMove(f, t); };   // A は成功・B は失敗
+    const r2 = await window.vaultlint.applyFixes(files, plan(), c2.adapter);
+    return { case1: { moved: r1.moved.length, x: c1.disk.get('x.md'), bStill: c1.disk.has('B  b.md') },
+      case2: { moved: r2.moved.map(m => m.from), x: c2.disk.get('x.md'), reason: (r2.skipped.find(s => s.path === 'x.md') || {}).reason || '' } };
+  }, mkDisk.toString());
+  r.check('VL-F7（リンク元を共有する rename: 片方が行えなければもう片方も行わない／途中で失敗したら切れているリンクを理由に出す）',
+    f7.case1.moved === 0 && f7.case1.x === '[[A  a]] [[B  b]]' && f7.case1.bStill
+    && eq(f7.case2.moved, ['A  a.md']) && f7.case2.x === '[[A  a]] [[B  b]]' && f7.case2.reason.includes('切れて') && f7.case2.reason.includes('A  a'),
+    JSON.stringify(f7));
+
   const u1 = await page.evaluate(async () => {
     window.__copied = null;
     navigator.clipboard.writeText = t => { window.__copied = t; return Promise.resolve(); };

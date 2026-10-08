@@ -132,5 +132,65 @@ module.exports = {
     });
     r.check('IS-SF7（タブに戻ったら読み直す・打っている最中は読み直さない・閉じたら読み直す）',
       sf7.updated && sf7.notWhileTyping && sf7.afterClose, JSON.stringify(sf7));
+
+    /* ---------- IS-SF6b: ピッカーをキャンセルしたら前のフォルダのまま ---------- */
+    const sf6b = await page.evaluate(async () => {
+      const real = window.showDirectoryPicker;
+      window.showDirectoryPicker = async () => { const e = new Error('cancel'); e.name = 'AbortError'; throw e; };
+      document.getElementById('repick-btn').click();
+      await new Promise(d => setTimeout(d, 300));
+      window.showDirectoryPicker = real;
+      return { keptHandle: typeof dirHandle !== 'undefined' && dirHandle !== null, name: document.getElementById('dir-name').textContent };
+    });
+    r.check('IS-SF6b（［別のフォルダを選ぶ］をキャンセルしても前のフォルダのまま）', sf6b.keptHandle && sf6b.name.includes('Issues'), JSON.stringify(sf6b));
+
+    /* ---------- IS-SF8〜SF10: 最終レビュー 2026-10-08（重ね書きの同一性） ---------- */
+    const wizardThrough = async (opts) => page.evaluate(async (o) => {
+      document.querySelector('.issue-card .ic-frame').click();
+      const set = (sel, v) => { const el = document.querySelector(sel); if (!el) return; el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); };
+      document.getElementById('wz-next').click();   // → Step 2
+      if (o && o.secondCandidate) { const c = document.querySelectorAll('.wz-c-text'); if (c[1]) set('.wz-c-text:nth-of-type(1)', c[0].value); if (c[1]) { c[1].value = o.secondCandidate; c[1].dispatchEvent(new Event('input', { bubbles: true })); } }
+      document.getElementById('wz-next').click();   // → Step 3
+      if (o && o.picture) set('#wz-picture', o.picture);
+      document.getElementById('wz-next').click();   // → Step 4
+      document.getElementById('wz-next').click();   // → Step 5
+      document.getElementById('wz-create').click();
+      await new Promise(d => setTimeout(d, 400));
+      return window.__fsa.files['d.md'];
+    }, opts || null);
+    const BULLET_SUBS = ['---', 'status: open', 'deadline: 2026-09-30', '---', '# 粒度', '',
+      '## 1. ゴール', '', '> 型: ギャップフィル（あるべき姿は決まっている）', '- 粒度が決まる（マイルストーン: 2026-10-02）', '',
+      '## 2. 論点', '', '- 粒度はどこで決めるべきか', '',
+      '## 3. 最終形', '', '- 【表】粒度の表', '',
+      '## 4. サブイシュー', '', '- 粒度を決める', '- 誰が持つか', '',
+      '## 5. 次の一手', '', '- [ ] 聞く', '', '## 掘る', '', '- メモ', ''].join('\n');
+    const OLD_FORMAT = BULLET_SUBS.replace('## 3. 最終形', '## 3. 絵コンテ').replace('## 4. サブイシュー', '## 4. 不明点');
+    const sf8 = {};
+    for (const [label, note] of [['bullets', BULLET_SUBS], ['old', OLD_FORMAT]]) {
+      await load({ 'd.md': note });
+      await wizardThrough();
+      await load({ 'd.md': await page.evaluate(() => window.__fsa.files['d.md']) });
+      const after = await wizardThrough();
+      const count = (s) => after.split(s).length - 1;
+      sf8[label] = { rows: count('| 粒度を決める |'), bullets: count('- 粒度を決める'), goals: count('## 1. ゴール'),
+        oldHeads: count('不明点') + count('絵コンテ'), picture: after.includes('粒度の表'), subCard: await page.evaluate(() => (document.querySelector('.ic-meta') || {}).textContent || '') };
+    }
+    r.check('IS-SF8（ウィザードを2回通しても表の行は増えない・箇条書きは表に変わる・絵コンテ・不明点は合流する）',
+      ['bullets', 'old'].every(k => sf8[k].rows === 1 && sf8[k].bullets === 0 && sf8[k].goals === 1 && sf8[k].oldHeads === 0 && sf8[k].picture),
+      JSON.stringify(sf8));
+
+    const TWO_NEXT = BULLET_SUBS.replace('- [ ] 聞く', '- [x] 週次で確認する 📅 2026-09-26\n- [ ] 週次で確認する 📅 2026-10-03');
+    await load({ 'd.md': TWO_NEXT });
+    const sf9after = await wizardThrough();
+    const sf9 = { done: sf9after.split('- [x] 週次で確認する 📅 2026-09-26').length - 1, open: sf9after.split('- [ ] 週次で確認する 📅 2026-10-03').length - 1,
+      total: sf9after.split('週次で確認する').length - 1 };
+    r.check('IS-SF9（済んだ一手と同じ文の開いた一手は別の行のまま・3行目はできない）', sf9.done === 1 && sf9.open === 1 && sf9.total === 2, JSON.stringify(sf9));
+
+    const ALT = BULLET_SUBS.replace('- 粒度はどこで決めるべきか', '- 粒度はどこで決めるべきか\n> 見送った候補: 前に見送った案');
+    await load({ 'd.md': ALT });
+    const sf10after = await wizardThrough({ secondCandidate: '新しい別案' });
+    const sf10 = { oldKept: sf10after.includes('> 見送った候補: 前に見送った案'), newThere: sf10after.includes('> 見送った候補: 新しい別案'),
+      kind: sf10after.split('> 型:').length - 1 };
+    r.check('IS-SF10（論点の前の「見送った候補」は残り、新しいものも入る・型は1つ）', sf10.oldKept && sf10.newThere && sf10.kind === 1, JSON.stringify(sf10));
   },
 };

@@ -282,6 +282,7 @@ function summarize(text, fileName) {
       .filter(function (x) { return x !== ''; })[0] || '',
     subs: rows.length, ways: ways, rows: rows,
     next: (p.next || [])[0] || '',
+    nextLines: (p.next || []).slice(),   // ウィザードは済んでいない最初の一手を持つ（IS-SF9）
     deadline: fm.data.deadline || '',
     status: fm.data.status || 'open',
     verdict: fm.data.verdict || '',
@@ -329,20 +330,39 @@ function topOfBody(lines, text) {
    ウィザードが作る注記（型・見送った候補・答えが出たら・筋）と空の `- ` だけは作り直す。新しい md に無い節（リスク等）は5の後ろへそのまま。
    以前は範囲ごと置き換えていて、最終形の2行目・次の一手の2つ目・旧リスクが消えていた（点検 #1）。書き殴り（枠の外）には一切触らない */
 const FRAME_NOTE_RE = /^>\s*(型|見送った候補|答えが出たら|筋)\s*[:：]/;
+const FRAME_REGEN = new Set(['型', '筋']);   // ウィザードがノートから読み戻して作り直す注記。見送った候補・答えが出たらは読み戻さないので前のを残す
+// 節は見出しの**意味**で合わせる（絵コンテ＝最終形・不明点＝サブイシュー — KEY_OF と同じ。旧形式の節が5の後ろへ落ちて毎回読み戻され、表が増え続けた）
+const FRAME_ALIAS = { 'イシュー': '論点', '絵コンテ': '最終形', '不明点': 'サブイシュー' };
 function frameSections(lines) {   // [{ head: 見出し行 or null, key: 'ゴール' 等, body: [] }]
   const out = [];
   let cur = { head: null, key: '', body: [] };
   for (const l of lines) {
-    const m = /^#{1,6}\s*(?:\d+[.．]?\s*)?(.+?)\s*$/.exec(l);
-    if (m) { out.push(cur); cur = { head: l, key: nfc(m[1]), body: [] }; continue; }
+    const m = /^#{1,6}\s*(?:\d+[.．]?\s*)?(.+?)\s*[:：]?\s*$/.exec(l);
+    if (m) { out.push(cur); const name = nfc(m[1]).replace(/\*\*/g, '').trim(); cur = { head: l, key: FRAME_ALIAS[name] || name, body: [] }; continue; }
     cur.body.push(l);
   }
   out.push(cur);
   return out.filter(s => s.head !== null || s.body.some(x => x.trim() !== ''));
 }
-// 行の同一性（記号・チェック・📅 の日付・空白の違いは同じ行とみなす）
-const frameKeyOf = (s) => nfc(s).replace(/[.．]/g, '').replace(/\s+/g, ' ')
-  .replace(/^- (\[[ xX]\] )?/, '').replace(/\s*\u{1F4C5}\s*\d{4}-\d{2}-\d{2}/u, '').trim();
+// 行の同一性。記号と空白の違いは同じ行、**済んだ印と 📅 の日付は別の行**（同じ文で日付違いの一手が1つにまとまっていた）
+const frameKeyOf = (s) => {
+  const t = nfc(s).replace(/\s+/g, ' ').trim();
+  const m = /^[-*+] \[([^\]])\] (.*)$/.exec(t);
+  const state = m ? (/[xX]/.test(m[1]) ? 'x' : m[1] === ' ' ? '' : m[1]) : '';
+  const body = (m ? m[2] : t.replace(/^[-*+] /, '')).replace(/[.．]/g, '').trim();
+  return body === '' ? '' : state + '|' + body;
+};
+// サブイシューは「何が分からないか」の列で同じ行を見る（箇条書きと表の行は同じ1件）。表の見出し行と区切りは空（作り直す）
+const subKeyOf = (s) => {
+  const t = nfc(s).trim();
+  if (/^\|\s*-{2,}/.test(t)) return '';
+  if (/^\|/.test(t)) {
+    const first = t.replace(/^\|/, '').split('|')[0].trim();
+    return first === '' || first === '分からないこと' || first === 'サブイシュー' ? '' : first;
+  }
+  if (/^>/.test(t)) return t;
+  return t.replace(/^[-*+] (\[[^\]]\] )?/, '').trim();
+};
 function mergeFrame(text, md) {
   const t = nfc(text).replace(/\r\n?/g, '\n');
   const lines = t.split('\n');
@@ -360,20 +380,20 @@ function mergeFrame(text, md) {
   const seen = new Set();
   for (const n of news) {
     out.push(n.head, ...n.body);
-    const have = new Set(n.body.map(frameKeyOf).filter(Boolean));
+    const keyOf = n.key === 'サブイシュー' ? subKeyOf : frameKeyOf;
+    const have = new Set(n.body.map(keyOf).filter(Boolean));
     const noteKinds = new Set(n.body.map(x => (FRAME_NOTE_RE.exec(x) || [])[1]).filter(Boolean));
-    const hasTable = n.body.some(x => /^\|/.test(x));
-    const o = olds.find(s => s.key === n.key && !seen.has(s));
-    if (!o) continue;
-    seen.add(o);
     const extra = [];
-    for (const l of o.body) {
-      const k = frameKeyOf(l);
-      if (k === '' || have.has(k)) continue;
-      const note = (FRAME_NOTE_RE.exec(l) || [])[1];
-      if (note && noteKinds.has(note)) continue;   // ウィザードが同じ種類の注記を作り直した（二重にしない）。作らなかったなら前のを残す
-      if (hasTable && (/^\|\s*-+/.test(l) || /^\|\s*サブイシュー/.test(l))) continue;   // 表の見出し行と区切りは作り直す
-      extra.push(l);
+    for (const o of olds.filter(s => s.key === n.key)) {   // 同じ意味の節は全部ここへ合流（絵コンテ・不明点も）
+      seen.add(o);
+      for (const l of o.body) {
+        const k = keyOf(l);
+        if (k === '' || have.has(k)) continue;
+        const note = (FRAME_NOTE_RE.exec(l) || [])[1];
+        if (note && FRAME_REGEN.has(note) && noteKinds.has(note)) continue;   // 型・筋は読み戻して作り直した（二重にしない）
+        extra.push(l);
+        have.add(k);
+      }
     }
     if (extra.length) {
       while (out.length && out[out.length - 1] === '') out.pop();   // 節末の空行の前に入れる

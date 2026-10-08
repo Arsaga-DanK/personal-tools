@@ -374,7 +374,8 @@ function wzOpenFor(it) {
   draft.subs = (it.rows || []).map(function (x) {
     return { what: x.what, pic: x.pic || '', way: x.way, who: x.who || '', due: x.due || '' };
   });
-  const nx = String(it.next || '');
+  // 済んでいない最初の一手を持つ（済んだ一手を読み戻すと「開いた一手」として書き直してしまう — IS-SF9）
+  const nx = String((it.nextLines || [it.next || '']).find(function (l) { return !/^-?\s*\[[xX-]\]/.test(String(l)); }) || '');
   draft.next = nx.replace(/^-\s*\[[^\]]\]\s*/, '').replace(/\s*\u{1F4C5}.*$/u, '').trim();
   draft.nextDue = (nx.match(/\u{1F4C5}\s*(\d{4}-\d{2}-\d{2})/u) || [])[1] || '';
   draft.title = it.title;

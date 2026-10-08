@@ -791,7 +791,13 @@ $id('cfg-vault').addEventListener('change', function () {
 
 $id('pick-btn').addEventListener('click', function () { loadIssues(true); });
 $id('reload-btn').addEventListener('click', function () { loadIssues(false); });
-$id('repick-btn').addEventListener('click', function () { dirHandle = null; loadIssues(true); });   // 覚えたフォルダを捨てて選び直す（IS-SF6）
+// 覚えたフォルダを捨てて選び直す（IS-SF6）。キャンセルしたら前のフォルダに戻す（戻さないと書けなくなる）
+$id('repick-btn').addEventListener('click', async function () {
+  const prev = dirHandle;
+  dirHandle = null;
+  await loadIssues(true);
+  if (!dirHandle) dirHandle = prev;
+});
 
 // タブに戻ったら読み直す（Plan Tasks の checkExternal と同じ — IS-SF7・IS-Q29）。
 // 打っている最中（モーダル・ウィザード・その場編集）は読み直さない・権限が無ければ黙って何もしない・2秒に1回まで

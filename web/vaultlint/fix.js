@@ -174,38 +174,60 @@ async function applyFixes(files, plan, adapter) {
       results.skipped.push({ path: w.path, reason: 'スキャン後に外部で変更されています（再スキャンしてください）' });
     }
   }
-  // ② 移動。リネームはリンク元の書き込みと組 — 片方だけ通すと、リンクが切れる／無い名前を指す
+  // ② 移動。リネームはリンク元の書き込みと組 — 片方だけ通すと、リンクが切れる／無い名前を指す。
+  //    移動先に同名があれば移動の前に分かる。リンク元を共有する rename は、片方を行わなければもう片方も行わない（VL-F7）
   const dropped = new Set();
+  const movedTo = new Map();      // 元のパス → 移動先（移動したファイル自身への書き込みは移動先へ — VL-F6）
+  const brokenBy = new Map();     // 書かなかったリンク元 → 切れたリンクの元の名前
+  const drop = (mv) => { for (const p of mv.linked || []) dropped.add(p); };
   for (const mv of plan.moves) {
     const linked = mv.linked || [];
     const bad = linked.filter(p => stale.has(p));
     if (bad.length) {
       results.skipped.push({ path: mv.from, reason: 'リンク元（' + bad.join('・') + '）がスキャン後に変わったので、名前の変更は行いません（再スキャンしてください）' });
-      for (const p of linked) dropped.add(p);
+      drop(mv);
+      continue;
+    }
+    const shared = linked.filter(p => dropped.has(p));
+    if (shared.length) {
+      results.skipped.push({ path: mv.from, reason: 'リンク元（' + shared.join('・') + '）を書き換えないので、名前の変更も行いません（再スキャンしてください）' });
+      drop(mv);
+      continue;
+    }
+    if ((await adapter.read(mv.to)) !== null) {
+      results.skipped.push({ path: mv.from, reason: '移動先に同名があります: ' + mv.to });
+      drop(mv);
       continue;
     }
     try {
       await adapter.move(mv.from, mv.to);
       results.moved.push(mv);
+      movedTo.set(mv.from, mv.to);
+      for (const p of linked) { if (!brokenBy.has(p)) brokenBy.set(p, []); brokenBy.get(p).push(mv.from); }
     } catch (e) {
       results.skipped.push({ path: mv.from, reason: '移動に失敗しました: ' + msg(e) });
-      for (const p of linked) dropped.add(p);
+      drop(mv);
     }
   }
-  // ③ 書き込み。直前にもう一度読み直す（VL-19）。失敗は1件ずつスキップして残りを続ける（VL-F2 — 以前は全体が止まりログも出なかった）
+  // ③ 書き込み。移動したファイルは移動先へ。直前にもう一度読み直す（VL-19）。失敗は1件ずつスキップして残りを続ける（VL-F2 — 以前は全体が止まりログも出なかった）
   for (const w of plan.writes) {
     if (stale.has(w.path)) continue;
     if (dropped.has(w.path)) {
-      results.skipped.push({ path: w.path, reason: '名前の変更を行わなかったので、このファイルの書き換え（リンクの付け替えを含む）も行いません' });
+      const broken = brokenBy.get(w.path) || [];
+      results.skipped.push({ path: w.path, reason: '名前の変更の一部を行わなかったので、このファイルは書き換えていません（リンクの付け替えを含む）'
+        + (broken.length ? '。' + broken.join('・') + ' へのリンクは切れています（再スキャンで直せます）' : '') });
       continue;
     }
-    if (await changed(w.path)) {
+    const target = movedTo.get(w.path) || w.path;
+    const now = await adapter.read(target);
+    const was = orig.get(w.path);
+    if (now === null || was === null || now.normalize('NFC') !== was.normalize('NFC')) {
       results.skipped.push({ path: w.path, reason: 'スキャン後に外部で変更されています（再スキャンしてください）' });
       continue;
     }
     try {
-      await adapter.write(w.path, w.after);
-      results.written.push(w.path);
+      await adapter.write(target, w.after);
+      results.written.push(target);
     } catch (e) {
       results.skipped.push({ path: w.path, reason: '書き込みに失敗しました: ' + msg(e) });
     }
